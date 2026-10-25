@@ -1,0 +1,16 @@
+# Dependencies and build output
+node_modules/
+dist/
+coverage/
+
+# Local environment and tooling
+.env
+.env.*
+!.env.example
+.dev.vars*
+!workers/ai/.dev.vars.example
+.DS_Store
+*.local
+.vscode/*
+!.vscode/extensions.json
+*.tsbuildinfo

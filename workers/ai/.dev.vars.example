@@ -1,0 +1,3 @@
+# Local-only secret placeholders. Keep actual credentials out of source control.
+AI_API_KEY=""
+TURNSTILE_SECRET_KEY=""

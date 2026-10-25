@@ -1,0 +1,76 @@
+import { create } from "zustand";
+import { persist } from "zustand/middleware";
+
+export const defaultAppearance = {
+  accent: "#a58bd4",
+  background: "#101214",
+  surface: "#181b1e",
+  mode: "dark" as "dark" | "light",
+  textContrast: 1,
+  borderIntensity: 0.72,
+  cornerRadius: 5,
+  backgroundStyle: "solid" as "solid" | "grid" | "glow" | "chrome" | "custom",
+  intensity: 0.8,
+  opacity: 0.45,
+  gridSpacing: 32,
+  highlights: true,
+  cursorReactive: false,
+  animateBackground: true,
+  performanceMode: false,
+  animationSpeed: 0.32,
+  reflectionStrength: 0.64,
+  accentInfluence: 0.28,
+  imagePosition: "center",
+  imageFit: "cover" as "cover" | "contain",
+  imageBlur: 0,
+  imageOverlay: 0.52,
+  hourFormat: "24" as "12" | "24",
+};
+
+export type Appearance = typeof defaultAppearance;
+
+interface UiState {
+  appearance: Appearance;
+  setAppearance: <K extends keyof Appearance>(key: K, value: Appearance[K]) => void;
+  updateAppearance: (values: Partial<Appearance>) => void;
+}
+
+export const useUiStore = create<UiState>()(
+  persist(
+    (set) => ({
+      appearance: defaultAppearance,
+      setAppearance: (key, value) =>
+        set((state) => ({ appearance: { ...state.appearance, [key]: value } })),
+      updateAppearance: (values) =>
+        set((state) => ({ appearance: { ...state.appearance, ...values } })),
+    }),
+    {
+      name: "kxnodesk-ui",
+      version: 3,
+      migrate: (persisted, version) => {
+        const old = persisted as { accent?: string; appearance?: Partial<Appearance> };
+        const previousAccent =
+          version < 2
+            ? ({ steel: "#89a9c4", sage: "#91b3a3", amber: "#c6a777", lilac: "#a99cc8" }[
+                old.accent ?? ""
+              ] ?? old.accent)
+            : undefined;
+        return {
+          appearance: {
+            ...defaultAppearance,
+            ...old.appearance,
+            ...(previousAccent ? { accent: previousAccent } : {}),
+          },
+        };
+      },
+      merge: (persisted, current) => {
+        const saved = persisted as Partial<UiState> | undefined;
+        return {
+          ...current,
+          ...saved,
+          appearance: { ...defaultAppearance, ...saved?.appearance },
+        };
+      },
+    },
+  ),
+);

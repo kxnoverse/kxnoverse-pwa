@@ -1,0 +1,20 @@
+name = "kxnodesk-ai"
+main = "src/index.ts"
+compatibility_date = "2025-06-01"
+
+[vars]
+APP_ORIGIN = ""
+AI_PROVIDER = "gemini"
+AI_MODEL = ""
+ALLOWED_MODELS = ""
+
+[[durable_objects.bindings]]
+name = "USER_QUOTA"
+class_name = "UserQuota"
+
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["UserQuota"]
+
+[ai]
+binding = "AI"
