@@ -23,6 +23,7 @@ const DATA_TABLES = [
   "focusSessions",
   "files",
   "aiAttachments",
+  "arcadeData",
 ] as const;
 
 type DataTableName = (typeof DATA_TABLES)[number];
@@ -79,6 +80,7 @@ const requiredStrings: Record<DataTableName, string[]> = {
   focusSessions: ["id", "kind"],
   files: ["id", "name", "type", "category", "blobData"],
   aiAttachments: ["id", "messageId", "name", "mimeType", "blobData"],
+  arcadeData: ["id", "value"],
 };
 
 function validateRecord(table: DataTableName, record: BackupRecord): void {
@@ -132,6 +134,7 @@ function validateAppearance(value: string): Record<string, unknown> {
     accentInfluence: [0, 1],
     imageBlur: [0, 20],
     imageOverlay: [0, 1],
+    uiScale: [0.8, 1.4],
   };
   const booleanKeys = ["highlights", "cursorReactive", "animateBackground", "performanceMode"];
   const stringValues: Record<string, string[]> = {
@@ -161,7 +164,10 @@ export async function exportDataBackup(): Promise<Blob> {
   const data: DataBackup["data"] = {};
   for (const name of DATA_TABLES) {
     const records = (await db.table(name).toArray() as BackupRecord[])
-      .filter((record) => name !== "settings" || !PRIVATE_RUNTIME_SETTINGS.has(record.key as string));
+      .filter((record) => name !== "settings" || (
+        !PRIVATE_RUNTIME_SETTINGS.has(record.key as string) &&
+        !(record.key as string).startsWith("regionalCalendar:")
+      ));
     if (name === "files" || name === "aiAttachments") {
       data[name] = await Promise.all(records.map(async (record) => {
         const blob = record.blob;
@@ -181,7 +187,7 @@ export async function exportDataBackup(): Promise<Blob> {
   }
   return new Blob([JSON.stringify({
     format: BACKUP_FORMAT,
-    schemaVersion: 4,
+    schemaVersion: 5,
     exportedAt: new Date().toISOString(),
     data,
     preferences,
@@ -196,7 +202,7 @@ export async function importDataBackup(file: File): Promise<BackupImportSummary>
   } catch {
     throw new Error("The selected file is not valid backup JSON.");
   }
-  if (!isRecord(parsed) || parsed.format !== BACKUP_FORMAT || typeof parsed.schemaVersion !== "number" || parsed.schemaVersion < 2 || parsed.schemaVersion > 4 || !isRecord(parsed.data)) {
+  if (!isRecord(parsed) || parsed.format !== BACKUP_FORMAT || typeof parsed.schemaVersion !== "number" || parsed.schemaVersion < 2 || parsed.schemaVersion > 5 || !isRecord(parsed.data)) {
     throw new Error("This file is not a supported Kxno Desk backup.");
   }
 
@@ -214,7 +220,7 @@ export async function importDataBackup(file: File): Promise<BackupImportSummary>
   let total = 0;
   for (const name of DATA_TABLES) {
     const records = data[name];
-    if (records === undefined && ((parsed.schemaVersion < 3 && DATA_TABLES.indexOf(name) >= 8) || (parsed.schemaVersion < 4 && name === "aiAttachments"))) {
+    if (records === undefined && ((parsed.schemaVersion < 3 && DATA_TABLES.indexOf(name) >= 8) || (parsed.schemaVersion < 4 && name === "aiAttachments") || (parsed.schemaVersion < 5 && name === "arcadeData"))) {
       recordsByTable[name] = [];
       continue;
     }
@@ -255,8 +261,9 @@ export async function importDataBackup(file: File): Promise<BackupImportSummary>
     for (const name of DATA_TABLES.slice(5, 10)) await addTableRecords(name);
     await addTableRecords("aiAttachments");
   });
-  await db.transaction("rw", db.notes, db.focusSessions, db.files, async () => {
+  await db.transaction("rw", db.notes, db.focusSessions, db.files, db.arcadeData, async () => {
     for (const name of DATA_TABLES.slice(10, 13)) await addTableRecords(name);
+    await addTableRecords("arcadeData");
   });
   const preferenceSummary = { added: 0, skipped: 0 };
   for (const key of PREFERENCE_KEYS) {

@@ -1,10 +1,21 @@
-import { useMemo, useState, type FormEvent } from "react";
+import { useEffect, useMemo, useState, type FormEvent } from "react";
 import { useLiveQuery } from "dexie-react-hooks";
 import { ArrowLeft, ArrowRight, CalendarDays, Plus, Trash2 } from "lucide-react";
 import { Link } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import { createId, db, localDateKey, type CalendarEvent, type SchoolTask } from "../data/db";
 import { useUiStore } from "../stores/ui-store";
+import {
+  clearRegionalDateRequestFailure,
+  dateRangeContains,
+  fetchRegionalDates,
+  germanStates,
+  parseRegionalDateCache,
+  regionalDateRequestIsCoolingDown,
+  storeRegionalDateRequestFailure,
+  type GermanState,
+  type RegionalDate,
+} from "../data/regional-calendar";
 
 function localDateTimeValue(date: Date): string {
   const offset = date.getTimezoneOffset() * 60_000;
@@ -19,6 +30,7 @@ export function CalendarPage() {
   const { t, i18n } = useTranslation();
   const events = useLiveQuery(() => db.calendarEvents.toArray(), [], []);
   const tasks = useLiveQuery(() => db.tasks.toArray(), [], []);
+  const schoolStateSetting = useLiveQuery(() => db.settings.get("schoolState"), [], null);
   const accent = useUiStore((state) => state.appearance.accent);
   const [month, setMonth] = useState(() => new Date(new Date().getFullYear(), new Date().getMonth(), 1));
   const [selectedDate, setSelectedDate] = useState(() => localDateKey(new Date()));
@@ -31,6 +43,98 @@ export function CalendarPage() {
   const [endsAt, setEndsAt] = useState("");
   const [allDay, setAllDay] = useState(false);
   const [error, setError] = useState("");
+  const [regionalDates, setRegionalDates] = useState<RegionalDate[]>([]);
+  const [regionalStatus, setRegionalStatus] = useState<"loading" | "refreshing" | "ready" | "cached" | "offlineCached" | "offlineEmpty" | "error" | "cacheError" | "cacheReadError">("loading");
+  const [isOnline, setIsOnline] = useState(() => typeof navigator === "undefined" || navigator.onLine);
+  const region = germanStates.includes(schoolStateSetting?.value as GermanState)
+    ? schoolStateSetting?.value as GermanState
+    : "";
+  const regionReady = schoolStateSetting !== null;
+  const language = i18n.language.startsWith("de") ? "de" : "en";
+  const cacheKey = `regionalCalendar:${region || "nationwide"}:${month.getFullYear()}:${language}`;
+
+  useEffect(() => {
+    const onOffline = () => setIsOnline(false);
+    const onOnline = () => {
+      clearRegionalDateRequestFailure(cacheKey);
+      setIsOnline(true);
+    };
+    window.addEventListener("offline", onOffline);
+    window.addEventListener("online", onOnline);
+    return () => {
+      window.removeEventListener("offline", onOffline);
+      window.removeEventListener("online", onOnline);
+    };
+  }, [cacheKey]);
+
+  useEffect(() => {
+    if (!regionReady) return;
+    let active = true;
+    let hasCachedData = false;
+    let cacheReadFailed = false;
+    const controller = new AbortController();
+    setRegionalStatus(isOnline ? "loading" : "offlineEmpty");
+    setRegionalDates([]);
+
+    void (async () => {
+      try {
+        const cached = await db.settings.get(cacheKey);
+        if (cached) {
+          const parsed = parseRegionalDateCache(cached.value);
+          if (parsed) {
+            hasCachedData = true;
+            if (active) {
+              setRegionalDates(parsed.dates);
+              if (isOnline) setRegionalStatus("refreshing");
+            }
+          } else {
+            cacheReadFailed = true;
+          }
+        }
+      } catch {
+        cacheReadFailed = true;
+      }
+
+      if (!active) return;
+      if (!isOnline) {
+        setRegionalStatus(cacheReadFailed ? "cacheReadError" : hasCachedData ? "offlineCached" : "offlineEmpty");
+        return;
+      }
+      if (regionalDateRequestIsCoolingDown(cacheKey)) {
+        setRegionalStatus(hasCachedData ? "cached" : cacheReadFailed ? "cacheReadError" : "error");
+        return;
+      }
+      try {
+        const dates = await fetchRegionalDates(region, month.getFullYear(), language, controller.signal);
+        if (!active) return;
+        try {
+          await db.settings.put({
+            key: cacheKey,
+            value: JSON.stringify({ version: 1, fetchedAt: Date.now(), dates }),
+          });
+          clearRegionalDateRequestFailure(cacheKey);
+          if (active) {
+            setRegionalDates(dates);
+            setRegionalStatus("ready");
+          }
+        } catch {
+          if (active) {
+            setRegionalDates(dates);
+            setRegionalStatus("cacheError");
+          }
+        }
+      } catch {
+        if (!active || controller.signal.aborted) return;
+        storeRegionalDateRequestFailure(cacheKey);
+        setRegionalStatus(hasCachedData ? "cached" : cacheReadFailed ? "cacheReadError" : "error");
+      }
+    })();
+
+    return () => {
+      active = false;
+      controller.abort();
+    };
+  }, [cacheKey, isOnline, language, month, region, regionReady]);
 
   const days = useMemo(() => {
     const first = new Date(month.getFullYear(), month.getMonth(), 1);
@@ -45,6 +149,7 @@ export function CalendarPage() {
 
   const selectedEvents = events.filter((event) => eventDateKey(event) === selectedDate).sort((a, b) => a.startAt.localeCompare(b.startAt));
   const selectedTasks = tasks.filter((task) => task.dueDate === selectedDate).sort((a, b) => (a.dueTime ?? "").localeCompare(b.dueTime ?? ""));
+  const selectedRegionalDates = regionalDates.filter((item) => dateRangeContains(item, selectedDate));
   const monthTitle = new Intl.DateTimeFormat(i18n.language, { month: "long", year: "numeric" }).format(month);
   const weekdays = Array.from({ length: 7 }, (_, index) => {
     const date = new Date(2024, 0, 1 + index);
@@ -135,6 +240,11 @@ export function CalendarPage() {
         <button className="button button--primary" onClick={openCreateForm} type="button"><Plus size={14} />{t("calendar.add")}</button>
       </header>
 
+      <div className={`calendar-regional-status calendar-regional-status--${regionalStatus}`} aria-live="polite">
+        <span>{t(!region && regionalStatus === "ready" ? "calendar.regionalStatus.noState" : `calendar.regionalStatus.${regionalStatus}`)}</span>
+        <a href="https://openholidaysapi.org/" rel="noreferrer" target="_blank">{t("calendar.dataSource")}</a>
+      </div>
+
       <div className="calendar-layout">
         <section className="calendar-month" aria-label={t("calendar.monthView")}>
           <div className="calendar-month__heading">
@@ -150,11 +260,13 @@ export function CalendarPage() {
             {days.map(({ date, key, inMonth }) => {
               const dayEvents = events.filter((event) => eventDateKey(event) === key);
               const pending = monthCellTasks(key);
+              const dayRegionalDates = regionalDates.filter((item) => dateRangeContains(item, key));
               const today = key === localDateKey(new Date());
+              const itemCount = dayEvents.length + pending.length + dayRegionalDates.length;
               return (
-                <button aria-label={`${new Intl.DateTimeFormat(i18n.language, { dateStyle: "full" }).format(date)}${dayEvents.length + pending.length ? `, ${dayEvents.length + pending.length} ${t("calendar.items")}` : ""}`} aria-pressed={selectedDate === key} className={`calendar-day${inMonth ? "" : " calendar-day--outside"}${today ? " calendar-day--today" : ""}${selectedDate === key ? " calendar-day--selected" : ""}`} key={key} onClick={() => setSelectedDate(key)} type="button">
+                <button aria-label={`${new Intl.DateTimeFormat(i18n.language, { dateStyle: "full" }).format(date)}${itemCount ? `, ${itemCount} ${t("calendar.items")}` : ""}`} aria-pressed={selectedDate === key} className={`calendar-day${inMonth ? "" : " calendar-day--outside"}${today ? " calendar-day--today" : ""}${selectedDate === key ? " calendar-day--selected" : ""}`} key={key} onClick={() => setSelectedDate(key)} type="button">
                   <span>{date.getDate()}</span>
-                  <i className="calendar-day__marks">{dayEvents.slice(0, 2).map((event) => <b key={event.id} style={{ backgroundColor: event.color }} />)}{pending.length > 0 && <b className="calendar-day__task-mark" />}</i>
+                  <i className="calendar-day__marks">{dayEvents.slice(0, 2).map((event) => <b key={event.id} style={{ backgroundColor: event.color }} />)}{pending.length > 0 && <b className="calendar-day__task-mark" />}{dayRegionalDates.slice(0, 2).map((item) => <b className={`calendar-day__regional-mark calendar-day__regional-mark--${item.type}`} key={item.id} />)}</i>
                 </button>
               );
             })}
@@ -163,10 +275,19 @@ export function CalendarPage() {
 
         <aside className="calendar-agenda">
           <div className="calendar-agenda__heading"><div><h2>{new Intl.DateTimeFormat(i18n.language, { weekday: "long", month: "long", day: "numeric" }).format(new Date(`${selectedDate}T12:00:00`))}</h2><span>{t("calendar.agenda")}</span></div><CalendarDays size={15} /></div>
-          {selectedEvents.length === 0 && selectedTasks.length === 0 ? (
+          {selectedEvents.length === 0 && selectedTasks.length === 0 && selectedRegionalDates.length === 0 ? (
             <div className="feature-empty feature-empty--compact"><span className="feature-empty__rule" /><div><strong>{t("calendar.empty")}</strong><p>{t("calendar.emptyHint")}</p></div></div>
           ) : (
             <div className="agenda-list">
+              {selectedRegionalDates.map((item) => (
+                <article className={`agenda-item agenda-item--regional agenda-item--regional-${item.type}`} key={item.id}>
+                  <i />
+                  <div className="agenda-item__main">
+                    <strong>{item.name}</strong>
+                    <span>{t(item.type === "school" ? "calendar.schoolHoliday" : "calendar.publicHoliday")}{item.startDate !== item.endDate ? ` · ${new Intl.DateTimeFormat(i18n.language, { month: "short", day: "numeric", timeZone: "UTC" }).format(new Date(`${item.startDate}T12:00:00Z`))} – ${new Intl.DateTimeFormat(i18n.language, { month: "short", day: "numeric", timeZone: "UTC" }).format(new Date(`${item.endDate}T12:00:00Z`))}` : ""}</span>
+                  </div>
+                </article>
+              ))}
               {selectedEvents.map((event) => (
                 <article className="agenda-item" key={event.id}>
                   <i style={{ backgroundColor: event.color }} />

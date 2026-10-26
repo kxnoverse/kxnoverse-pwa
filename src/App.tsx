@@ -1,16 +1,20 @@
+import { lazy } from "react";
 import { HashRouter, Navigate, Route, Routes } from "react-router-dom";
 import "./i18n";
 import { AppShell } from "./components/AppShell";
-import { HomePage } from "./pages/HomePage";
-import { ModulePage } from "./pages/ModulePage";
-import { TimetablePage } from "./pages/TimetablePage";
-import { SettingsPage } from "./pages/SettingsPage";
-import { AssistantPage } from "./pages/AssistantPage";
-import { TasksPage } from "./pages/TasksPage";
-import { CalendarPage } from "./pages/CalendarPage";
-import { NotesPage } from "./pages/NotesPage";
-import { FocusPage } from "./pages/FocusPage";
-import { FilesPage } from "./pages/FilesPage";
+
+const HomePage = lazy(() => import("./pages/HomePage").then((module) => ({ default: module.HomePage })));
+const ModulePage = lazy(() => import("./pages/ModulePage").then((module) => ({ default: module.ModulePage })));
+const TimetablePage = lazy(() => import("./pages/TimetablePage").then((module) => ({ default: module.TimetablePage })));
+const SettingsPage = lazy(() => import("./pages/SettingsPage").then((module) => ({ default: module.SettingsPage })));
+const AssistantPage = lazy(() => import("./pages/AssistantPage").then((module) => ({ default: module.AssistantPage })));
+const TasksPage = lazy(() => import("./pages/TasksPage").then((module) => ({ default: module.TasksPage })));
+const CalendarPage = lazy(() => import("./pages/CalendarPage").then((module) => ({ default: module.CalendarPage })));
+const NotesPage = lazy(() => import("./pages/NotesPage").then((module) => ({ default: module.NotesPage })));
+const TimerPage = lazy(() => import("./pages/TimerPage").then((module) => ({ default: module.TimerPage })));
+const FilesPage = lazy(() => import("./pages/FilesPage").then((module) => ({ default: module.FilesPage })));
+const ArcadePage = lazy(() => import("./pages/ArcadePage").then((module) => ({ default: module.ArcadePage })));
+const CalculatorPage = lazy(() => import("./pages/CalculatorPage").then((module) => ({ default: module.CalculatorPage })));
 
 export default function App() {
   return (
@@ -24,8 +28,11 @@ export default function App() {
           <Route path="tasks" element={<TasksPage />} />
           <Route path="calendar" element={<CalendarPage />} />
           <Route path="notes" element={<NotesPage />} />
-          <Route path="focus" element={<FocusPage />} />
+          <Route path="timer" element={<TimerPage />} />
+          <Route path="focus" element={<Navigate to="/timer" replace />} />
           <Route path="files" element={<FilesPage />} />
+          <Route path="minigames/*" element={<ArcadePage />} />
+          <Route path="calculator" element={<CalculatorPage />} />
           <Route path=":module" element={<ModulePage />} />
           <Route path="*" element={<Navigate to="/" replace />} />
         </Route>

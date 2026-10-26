@@ -1,11 +1,13 @@
-import { useEffect } from "react";
+import { Suspense, useEffect } from "react";
 import { Link, NavLink, Outlet, useLocation } from "react-router-dom";
 import {
   CalendarDays,
   CalendarRange,
+  Calculator,
   Files,
   House,
   ListTodo,
+  Gamepad2,
   MessageSquareText,
   NotebookPen,
   Settings,
@@ -17,6 +19,7 @@ import { db } from "../data/db";
 import { defaultAppearance, useUiStore } from "../stores/ui-store";
 import { BrandMark } from "./BrandMark";
 import { BackgroundLayer } from "./BackgroundLayer";
+import { PwaUpdateNotice } from "./PwaUpdateNotice";
 
 const navigation = [
   { key: "home", path: "/", icon: House },
@@ -25,8 +28,10 @@ const navigation = [
   { key: "calendar", path: "/calendar", icon: CalendarDays },
   { key: "notes", path: "/notes", icon: NotebookPen },
   { key: "assistant", path: "/assistant", icon: MessageSquareText },
-  { key: "focus", path: "/focus", icon: Timer },
+  { key: "timer", path: "/timer", icon: Timer },
   { key: "files", path: "/files", icon: Files },
+  { key: "minigames", path: "/minigames", icon: Gamepad2 },
+  { key: "calculator", path: "/calculator", icon: Calculator },
 ] as const;
 
 export function AppShell() {
@@ -37,6 +42,8 @@ export function AppShell() {
   const pageName =
     location.pathname === "/settings"
       ? "settings"
+      : location.pathname.startsWith("/minigames")
+        ? "minigames"
       : navigation.find((item) => item.path === location.pathname)?.key ?? "home";
 
   useEffect(() => {
@@ -61,6 +68,7 @@ export function AppShell() {
           "--text-contrast": appearance.textContrast,
           "--border-intensity": appearance.borderIntensity,
           "--radius": `${appearance.cornerRadius}px`,
+          "--ui-scale": appearance.uiScale,
         } as React.CSSProperties
       }
     >
@@ -119,9 +127,12 @@ export function AppShell() {
       </aside>
       <main className="main-column">
         <div className="page-scroll">
-          <Outlet />
+          <Suspense fallback={<p className="route-loading" role="status">{t("app.loading")}</p>}>
+            <Outlet />
+          </Suspense>
         </div>
       </main>
+      <PwaUpdateNotice />
     </div>
   );
 }

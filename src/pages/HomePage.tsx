@@ -3,7 +3,6 @@ import { useLiveQuery } from "dexie-react-hooks";
 import { ArrowUpRight, CalendarDays, Clock3, FileText, ListTodo, Timer } from "lucide-react";
 import { Link } from "react-router-dom";
 import { useTranslation } from "react-i18next";
-import { motion } from "motion/react";
 import { db, localDateKey } from "../data/db";
 import { calculateScheduleStatus, formatDuration, getCycleWeek, minutesOfDay } from "../data/schedule";
 import { useUiStore } from "../stores/ui-store";
@@ -18,7 +17,6 @@ export function HomePage() {
   const tasks = useLiveQuery(() => db.tasks.toArray(), [], []);
   const calendarEvents = useLiveQuery(() => db.calendarEvents.toArray(), [], []);
   const noteCount = useLiveQuery(() => db.notes.count(), [], 0);
-  const focusSessions = useLiveQuery(() => db.focusSessions.toArray(), [], []);
   const anchor = useLiveQuery(() => db.settings.get("weekAnchor"), [], undefined);
   const profileName = useLiveQuery(() => db.settings.get("profileName"), [], undefined)?.value.trim();
   const appearance = useUiStore((state) => state.appearance);
@@ -53,10 +51,8 @@ export function HomePage() {
     hour12: appearance.hourFormat === "12",
   }).format(now);
   const greetingPeriod = now.getHours() < 11 ? "morning" : now.getHours() < 18 ? "daytime" : now.getHours() < 22 ? "evening" : "night";
-  const todayKey = localDateKey(now);
   const upcomingTasks = tasks.filter((task) => !task.completed).sort((a, b) => a.dueDate.localeCompare(b.dueDate) || (a.dueTime ?? "").localeCompare(b.dueTime ?? "")).slice(0, 3);
   const upcomingEvents = calendarEvents.filter((event) => new Date(event.endAt).getTime() >= now.getTime()).sort((a, b) => a.startAt.localeCompare(b.startAt)).slice(0, 3);
-  const todayFocusSessions = focusSessions.filter((session) => localDateKey(new Date(session.startedAt)) === todayKey);
 
   const headline =
     schedule.dayType === "lesson" && schedule.current?.kind === "lesson"
@@ -93,12 +89,7 @@ export function HomePage() {
     : undefined;
 
   return (
-    <motion.section
-      animate={{ opacity: 1, y: 0 }}
-      className="home-page"
-      initial={{ opacity: 0, y: 4 }}
-      transition={{ duration: 0.22, ease: "easeOut" }}
-    >
+    <section className="home-page home-page--enter">
       <header className="home-heading">
         <div>
           <h1>{t(`home.greeting.${greetingPeriod}${profileName ? "Named" : ""}`, profileName ? { name: profileName } : undefined)}</h1>
@@ -233,12 +224,12 @@ export function HomePage() {
           <div className="section-heading"><h2>{t("home.workspace")}</h2></div>
           <div className="home-quick-links">
             <Link to="/notes"><FileText size={14} /><span>{t("nav.notes")}</span><strong>{noteCount}</strong></Link>
-            <Link to="/focus"><Timer size={14} /><span>{t("nav.focus")}</span><strong>{todayFocusSessions.length}</strong></Link>
+            <Link to="/timer"><Timer size={14} /><span>{t("nav.timer")}</span><ArrowUpRight size={12} /></Link>
             <Link to="/calendar"><CalendarDays size={14} /><span>{t("nav.calendar")}</span><ArrowUpRight size={12} /></Link>
             <Link to="/tasks"><ListTodo size={14} /><span>{t("nav.tasks")}</span><ArrowUpRight size={12} /></Link>
           </div>
         </div>
       </section>
-    </motion.section>
+    </section>
   );
 }

@@ -12,12 +12,12 @@
     "typecheck": "tsc -b --pretty && tsc --noEmit -p workers/ai/tsconfig.json"
   },
   "dependencies": {
-    "@google/genai": "^2.31.0",
+    "@huggingface/transformers": "^4.3.1",
+    "chess.js": "^1.4.0",
     "dexie": "^4.0.11",
     "dexie-react-hooks": "^1.1.7",
     "i18next": "^25.0.0",
     "lucide-react": "^0.468.0",
-    "motion": "^12.0.0",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
     "react-i18next": "^15.4.1",

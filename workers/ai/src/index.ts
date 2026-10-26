@@ -1,5 +1,3 @@
-import { createPartFromBase64, GoogleGenAI, type Content } from "@google/genai";
-
 interface DurableObjectStorage {
   get<T>(key: string): Promise<T | undefined>;
   put<T>(key: string, value: T): Promise<void>;
@@ -15,18 +13,13 @@ interface DurableObjectNamespace {
   get(id: unknown): { fetch(input: RequestInfo | URL, init?: RequestInit): Promise<Response> };
 }
 
-interface WorkersAiBinding {
-  run(model: string, input: Record<string, unknown>): Promise<unknown>;
-}
-
 interface Environment {
   APP_ORIGIN: string;
-  AI_PROVIDER: "gemini" | "groq" | "openrouter" | "cloudflare";
+  AI_PROVIDER: "openrouter";
   AI_MODEL: string;
   ALLOWED_MODELS?: string;
-  AI_API_KEY?: string;
+  OPENROUTER_API_KEY?: string;
   TURNSTILE_SECRET_KEY?: string;
-  AI?: WorkersAiBinding;
   USER_QUOTA: DurableObjectNamespace;
 }
 
@@ -175,11 +168,41 @@ async function verifyTurnstile(
     headers: { "Content-Type": "application/x-www-form-urlencoded" },
     body: form,
   });
-  if (!result.ok) throw new Error("Turnstile verification is unavailable.");
-  const verification = await result.json() as { success?: boolean; hostname?: string; action?: string };
-  return verification.success === true &&
-    verification.hostname?.toLowerCase() === new URL(env.APP_ORIGIN).hostname.toLowerCase() &&
-    verification.action === action;
+  let verification: {
+    success?: boolean;
+    hostname?: string;
+    action?: string;
+    "error-codes"?: unknown;
+  };
+  try {
+    verification = await result.json() as typeof verification;
+  } catch {
+    console.error("Turnstile Siteverify returned an unreadable response.", { status: result.status });
+    throw new Error("Turnstile verification is unavailable.");
+  }
+  const knownErrorCodes = new Set([
+    "missing-input-secret",
+    "invalid-input-secret",
+    "missing-input-response",
+    "invalid-input-response",
+    "bad-request",
+    "timeout-or-duplicate",
+    "internal-error",
+  ]);
+  const errorCodes = Array.isArray(verification["error-codes"])
+    ? verification["error-codes"].filter((code): code is string => typeof code === "string" && knownErrorCodes.has(code))
+    : [];
+  if (!result.ok) {
+    console.error("Turnstile Siteverify returned a non-success status.", { status: result.status, errorCodes });
+    throw new Error("Turnstile verification is unavailable.");
+  }
+  const hostnameMatches = verification.hostname?.toLowerCase() === new URL(env.APP_ORIGIN).hostname.toLowerCase();
+  const actionMatches = verification.action === action;
+  if (verification.success !== true || !hostnameMatches || !actionMatches) {
+    console.warn("Turnstile verification rejected the challenge.", { errorCodes, hostnameMatches, actionMatches });
+    return false;
+  }
+  return true;
 }
 
 function buildSystemInstruction(preset: AssistantPreset): string {
@@ -195,13 +218,12 @@ function buildSystemInstruction(preset: AssistantPreset): string {
 
 function isModelEnabled(env: Environment, model: string): boolean {
   const enabledModels = (env.ALLOWED_MODELS ?? env.AI_MODEL).split(",").map((item) => item.trim()).filter(Boolean);
-  return Boolean(env.AI_MODEL) && enabledModels.includes(model);
+  return Boolean(env.AI_MODEL) && enabledModels.includes(model) &&
+    (model === "openrouter/free" || model.endsWith(":free"));
 }
 
 function isProviderConfigured(env: Environment): boolean {
-  if (!env.AI_MODEL || !env.AI_PROVIDER) return false;
-  if (env.AI_PROVIDER === "cloudflare") return Boolean(env.AI);
-  return ["gemini", "groq", "openrouter"].includes(env.AI_PROVIDER) && Boolean(env.AI_API_KEY);
+  return env.AI_PROVIDER === "openrouter" && Boolean(env.AI_MODEL && env.OPENROUTER_API_KEY);
 }
 
 async function responseText(providerResponse: Response): Promise<string> {
@@ -212,119 +234,150 @@ async function responseText(providerResponse: Response): Promise<string> {
   return body;
 }
 
-async function callOpenAiCompatible(url: string, apiKey: string, origin: string, model: string, request: ChatRequest): Promise<string> {
-  const result = await fetch(url, {
+function extractAssistantText(content: unknown): string | undefined {
+  if (typeof content === "string") return content.trim() ? content : undefined;
+  if (!Array.isArray(content)) return undefined;
+  const text = content
+    .filter((part): part is { type: "text"; text: string } =>
+      isPlainObject(part) && part.type === "text" && typeof part.text === "string")
+    .map((part) => part.text)
+    .join("");
+  return text.trim() ? text : undefined;
+}
+
+async function callOpenRouter(apiKey: string, origin: string, model: string, request: ChatRequest, signal: AbortSignal): Promise<string> {
+  const userContent = [
+    { type: "text", text: request.message },
+    ...request.attachments.map((attachment) => attachment.mimeType === "application/pdf"
+      ? {
+          type: "file",
+          file: {
+            filename: attachment.name,
+            file_data: `data:${attachment.mimeType};base64,${attachment.data}`,
+          },
+        }
+      : {
+          type: "image_url",
+          image_url: { url: `data:${attachment.mimeType};base64,${attachment.data}` },
+        }),
+  ];
+  const includesPdf = request.attachments.some((attachment) => attachment.mimeType === "application/pdf");
+  const result = await fetch("https://openrouter.ai/api/v1/chat/completions", {
     method: "POST",
     headers: {
       Authorization: `Bearer ${apiKey}`,
       "Content-Type": "application/json",
       Accept: "application/json",
-      ...(url.includes("openrouter.ai") ? { "HTTP-Referer": origin, "X-Title": "Kxno Desk" } : {}),
+      "HTTP-Referer": origin,
+      "X-Title": "Kxno Desk",
     },
+    signal,
     body: JSON.stringify({
       model,
       messages: [
         { role: "system", content: buildSystemInstruction(request.preset) },
-        { role: "user", content: request.message },
+        { role: "user", content: userContent },
       ],
       max_tokens: MAX_OUTPUT_TOKENS,
       stream: false,
+      ...(includesPdf ? { plugins: [{ id: "file-parser", pdf: { engine: "cloudflare-ai" } }] } : {}),
     }),
   });
   if (!result.ok) throw new Error("The configured provider did not accept the request.");
   const payload = JSON.parse(await responseText(result)) as { choices?: Array<{ message?: { content?: unknown } }> };
-  const answer = payload.choices?.[0]?.message?.content;
-  if (typeof answer !== "string" || !answer.trim()) throw new Error("The configured provider returned no answer.");
+  const answer = extractAssistantText(payload.choices?.[0]?.message?.content);
+  if (!answer) throw new Error("The configured provider returned no answer.");
   return answer.slice(0, 24_000);
 }
 
-async function generateAnswer(env: Environment, origin: string, request: ChatRequest): Promise<string> {
+async function generateAnswer(env: Environment, origin: string, request: ChatRequest, signal: AbortSignal): Promise<string> {
   if (!isModelEnabled(env, request.model)) throw new Error("The selected model is not enabled by the backend.");
-  const model = request.model;
-  if (env.AI_PROVIDER === "groq") {
-    if (!env.AI_API_KEY) throw new Error("The provider is not configured.");
-    return callOpenAiCompatible("https://api.groq.com/openai/v1/chat/completions", env.AI_API_KEY, origin, model, request);
-  }
-  if (env.AI_PROVIDER === "openrouter") {
-    if (!env.AI_API_KEY) throw new Error("The provider is not configured.");
-    return callOpenAiCompatible("https://openrouter.ai/api/v1/chat/completions", env.AI_API_KEY, origin, model, request);
-  }
-  if (env.AI_PROVIDER === "cloudflare" && env.AI) {
-    const result = await env.AI.run(model, {
-      messages: [
-        { role: "system", content: buildSystemInstruction(request.preset) },
-        { role: "user", content: request.message },
-      ],
-      max_tokens: MAX_OUTPUT_TOKENS,
-    }) as { response?: unknown };
-    if (typeof result.response !== "string" || !result.response.trim()) throw new Error("The configured provider returned no answer.");
-    return result.response.slice(0, 24_000);
-  }
-  throw new Error("The AI provider is not configured.");
-}
-
-export function buildGeminiContents(request: ChatRequest): Content[] {
-  const history: Content[] = request.history.map((item) => ({
-    role: item.role,
-    parts: [{ text: item.content }],
-  }));
-  const parts = [
-    { text: request.message },
-    ...request.attachments.map((attachment) => createPartFromBase64(attachment.data, attachment.mimeType)),
-  ];
-  return [...history, { role: "user", parts }];
+  if (env.AI_PROVIDER !== "openrouter" || !env.OPENROUTER_API_KEY) throw new Error("The provider is not configured.");
+  return callOpenRouter(env.OPENROUTER_API_KEY, origin, request.model, request, signal);
 }
 
 export async function* generateAnswerStream(env: Environment, origin: string, request: ChatRequest, signal: AbortSignal): AsyncGenerator<string> {
-  if (env.AI_PROVIDER !== "gemini") {
-    yield await generateAnswer(env, origin, request);
-    return;
-  }
-  if (!env.AI_API_KEY) throw new Error("The provider is not configured.");
-  const ai = new GoogleGenAI({
-    apiKey: env.AI_API_KEY,
-    httpOptions: {
-      timeout: 90_000,
-      retryOptions: { attempts: 2, initialDelay: 0.5, maxDelay: 3, jitter: 0.2 },
-    },
-  });
-  const stream = await ai.models.generateContentStream({
-    model: request.model,
-    contents: buildGeminiContents(request),
-    config: {
-      systemInstruction: buildSystemInstruction(request.preset),
-      maxOutputTokens: MAX_OUTPUT_TOKENS,
-      abortSignal: signal,
-    },
-  });
-  let totalLength = 0;
-  for await (const chunk of stream) {
-    const text = chunk.text ?? "";
-    if (!text) continue;
-    const limited = text.slice(0, Math.max(0, 24_000 - totalLength));
-    totalLength += limited.length;
-    if (limited) yield limited;
-    if (totalLength >= 24_000) break;
+  yield await generateAnswer(env, origin, request, signal);
+}
+
+type ProviderTestStage = "configuration" | "network" | "http" | "response_body" | "response_json" | "response_content";
+
+class ProviderTestFailure extends Error {
+  constructor(readonly stage: ProviderTestStage, readonly status?: number) {
+    super("AI provider connection test failed.");
   }
 }
 
-async function testGeminiConnection(env: Environment): Promise<void> {
-  if (!env.AI_API_KEY || env.AI_PROVIDER !== "gemini" || !isModelEnabled(env, env.AI_MODEL)) {
-    throw new Error("The Gemini backend is not configured.");
+async function testOpenRouterConnection(env: Environment): Promise<void> {
+  if (!env.OPENROUTER_API_KEY || env.AI_PROVIDER !== "openrouter" ||
+    !isModelEnabled(env, env.AI_MODEL)) {
+    throw new ProviderTestFailure("configuration");
   }
-  const ai = new GoogleGenAI({
-    apiKey: env.AI_API_KEY,
-    httpOptions: {
-      timeout: 30_000,
-      retryOptions: { attempts: 2, initialDelay: 0.5, maxDelay: 2, jitter: 0.2 },
-    },
-  });
-  const result = await ai.models.generateContent({
-    model: env.AI_MODEL,
-    contents: "Reply with the single word OK.",
-    config: { maxOutputTokens: 8 },
-  });
-  if (!result.text?.trim()) throw new Error("Gemini returned no test response.");
+  let result: Response;
+  try {
+    result = await fetch("https://openrouter.ai/api/v1/chat/completions", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${env.OPENROUTER_API_KEY}`,
+        "Content-Type": "application/json",
+        Accept: "application/json",
+        "HTTP-Referer": env.APP_ORIGIN,
+        "X-Title": "Kxno Desk",
+      },
+      body: JSON.stringify({
+        model: env.AI_MODEL,
+        messages: [{ role: "user", content: "Reply with the single word OK." }],
+        max_tokens: 64,
+        stream: false,
+      }),
+      signal: AbortSignal.timeout(30_000),
+    });
+  } catch {
+    throw new ProviderTestFailure("network");
+  }
+  if (!result.ok) throw new ProviderTestFailure("http", result.status);
+  let body: string;
+  try {
+    body = await responseText(result);
+  } catch {
+    throw new ProviderTestFailure("response_body", result.status);
+  }
+  let payload: {
+    choices?: Array<{ message?: { content?: unknown } }>;
+  };
+  try {
+    payload = JSON.parse(body);
+  } catch {
+    throw new ProviderTestFailure("response_json", result.status);
+  }
+  if (!extractAssistantText(payload.choices?.[0]?.message?.content)) {
+    throw new ProviderTestFailure("response_content", result.status);
+  }
+}
+
+function providerErrorMetadata(error: unknown): {
+  errorType: "Error" | "NonError";
+  failureStage?: ProviderTestStage;
+  status?: number;
+} {
+  const metadata: {
+    errorType: "Error" | "NonError";
+    failureStage?: ProviderTestStage;
+    status?: number;
+  } = {
+    errorType: error instanceof Error ? "Error" : "NonError",
+  };
+  if (typeof error !== "object" || error === null) return metadata;
+
+  if ("stage" in error &&
+    ["configuration", "network", "http", "response_body", "response_json", "response_content"].includes(String(error.stage))) {
+    metadata.failureStage = error.stage as ProviderTestStage;
+  }
+  const status = "status" in error ? error.status : "statusCode" in error ? error.statusCode : undefined;
+  if (typeof status === "number" && Number.isInteger(status) && status >= 100 && status <= 599) {
+    metadata.status = status;
+  }
+  return metadata;
 }
 
 async function subjectId(subject: string): Promise<string> {
@@ -398,15 +451,13 @@ export default {
       typeof payload.turnstileToken !== "string" || !payload.turnstileToken)) {
       return response({ error: "invalid_request" }, 400, allowedOrigin);
     }
-    const chatPayload = isChat && validRequest(payload) ? payload : undefined;
+    const parsedChatPayload = isChat && validRequest(payload) ? payload : undefined;
+    const chatPayload = parsedChatPayload ? { ...parsedChatPayload, model: env.AI_MODEL } : undefined;
     if (isChat && !chatPayload) return response({ error: "invalid_request" }, 400, allowedOrigin);
-    if (isTest && (env.AI_PROVIDER !== "gemini" || !isModelEnabled(env, env.AI_MODEL))) {
+    if (isTest && !isModelEnabled(env, env.AI_MODEL)) {
       return response({ error: "provider_not_configured" }, 503, allowedOrigin);
     }
-    if (chatPayload && !isModelEnabled(env, chatPayload.model)) return response({ error: "model_not_allowed" }, 400, allowedOrigin);
-    if (chatPayload && chatPayload.attachments.length && env.AI_PROVIDER !== "gemini") {
-      return response({ error: "unsupported_attachment_provider" }, 400, allowedOrigin);
-    }
+    if (chatPayload && !isModelEnabled(env, env.AI_MODEL)) return response({ error: "provider_not_configured" }, 503, allowedOrigin);
     if (!env.TURNSTILE_SECRET_KEY) return response({ error: "challenge_not_configured" }, 503, allowedOrigin);
 
     let turnstileValid: boolean;
@@ -414,6 +465,7 @@ export default {
       const turnstileToken = isTest && isPlainObject(payload) ? payload.turnstileToken : chatPayload?.turnstileToken;
       turnstileValid = await verifyTurnstile(request, env, turnstileToken, isTest ? "test" : "chat");
     } catch {
+      console.error("Turnstile Siteverify could not be reached or parsed.");
       return response({ error: "challenge_unavailable" }, 503, allowedOrigin);
     }
     if (!turnstileValid) return response({ error: "challenge_required" }, 403, allowedOrigin);
@@ -446,9 +498,13 @@ export default {
 
     if (isTest) {
       try {
-        await testGeminiConnection(env);
+        await testOpenRouterConnection(env);
         return response({ ok: true, model: env.AI_MODEL }, 200, allowedOrigin);
-      } catch {
+      } catch (error) {
+        console.error("AI provider connection test failed.", {
+          provider: env.AI_PROVIDER,
+          ...providerErrorMetadata(error),
+        });
         return response({ error: "provider_unavailable" }, 503, allowedOrigin);
       }
     }

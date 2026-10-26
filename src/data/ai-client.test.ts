@@ -68,7 +68,7 @@ describe("assistant attachments and streaming client", () => {
       endpoint: "https://worker.example.test",
       turnstileToken: "valid-turnstile-token",
       message: "What is in this picture?",
-      model: "gemini-2.5-flash",
+      model: "openrouter/free",
       preset: { assistantName: "Tutor", style: "Clear", length: "short", depth: "guided", language: "en", instructions: "Use examples" },
       history: [{ role: "user", content: "Earlier question" }, { role: "model", content: "Earlier answer" }],
       attachments: [{ name: "diagram.png", mimeType: "image/png", size: 8, data: "iVBORw0KGgo=" }],
@@ -82,7 +82,7 @@ describe("assistant attachments and streaming client", () => {
     expect(progress).toEqual([50]);
     expect(JSON.parse(xhr!.body)).toMatchObject({
       turnstileToken: "valid-turnstile-token",
-      model: "gemini-2.5-flash",
+      model: "openrouter/free",
       history: [{ role: "user" }, { role: "model" }],
       attachments: [{ name: "diagram.png", mimeType: "image/png", data: "iVBORw0KGgo=" }],
     });

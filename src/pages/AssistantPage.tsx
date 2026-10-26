@@ -1,35 +1,38 @@
-import { useEffect, useMemo, useRef, useState, type ChangeEvent, type ClipboardEvent, type DragEvent, type FormEvent } from "react";
+import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import { useLiveQuery } from "dexie-react-hooks";
-import { Copy, FileText, ImagePlus, MessageSquarePlus, Pencil, Plus, Send, Settings2, Square, Trash2, X } from "lucide-react";
+import { Check, Copy, Cpu, Download, FileText, HardDrive, LoaderCircle, MessageSquarePlus, Pencil, Plus, Send, Settings2, Square, Trash2, X } from "lucide-react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { useTranslation } from "react-i18next";
-import { TurnstileChallenge } from "../components/TurnstileChallenge";
 import { createId, db, type AiAttachment, type AiMessage, type AiPreset, type AiConversation } from "../data/db";
-import { readBlobAsArrayBuffer } from "../data/blob-utils";
+import { LocalAiError, localAiClient, type LocalAiStatus } from "../data/local-ai-client";
 import {
-  assistantAttachmentToBase64,
-  assistantClient,
-  AssistantBackendUnavailableError,
-  AssistantServiceError,
-  validateAssistantAttachmentContent,
-  validateAssistantAttachments,
-  type AssistantAttachmentInput,
-} from "../data/ai-client";
+  buildLocalAiMessages,
+  formatLocalAiBytes,
+  DEFAULT_LOCAL_AI_MODEL,
+  LOCAL_AI_MODEL_SETTING_KEY,
+  getLocalAiModel,
+  localAiModelSizeLabel,
+  localAiProgressPercent,
+  maxNewTokensForPreset,
+  type LocalAiProgress,
+} from "../data/local-ai";
 
 const starters: AiPreset[] = [
-  { id: "study-assistant", name: "Study Assistant", assistantName: "Kxno AI", description: "Homework explanations", style: "Clear and educational", length: "medium", depth: "guided", language: "auto", instructions: "", model: "gemini-2.5-flash", isDefault: true },
-  { id: "quick-answers", name: "Quick Answers", assistantName: "Quick", description: "Concise answers", style: "Direct", length: "short", depth: "basic", language: "auto", instructions: "", model: "gemini-2.5-flash", isDefault: false },
-  { id: "tutor", name: "Tutor", assistantName: "Tutor", description: "Step-by-step understanding", style: "Step by step", length: "detailed", depth: "advanced", language: "auto", instructions: "", model: "gemini-2.5-flash", isDefault: false },
+  { id: "study-assistant", name: "Study Assistant", assistantName: "Kxno AI", description: "Homework explanations", style: "Clear and educational", length: "medium", depth: "guided", language: "auto", instructions: "", model: "local-qwen3-0.6b-q4f16", isDefault: true },
+  { id: "quick-answers", name: "Quick Answers", assistantName: "Quick", description: "Concise answers", style: "Direct", length: "short", depth: "basic", language: "auto", instructions: "", model: "local-qwen3-0.6b-q4f16", isDefault: false },
+  { id: "tutor", name: "Tutor", assistantName: "Tutor", description: "Step by step understanding", style: "Step by step", length: "detailed", depth: "advanced", language: "auto", instructions: "", model: "local-qwen3-0.6b-q4f16", isDefault: false },
 ];
 
-const availableModels = [
-  ["gemini-2.5-flash", "Gemini 2.5 Flash"],
-  ["gemini-2.5-pro", "Gemini 2.5 Pro"],
-  ["gemini-2.0-flash", "Gemini 2.0 Flash"],
-] as const;
-
 type AttachmentView = Pick<AiAttachment, "name" | "mimeType" | "size" | "blob">;
+type ModelOperation = "download" | "load" | "unload" | "remove";
+
+function modelOperationKey(operation: ModelOperation): string {
+  return operation === "download" ? "downloadingModel"
+    : operation === "load" ? "loadingModel"
+      : operation === "unload" ? "unloadingModel"
+        : "removingModel";
+}
 
 function formatFileSize(size: number): string {
   return size < 1024 * 1024 ? `${Math.max(1, Math.round(size / 1024))} KB` : `${(size / (1024 * 1024)).toFixed(1)} MB`;
@@ -41,12 +44,13 @@ function AttachmentTile({ attachment, onPreview, onRemove }: {
   onRemove?: () => void;
 }) {
   const [url, setUrl] = useState("");
+  const isImage = attachment.mimeType.startsWith("image/");
   useEffect(() => {
+    if (!isImage) return;
     const objectUrl = URL.createObjectURL(attachment.blob);
     setUrl(objectUrl);
     return () => URL.revokeObjectURL(objectUrl);
-  }, [attachment.blob]);
-  const isImage = attachment.mimeType.startsWith("image/");
+  }, [attachment.blob, isImage]);
 
   return (
     <div className={`assistant-attachment${isImage ? " assistant-attachment--image" : ""}`}>
@@ -66,22 +70,11 @@ function AttachmentTile({ attachment, onPreview, onRemove }: {
   );
 }
 
-function renderError(cause: unknown, t: (key: string) => string): string {
-  if (cause instanceof AssistantBackendUnavailableError) return t("assistant.backendUnavailable");
-  if (cause instanceof AssistantServiceError) return t(`assistant.serviceErrors.${cause.code}`);
-  if (cause instanceof DOMException && cause.name === "AbortError") return t("assistant.generationStopped");
-  return t("assistant.serviceErrors.requestFailed");
-}
-
 export function AssistantPage() {
   const { t, i18n } = useTranslation();
   const savedPresets = useLiveQuery(() => db.aiPresets.toArray(), []);
   const presets = savedPresets ?? [];
   const conversations = useLiveQuery(() => db.aiConversations.orderBy("updatedAt").reverse().toArray(), [], []);
-  const endpoint = useLiveQuery(() => db.settings.get("aiBackendUrl"), [], undefined)?.value.trim() ?? "";
-  const cloudSetting = useLiveQuery(() => db.settings.get("aiCloudEnabled"), [], undefined);
-  const cloudEnabled = cloudSetting?.value === "true";
-  const turnstileSiteKey = useLiveQuery(() => db.settings.get("turnstileSiteKey"), [], undefined)?.value.trim() ?? "";
   const [activeConversationId, setActiveConversationId] = useState("");
   const activeConversation = conversations.find((item) => item.id === activeConversationId) ?? conversations[0];
   const messages = useLiveQuery(
@@ -96,23 +89,31 @@ export function AssistantPage() {
     [messageIdsKey],
     [] as AiAttachment[],
   ) ?? [];
-  const draftFilesInput = useRef<HTMLInputElement>(null);
-  const abortController = useRef<AbortController | undefined>(undefined);
+  const generationActive = useRef(false);
   const [draft, setDraft] = useState("");
-  const [draftFiles, setDraftFiles] = useState<File[]>([]);
   const [presetModalOpen, setPresetModalOpen] = useState(false);
   const [isSending, setIsSending] = useState(false);
+  const [operation, setOperation] = useState<ModelOperation>();
+  const [modelStatus, setModelStatus] = useState<LocalAiStatus>();
+  const [progress, setProgress] = useState<LocalAiProgress>();
+  const [modelError, setModelError] = useState("");
+  const [confirmation, setConfirmation] = useState<"download" | "remove">();
   const [presetDraft, setPresetDraft] = useState<AiPreset>();
   const [error, setError] = useState("");
-  const [cloudConsent, setCloudConsent] = useState(false);
-  const [uploadProgress, setUploadProgress] = useState<number>();
-  const [preparingAttachments, setPreparingAttachments] = useState(false);
   const [streamingText, setStreamingText] = useState("");
   const [streamingMessageId, setStreamingMessageId] = useState("");
   const [previewAttachment, setPreviewAttachment] = useState<AttachmentView>();
   const [copyStatus, setCopyStatus] = useState("");
-  const [turnstileToken, setTurnstileToken] = useState("");
-  const [turnstileVersion, setTurnstileVersion] = useState(0);
+  const [generationStats, setGenerationStats] = useState<{ timeToFirstTokenMs?: number; tokensPerSecond: number }>();
+  const selectedModelSetting = useLiveQuery(
+    async (): Promise<{ ready: boolean; key: string }> => ({
+      ready: true,
+      key: (await db.settings.get(LOCAL_AI_MODEL_SETTING_KEY))?.value ?? DEFAULT_LOCAL_AI_MODEL.key,
+    }),
+    [],
+    { ready: false, key: DEFAULT_LOCAL_AI_MODEL.key },
+  );
+  const selectedModel = getLocalAiModel(selectedModelSetting?.key ?? DEFAULT_LOCAL_AI_MODEL.key) ?? DEFAULT_LOCAL_AI_MODEL;
 
   useEffect(() => {
     if (savedPresets === undefined || savedPresets.length) return;
@@ -129,16 +130,28 @@ export function AssistantPage() {
   }, [activeConversationId, conversations]);
 
   useEffect(() => {
-    if (!cloudEnabled || !endpoint) setCloudConsent(false);
-  }, [cloudEnabled, endpoint]);
+    if (!selectedModelSetting?.ready || isSending) return;
+    let active = true;
+    setModelStatus(undefined);
+    setModelError("");
+    void localAiClient.selectModel(selectedModel.key).then((status) => {
+      if (active) setModelStatus(status);
+    }).catch((cause: unknown) => {
+      if (active) setModelError(cause instanceof LocalAiError ? `errors.${cause.code}` : "errors.failed");
+    });
+    return () => { active = false; };
+  }, [isSending, selectedModel.key, selectedModelSetting?.ready]);
+
+  useEffect(() => () => {
+    if (generationActive.current) localAiClient.stop();
+  }, []);
 
   const activePreset = useMemo(
     () => presets.find((item) => item.id === activeConversation?.presetId) ?? presets.find((item) => item.isDefault) ?? presets[0],
     [activeConversation?.presetId, presets],
   );
 
-  const canSend = Boolean(draft.trim() || draftFiles.length) && !isSending &&
-    !(endpoint && (!cloudEnabled || !cloudConsent || !turnstileSiteKey || !turnstileToken));
+  const canSend = Boolean(draft.trim()) && !isSending && !operation && modelStatus?.loaded === true;
 
   async function createConversation(presetId = activePreset?.id ?? "study-assistant") {
     const id = createId();
@@ -151,155 +164,55 @@ export function AssistantPage() {
     }
   }
 
-  function addAttachments(files: File[]) {
-    if (!files.length) return;
-    const next = [...draftFiles, ...files];
-    const issue = validateAssistantAttachments(next);
-    if (issue) {
-      setError(`attachmentErrors.${issue}`);
-      return;
-    }
-    setDraftFiles(next);
-    setError("");
-  }
-
-  function onFileChange(event: ChangeEvent<HTMLInputElement>) {
-    addAttachments(Array.from(event.target.files ?? []));
-    event.target.value = "";
-  }
-
-  function onPaste(event: ClipboardEvent<HTMLTextAreaElement>) {
-    const files = Array.from(event.clipboardData.items)
-      .filter((item) => item.kind === "file")
-      .map((item) => item.getAsFile())
-      .filter((file): file is File => file !== null);
-    if (files.length) {
-      event.preventDefault();
-      addAttachments(files);
-    }
-  }
-
-  function onDrop(event: DragEvent<HTMLFormElement>) {
-    event.preventDefault();
-    addAttachments(Array.from(event.dataTransfer.files));
-  }
-
-  async function saveAssistantError(conversationId: string, content: string, assistantId = createId()) {
-    await db.aiMessages.put({
-      id: assistantId,
-      conversationId,
-      role: "assistant",
-      content,
-      createdAt: Date.now(),
-      error: true,
-    });
-  }
-
-  async function requestAssistantReply(
-    conversation: AiConversation,
-    userMessage: AiMessage,
-    contextMessages: AiMessage[],
-    verificationToken: string,
-  ) {
-    const assistantMessageId = createId();
-    if (!endpoint) {
-      await saveAssistantError(conversation.id, t("assistant.backendUnavailable"), assistantMessageId);
-      return;
-    }
-    if (!cloudEnabled) {
-      await saveAssistantError(conversation.id, t("assistant.cloudDisabled"), assistantMessageId);
-      return;
-    }
-    if (!verificationToken) {
-      setError("serviceErrors.challengeRequired");
-      return;
-    }
-    setIsSending(true);
-    setStreamingMessageId(assistantMessageId);
-    setStreamingText("");
-    setUploadProgress(undefined);
-    setError("");
-    await db.aiMessages.add({
-      id: assistantMessageId,
-      conversationId: conversation.id,
-      role: "assistant",
-      content: "",
-      createdAt: Date.now(),
-    });
-    const controller = new AbortController();
-    abortController.current = controller;
-    let answer = "";
-    let saveTimer = 0;
+  async function runModelOperation(nextOperation: ModelOperation) {
+    setOperation(nextOperation);
+    setModelError("");
+    setProgress(undefined);
     try {
-      const attachments = await db.aiAttachments.where("messageId").equals(userMessage.id).toArray();
-      const requestAttachments: AssistantAttachmentInput[] = [];
-      setPreparingAttachments(attachments.length > 0);
-      for (const attachment of attachments) {
-        if (!await validateAssistantAttachmentContent(attachment.blob, attachment.mimeType)) {
-          throw new AssistantServiceError("invalidAttachment");
-        }
-        requestAttachments.push({
-          name: attachment.name,
-          mimeType: attachment.mimeType,
-          size: attachment.size,
-          data: await assistantAttachmentToBase64(attachment.blob),
-        });
+      if (nextOperation === "download") {
+        await localAiClient.download(setProgress);
+        setModelStatus({ cached: true, loaded: false });
+      } else if (nextOperation === "load") {
+        setModelStatus(await localAiClient.load(setProgress));
+      } else if (nextOperation === "unload") {
+        const cached = await localAiClient.unload();
+        setModelStatus({ cached, loaded: false });
+      } else {
+        await localAiClient.remove();
+        setModelStatus({ cached: false, loaded: false });
       }
-      setPreparingAttachments(false);
-      const history = contextMessages
-        .filter((message) => message.id !== userMessage.id && !message.error && message.content.trim())
-        .slice(-24)
-        .map((message) => ({ role: message.role === "assistant" ? "model" as const : "user" as const, content: message.content }));
-      await assistantClient.send({
-        endpoint,
-        turnstileToken: verificationToken,
-        message: userMessage.content,
-        model: activePreset?.model ?? "gemini-2.5-flash",
-        preset: activePreset ?? starters[0],
-        history,
-        attachments: requestAttachments,
-      }, {
-        signal: controller.signal,
-        onToken: (token) => {
-          answer += token;
-          setStreamingText(answer);
-          if (!saveTimer) {
-            saveTimer = window.setTimeout(() => {
-              saveTimer = 0;
-              void db.aiMessages.update(assistantMessageId, { content: answer }).catch(() => setError("saveError"));
-            }, 250);
-          }
-        },
-        onProgress: setUploadProgress,
-      });
-      await db.aiMessages.update(assistantMessageId, { content: answer, error: false });
-      await db.aiConversations.update(conversation.id, { updatedAt: Date.now() });
     } catch (cause) {
-      const cancelled = cause instanceof DOMException && cause.name === "AbortError";
-      const errorMessage = renderError(cause, t);
-      answer = answer || errorMessage;
-      await db.aiMessages.update(assistantMessageId, { content: answer, error: !cancelled });
+      setModelError(cause instanceof LocalAiError ? `errors.${cause.code}` : "errors.failed");
     } finally {
-      if (saveTimer) window.clearTimeout(saveTimer);
-      abortController.current = undefined;
-      setIsSending(false);
-      setTurnstileToken("");
-      setTurnstileVersion((version) => version + 1);
-      setUploadProgress(undefined);
-      setPreparingAttachments(false);
-      setStreamingText("");
-      setStreamingMessageId("");
+      setOperation(undefined);
+      setProgress(undefined);
     }
+  }
+
+  async function confirmModelAction() {
+    const action = confirmation;
+    setConfirmation(undefined);
+    if (action) await runModelOperation(action);
+  }
+
+  async function refreshModelStatus() {
+    setModelError("");
+    try {
+      setModelStatus(await localAiClient.status());
+    } catch (cause) {
+      setModelError(cause instanceof LocalAiError ? `errors.${cause.code}` : "errors.failed");
+    }
+  }
+
+  function stopGeneration() {
+    localAiClient.stop();
+    void refreshModelStatus();
   }
 
   async function submitMessage(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!canSend || !activePreset) return;
-    const content = draft.trim() || t("assistant.attachmentsPrompt");
-    if (endpoint && cloudEnabled && !cloudConsent) {
-      setError("consentRequired");
-      return;
-    }
+    const content = draft.trim();
     const conversation = activeConversation ?? {
       id: createId(),
       title: content.slice(0, 48),
@@ -314,19 +227,9 @@ export function AssistantPage() {
       createdAt: Date.now(),
     };
     try {
-      const records: AiAttachment[] = await Promise.all(draftFiles.map(async (file) => ({
-        id: createId(),
-        messageId: userMessage.id,
-        name: file.name,
-        mimeType: file.type as AiAttachment["mimeType"],
-        size: file.size,
-        blob: new Blob([await readBlobAsArrayBuffer(file)], { type: file.type }),
-        createdAt: Date.now(),
-      })));
-      await db.transaction("rw", [db.aiMessages, db.aiConversations, db.aiAttachments], async () => {
+      await db.transaction("rw", [db.aiMessages, db.aiConversations], async () => {
         if (!activeConversation) await db.aiConversations.add(conversation);
         await db.aiMessages.add(userMessage);
-        if (records.length) await db.aiAttachments.bulkAdd(records);
         await db.aiConversations.update(conversation.id, {
           title: conversation.title === t("assistant.newConversation") ? content.slice(0, 48) : conversation.title,
           updatedAt: Date.now(),
@@ -338,20 +241,94 @@ export function AssistantPage() {
     }
     setActiveConversationId(conversation.id);
     setDraft("");
-    setDraftFiles([]);
-    setCloudConsent(false);
-    await requestAssistantReply(conversation, userMessage, [...messages, userMessage], turnstileToken);
+    await requestLocalReply(conversation, [...messages, userMessage]);
   }
 
   async function retryMessage(assistantMessage: AiMessage) {
-    if (isSending || (endpoint && (!cloudEnabled || !cloudConsent || !turnstileToken))) return;
+    if (isSending || !modelStatus?.loaded || !activePreset) return;
     const priorMessages = await db.aiMessages.where("conversationId").equals(assistantMessage.conversationId).sortBy("createdAt");
     const currentIndex = priorMessages.findIndex((item) => item.id === assistantMessage.id);
-    const userMessage = priorMessages.slice(0, currentIndex).reverse().find((item) => item.role === "user");
     const conversation = conversations.find((item) => item.id === assistantMessage.conversationId);
-    if (!userMessage || !conversation) return;
-    setCloudConsent(false);
-    await requestAssistantReply(conversation, userMessage, priorMessages.slice(0, currentIndex), turnstileToken);
+    if (currentIndex < 0 || !conversation) return;
+    await requestLocalReply(conversation, priorMessages.slice(0, currentIndex), assistantMessage.id);
+  }
+
+  async function requestLocalReply(
+    conversation: AiConversation,
+    contextMessages: AiMessage[],
+    assistantMessageId = createId(),
+  ) {
+    if (!activePreset || !modelStatus?.loaded || isSending) return;
+    setIsSending(true);
+    generationActive.current = true;
+    setStreamingMessageId(assistantMessageId);
+    setStreamingText("");
+    setProgress(undefined);
+    setGenerationStats(undefined);
+    setError("");
+    let answer = "";
+    let saveTimer = 0;
+    try {
+      await db.aiMessages.put({
+        id: assistantMessageId,
+        conversationId: conversation.id,
+        role: "assistant",
+        content: "",
+        createdAt: Date.now(),
+        error: false,
+      });
+      const promptMessages = buildLocalAiMessages(
+        contextMessages.filter((message) => !message.error && message.content.trim()),
+        activePreset,
+      );
+      const result = await localAiClient.generate(
+        promptMessages,
+        maxNewTokensForPreset(activePreset.length),
+        (text) => {
+          answer += text;
+          setStreamingText(answer);
+          if (!saveTimer) {
+            saveTimer = window.setTimeout(() => {
+              saveTimer = 0;
+              void db.aiMessages.update(assistantMessageId, { content: answer }).catch(() => setError("saveError"));
+            }, 500);
+          }
+        },
+        setProgress,
+      );
+      if (!result.interrupted) {
+        setGenerationStats({
+          timeToFirstTokenMs: result.timeToFirstTokenMs,
+          tokensPerSecond: result.tokensPerSecond,
+        });
+      }
+      if (result.interrupted && !answer) answer = t("assistant.generationStopped");
+      await db.aiMessages.update(assistantMessageId, { content: answer, error: result.interrupted });
+      await db.aiConversations.update(conversation.id, { updatedAt: Date.now() });
+    } catch (cause) {
+      const errorKey = cause instanceof LocalAiError ? `errors.${cause.code}` : "errors.failed";
+      answer = answer || t(`assistant.${errorKey}`);
+      setError(errorKey);
+      try {
+        await db.aiMessages.put({
+          id: assistantMessageId,
+          conversationId: conversation.id,
+          role: "assistant",
+          content: answer,
+          createdAt: Date.now(),
+          error: true,
+        });
+      } catch {
+        setError("saveError");
+      }
+    } finally {
+      if (saveTimer) window.clearTimeout(saveTimer);
+      generationActive.current = false;
+      setIsSending(false);
+      setProgress(undefined);
+      setStreamingText("");
+      setStreamingMessageId("");
+    }
   }
 
   async function copyMessage(content: string) {
@@ -466,14 +443,64 @@ export function AssistantPage() {
                 {presets.map((preset) => <option key={preset.id} value={preset.id}>{preset.name}</option>)}
               </select>
             </label>
-            <label><span>{t("assistant.model")}</span>
-              <select aria-label={t("assistant.model")} value={activePreset?.model ?? ""} onChange={(event) => activePreset && void db.aiPresets.update(activePreset.id, { model: event.target.value }).catch(() => setError("saveError"))}>
-                {activePreset && !availableModels.some(([model]) => model === activePreset.model) && <option value={activePreset.model}>{activePreset.model}</option>}
-                {availableModels.map(([model, title]) => <option key={model} value={model}>{title}</option>)}
-              </select>
-            </label>
-            <span className="status-pill">{!endpoint ? t("assistant.localOnly") : cloudEnabled ? t("assistant.backendConfigured") : t("assistant.cloudDisabledStatus")}</span>
+            <span className="status-pill"><HardDrive size={12} />{t("assistant.localOnly")}</span>
           </div>
+          <section className="local-ai-model" aria-label={t("assistant.model")}>
+            <div className="local-ai-model__summary">
+              <div className="local-ai-model__identity">
+                <Cpu size={16} />
+                <div>
+                  <strong>{selectedModel.name}</strong>
+                  <span>{t("assistant.modelDetails", { size: localAiModelSizeLabel(selectedModel) })}</span>
+                </div>
+              </div>
+              <div className="local-ai-model__status">
+                {operation
+                  ? <><LoaderCircle className="local-ai-spin" size={13} />{t(`assistant.${modelOperationKey(operation)}`)}</>
+                  : modelStatus?.loaded
+                    ? <><Check size={13} />{t("assistant.modelLoaded")}</>
+                    : modelStatus?.cached
+                      ? <><Check size={13} />{t("assistant.modelCached")}</>
+                      : modelStatus
+                        ? <><Download size={13} />{t("assistant.modelNotDownloaded")}</>
+                        : <><LoaderCircle className="local-ai-spin" size={13} />{t("assistant.checkingModel")}</>}
+              </div>
+              <div className="local-ai-model__actions">
+                {modelStatus?.loaded ? (
+                  <button className="button button--quiet" disabled={Boolean(operation) || isSending} onClick={() => void runModelOperation("unload")} type="button">{t("assistant.unloadModel")}</button>
+                ) : modelStatus?.cached ? (
+                  <button className="button button--primary" disabled={Boolean(operation) || isSending} onClick={() => void runModelOperation("load")} type="button">{operation === "load" ? t("assistant.loadingModel") : t("assistant.loadModel")}</button>
+                ) : modelStatus ? (
+                  <button className="button button--primary" disabled={Boolean(operation)} onClick={() => setConfirmation("download")} type="button">{operation === "download" ? t("assistant.downloading") : t("assistant.downloadModel", { size: localAiModelSizeLabel(selectedModel) })}</button>
+                ) : (
+                  <button className="button button--quiet" disabled={Boolean(operation)} onClick={() => void refreshModelStatus()} type="button">{t("assistant.checkAgain")}</button>
+                )}
+                {modelStatus?.cached && !operation && <button className="button button--quiet" disabled={isSending} onClick={() => setConfirmation("remove")} type="button">{t("assistant.removeModel")}</button>}
+                {operation === "download" && <button className="button button--quiet" onClick={() => localAiClient.stop()} type="button"><Square size={12} />{t("assistant.stop")}</button>}
+              </div>
+            </div>
+            {progress && (
+              <div className="local-ai-progress">
+                <div className="local-ai-progress__label">
+                  <span>{progress.file ?? t(`assistant.${progress.phase}Progress`)}</span>
+                  {progress.loaded !== undefined && progress.total !== undefined && (
+                    <span>{formatLocalAiBytes(progress.loaded)} / {formatLocalAiBytes(progress.total)}</span>
+                  )}
+                </div>
+                <progress
+                  aria-label={t(`assistant.${progress.phase}Progress`)}
+                  max={100}
+                  value={localAiProgressPercent(progress) ?? 0}
+                />
+              </div>
+            )}
+            <div className="local-ai-model__footnote">
+              <span>{t("assistant.offlineModelNotice")}</span>
+              {modelStatus?.device && <span>{modelStatus.device === "webgpu" ? "WebGPU" : `WASM · ${modelStatus.wasmThreads ?? 1} ${t("assistant.threads")}`}</span>}
+              {generationStats && !isSending && <span>{generationStats.timeToFirstTokenMs === undefined ? "" : `${(generationStats.timeToFirstTokenMs / 1_000).toFixed(1)} s`} · {generationStats.tokensPerSecond} tok/s</span>}
+            </div>
+            {modelError && <p className="form-error" role="alert">{t(`assistant.${modelError}`)}</p>}
+          </section>
           <div className="assistant-messages" aria-live="polite">
             {messages.length === 0 && (
               <div className="assistant-empty">
@@ -493,7 +520,7 @@ export function AssistantPage() {
                       <button aria-label={t("assistant.copy")} className="icon-button icon-button--small" onClick={() => void copyMessage(content)} type="button"><Copy size={12} /></button>
                     )}
                     {message.role === "assistant" && message.error && (
-                      <button className="button button--quiet assistant-message__retry" disabled={isSending || Boolean(endpoint && (!cloudEnabled || !cloudConsent || !turnstileSiteKey || !turnstileToken))} onClick={() => void retryMessage(message)} type="button">{t("assistant.retry")}</button>
+                      <button className="button button--quiet assistant-message__retry" disabled={isSending || !modelStatus?.loaded} onClick={() => void retryMessage(message)} type="button">{t("assistant.retry")}</button>
                     )}
                   </div>
                   {attachments.length > 0 && <div className="assistant-attachment-list">{attachments.map((attachment) => (
@@ -504,39 +531,21 @@ export function AssistantPage() {
               );
             })}
           </div>
-          <form
-            className="assistant-composer"
-            onDragOver={(event) => event.preventDefault()}
-            onDrop={onDrop}
-            onSubmit={(event) => void submitMessage(event)}
-          >
-            {draftFiles.length > 0 && <div className="assistant-attachment-list assistant-attachment-list--draft">
-              {draftFiles.map((file, index) => <AttachmentTile
-                attachment={{ name: file.name, mimeType: file.type as AiAttachment["mimeType"], size: file.size, blob: file }}
-                key={`${file.name}-${file.lastModified}-${index}`}
-                onPreview={setPreviewAttachment}
-                onRemove={() => setDraftFiles((current) => current.filter((_, itemIndex) => itemIndex !== index))}
-              />)}
-            </div>}
+          <form className="assistant-composer" onSubmit={(event) => void submitMessage(event)}>
             <textarea
               aria-label={t("assistant.composer")}
               maxLength={4000}
               onChange={(event) => setDraft(event.target.value)}
-              onPaste={onPaste}
               placeholder={t("assistant.composerPlaceholder")}
               rows={2}
               value={draft}
             />
-            <input accept="image/png,image/jpeg,image/webp,application/pdf,.pdf" aria-label={t("assistant.attachFiles")} className="visually-hidden" hidden multiple onChange={onFileChange} ref={draftFilesInput} type="file" />
-            {endpoint && cloudEnabled && <label className="assistant-cloud-consent"><input checked={cloudConsent} onChange={(event) => setCloudConsent(event.target.checked)} type="checkbox" /><span>{t("assistant.cloudConsent")}</span></label>}
-            {endpoint && cloudEnabled && turnstileSiteKey && <TurnstileChallenge action="chat" key={turnstileVersion} onToken={setTurnstileToken} siteKey={turnstileSiteKey} />}
             <div className="assistant-composer__footer">
               <div className="assistant-composer__status">
-                <button aria-label={t("assistant.attachFiles")} className="icon-button icon-button--small" onClick={() => draftFilesInput.current?.click()} type="button"><ImagePlus size={14} /></button>
-                <span>{copyStatus ? t(`assistant.${copyStatus}`) : isSending ? preparingAttachments ? t("assistant.preparingAttachments") : uploadProgress === undefined ? t("assistant.working") : t("assistant.uploading", { progress: uploadProgress }) : endpoint && !cloudEnabled ? t("assistant.enableCloudInSettings") : endpoint && !turnstileSiteKey ? t("assistant.turnstileNotConfigured") : endpoint && !cloudConsent ? t("assistant.consentRequired") : endpoint && !turnstileToken ? t("assistant.turnstileRequired") : t("assistant.privacyHint")}</span>
+                <span>{copyStatus ? t(`assistant.${copyStatus}`) : isSending ? t("assistant.working") : modelStatus?.loaded ? t("assistant.privacyHint") : t("assistant.loadBeforeSending")}</span>
               </div>
               {isSending
-                ? <button aria-label={t("assistant.stop")} className="button button--quiet" onClick={() => abortController.current?.abort()} type="button"><Square size={13} />{t("assistant.stop")}</button>
+                ? <button aria-label={t("assistant.stop")} className="button button--quiet" onClick={stopGeneration} type="button"><Square size={13} />{t("assistant.stop")}</button>
                 : <button aria-label={t("assistant.send")} className="button button--primary" disabled={!canSend} type="submit"><Send size={14} />{t("assistant.send")}</button>}
             </div>
           </form>
@@ -544,13 +553,29 @@ export function AssistantPage() {
         </div>
       </div>
 
+      {confirmation && (
+        <div className="dialog-backdrop" onMouseDown={(event) => event.target === event.currentTarget && setConfirmation(undefined)}>
+          <section aria-labelledby="local-ai-confirm-title" aria-modal="true" className="local-ai-confirm-dialog" role="dialog">
+            <div className="dialog-heading">
+              <h2 id="local-ai-confirm-title">{t(confirmation === "download" ? "assistant.confirmDownloadTitle" : "assistant.confirmRemoveTitle")}</h2>
+              <button aria-label={t("assistant.close")} className="icon-button" onClick={() => setConfirmation(undefined)} type="button"><X size={15} /></button>
+            </div>
+            <p>{t(confirmation === "download" ? "assistant.confirmDownloadDescription" : "assistant.confirmRemoveDescription", { size: localAiModelSizeLabel(selectedModel) })}</p>
+            <div className="local-ai-confirm-dialog__actions">
+              <button className="button button--quiet" onClick={() => setConfirmation(undefined)} type="button">{t("assistant.cancel")}</button>
+              <button className="button button--primary" onClick={() => void confirmModelAction()} type="button">{t(confirmation === "download" ? "assistant.confirmDownload" : "assistant.confirmRemove")}</button>
+            </div>
+          </section>
+        </div>
+      )}
+
       {presetModalOpen && (
         <div className="dialog-backdrop" onMouseDown={(event) => event.target === event.currentTarget && setPresetModalOpen(false)}>
           <section className="preset-dialog" aria-label={t("assistant.managePresets")}>
             <div className="dialog-heading"><h2>{t("assistant.managePresets")}</h2><button className="icon-button" aria-label={t("assistant.close")} onClick={() => setPresetModalOpen(false)} type="button"><X size={15} /></button></div>
             <div className="preset-manager">
               <div className="preset-manager__list">
-                <button className="button button--quiet" onClick={() => { setPresetDraft({ id: createId(), name: "", assistantName: "", description: "", style: "", length: "medium", depth: "guided", language: "auto", instructions: "", model: "gemini-2.5-flash", isDefault: false }); }} type="button"><Plus size={13} />{t("assistant.createPreset")}</button>
+                <button className="button button--quiet" onClick={() => { setPresetDraft({ id: createId(), name: "", assistantName: "", description: "", style: "", length: "medium", depth: "guided", language: "auto", instructions: "", model: selectedModel.id, isDefault: false }); }} type="button"><Plus size={13} />{t("assistant.createPreset")}</button>
                 {presets.map((preset) => <div className="preset-manager__item" key={preset.id}>
                   <button onClick={() => setPresetDraft(preset)} type="button">{preset.name}{preset.isDefault && <small>{t("assistant.defaultPreset")}</small>}</button>
                   <button className="icon-button icon-button--small" aria-label={`${t("timetable.duplicate")} ${preset.name}`} onClick={() => void duplicatePreset(preset)} type="button"><Copy size={13} /></button>
@@ -565,7 +590,6 @@ export function AssistantPage() {
                 <label>{t("assistant.length")}<select value={presetDraft.length} onChange={(event) => setPresetDraft({ ...presetDraft, length: event.target.value as AiPreset["length"] })}><option value="short">{t("assistant.short")}</option><option value="medium">{t("assistant.medium")}</option><option value="detailed">{t("assistant.detailed")}</option></select></label>
                 <label>{t("assistant.depth")}<select value={presetDraft.depth} onChange={(event) => setPresetDraft({ ...presetDraft, depth: event.target.value as AiPreset["depth"] })}><option value="basic">{t("assistant.basic")}</option><option value="guided">{t("assistant.guided")}</option><option value="advanced">{t("assistant.advanced")}</option></select></label>
                 <label>{t("assistant.language")}<select value={presetDraft.language} onChange={(event) => setPresetDraft({ ...presetDraft, language: event.target.value as AiPreset["language"] })}><option value="auto">{t("assistant.auto")}</option><option value="en">English</option><option value="de">Deutsch</option></select></label>
-                <label>{t("assistant.model")}<input required maxLength={120} value={presetDraft.model} onChange={(event) => setPresetDraft({ ...presetDraft, model: event.target.value })} /></label>
                 <label className="preset-form__wide">{t("assistant.instructions")}<textarea maxLength={2000} rows={4} value={presetDraft.instructions} onChange={(event) => setPresetDraft({ ...presetDraft, instructions: event.target.value })} /></label>
                 <label className="preset-form__wide preset-default"><input checked={presetDraft.isDefault} onChange={(event) => setPresetDraft({ ...presetDraft, isDefault: event.target.checked })} type="checkbox" />{t("assistant.useAsDefault")}</label>
                 <button className="button button--primary preset-form__wide" type="submit">{t("timetable.save")}</button>

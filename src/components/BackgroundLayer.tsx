@@ -269,16 +269,18 @@ export function BackgroundLayer({
   }, [accent, accentInfluence, animationSpeed, drawEnabled, intensity, performanceMode, reflectionStrength, style]);
 
   useEffect(() => {
-    if (!cursorReactive || performanceMode || style === "solid" || style === "custom") return;
+    if (!cursorReactive || performanceMode || reducedMotion || style === "solid" || style === "custom") return;
     const cursor = cursorRef.current;
     if (!cursor) return;
     let frame = 0;
+    let visible = !document.hidden;
     let x = -1000;
     let y = -1000;
     let initialized = false;
     let targetX = x;
     let targetY = y;
     const move = (event: PointerEvent) => {
+      if (!visible) return;
       targetX = event.clientX;
       targetY = event.clientY;
       if (!initialized) {
@@ -295,12 +297,21 @@ export function BackgroundLayer({
       if (Math.abs(targetX - x) + Math.abs(targetY - y) > 0.7) frame = requestAnimationFrame(track);
       else frame = 0;
     };
+    const onVisibility = () => {
+      visible = !document.hidden;
+      if (!visible) {
+        cancelAnimationFrame(frame);
+        frame = 0;
+      }
+    };
     window.addEventListener("pointermove", move, { passive: true });
+    document.addEventListener("visibilitychange", onVisibility);
     return () => {
       window.removeEventListener("pointermove", move);
+      document.removeEventListener("visibilitychange", onVisibility);
       cancelAnimationFrame(frame);
     };
-  }, [cursorReactive, performanceMode, style]);
+  }, [cursorReactive, performanceMode, reducedMotion, style]);
 
   const backgroundStyle = {
     "--background-opacity": opacity,
@@ -324,7 +335,7 @@ export function BackgroundLayer({
         : style === "chrome"
           ? <div className="background-layer__chrome-fallback" />
           : null}
-      {cursorReactive && !performanceMode && <div className="background-layer__cursor-light" ref={cursorRef} />}
+      {cursorReactive && !performanceMode && !reducedMotion && <div className="background-layer__cursor-light" ref={cursorRef} />}
       {style === "custom" && image && <div className="background-layer__image" style={{ backgroundImage: `url("${image}")` }} />}
       {style === "custom" && <div className="background-layer__overlay" />}
     </div>

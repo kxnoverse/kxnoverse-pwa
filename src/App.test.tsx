@@ -1,17 +1,17 @@
 import "fake-indexeddb/auto";
-/// <reference types="node" />
-import { Blob as NodeBlob } from "node:buffer";
-import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import App from "./App";
-import { db } from "./data/db";
+import { db, localDateKey } from "./data/db";
 import { i18n } from "./i18n";
 import { defaultAppearance, useUiStore } from "./stores/ui-store";
-import { readBlobAsArrayBuffer } from "./data/blob-utils";
+import { LocalAiError, localAiClient } from "./data/local-ai-client";
+import { LOCAL_AI_MODEL_SETTING_KEY } from "./data/local-ai";
 
 beforeEach(async () => {
   localStorage.clear();
+  window.location.hash = "#/";
   await i18n.changeLanguage("en");
   await Promise.all([
     db.subjects.clear(),
@@ -28,12 +28,14 @@ beforeEach(async () => {
     db.notes.clear(),
     db.focusSessions.clear(),
     db.files.clear(),
+    db.arcadeData.clear(),
   ]);
   useUiStore.getState().updateAppearance(defaultAppearance);
 });
 
 afterEach(() => {
   cleanup();
+  vi.restoreAllMocks();
   vi.unstubAllGlobals();
 });
 
@@ -43,7 +45,7 @@ describe("Kxno Desk shell", () => {
     render(<App />);
 
     expect(screen.getByRole("link", { name: "Kxno Desk" })).toBeInTheDocument();
-    expect(screen.getByRole("heading", { name: /^Good (morning|afternoon|evening|Working late)$/ })).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: /^(Good (morning|afternoon|evening)|Working late)$/ })).toBeInTheDocument();
     expect(screen.getByRole("time")).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "Today’s schedule" })).toBeInTheDocument();
 
@@ -53,14 +55,397 @@ describe("Kxno Desk shell", () => {
         { name: "Timetable" },
       ),
     );
-    expect(screen.getByRole("heading", { name: "Timetable" })).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: "Timetable" }, { timeout: 5000 })).toBeInTheDocument();
+  });
+
+  it("opens the arcade, persists favorites, and launches a playable game screen", async () => {
+    const user = userEvent.setup();
+    render(<App />);
+    const navigation = within(screen.getByRole("navigation", { name: "Main navigation" }));
+    await user.click(navigation.getByRole("link", { name: "Minigames" }));
+
+    expect(await screen.findByRole("heading", { name: "Minigames" }, { timeout: 5000 })).toBeInTheDocument();
+    expect(document.querySelectorAll(".arcade-card")).toHaveLength(24);
+    const thumbnails = [...document.querySelectorAll<SVGSVGElement>("[data-game-thumbnail]")];
+    expect(thumbnails).toHaveLength(24);
+    expect(new Set(thumbnails.map((thumbnail) => thumbnail.dataset.gameThumbnail)).size).toBe(24);
+    expect(thumbnails.every((thumbnail) => thumbnail.getAttribute("viewBox") === "0 0 320 82")).toBe(true);
+    expect(thumbnails.every((thumbnail) => [...thumbnail.querySelectorAll("[fill], [stroke]")].some((part) =>
+      `${part.getAttribute("fill")} ${part.getAttribute("stroke")}`.includes("var(--game-accent)")))).toBe(true);
+    expect(screen.getByRole("heading", { name: "Tower Defense" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Rhythm Tiles" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Mini Platformer" })).toBeInTheDocument();
+    await user.click(await screen.findByRole("button", { name: "Strategy" }));
+    expect(screen.getByRole("heading", { name: "Tower Defense" })).toBeInTheDocument();
+    expect(document.querySelectorAll(".arcade-card")).toHaveLength(1);
+    await user.click(await screen.findByRole("button", { name: "All games" }));
+    await user.click(await screen.findByRole("button", { name: "Precision" }));
+    expect(screen.getByRole("heading", { name: "Aim Trainer" })).toBeInTheDocument();
+    expect(document.querySelectorAll(".arcade-card")).toHaveLength(1);
+    await user.click(await screen.findByRole("button", { name: "All games" }));
+    const gameCard = screen.getByRole("heading", { name: "2048" }).closest("article");
+    expect(gameCard).not.toBeNull();
+    await user.click(within(gameCard!).getByRole("button", { name: "Add favorite 2048" }));
+    expect(await db.arcadeData.get("favorites")).toMatchObject({ value: '["2048"]' });
+
+    await user.click(within(screen.getByRole("heading", { name: "2048" }).closest("article")!).getByRole("button", { name: "Play" }));
+    expect(await screen.findByRole("heading", { name: "2048" })).toBeInTheDocument();
+    expect(await screen.findByRole("grid", { name: "2048 game board" })).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: /Back/ }));
+    await waitFor(async () => expect((await db.arcadeData.get("recent"))?.value).toBe('["2048"]'));
+  }, 15_000);
+
+  it("updates all game thumbnails with the current custom theme accent", async () => {
+    const user = userEvent.setup();
+    render(<App />);
+    await user.click(within(screen.getByRole("navigation", { name: "Main navigation" })).getByRole("link", { name: "Minigames" }));
+    await screen.findByRole("heading", { name: "Minigames" });
+    const grid = document.querySelector<HTMLElement>(".arcade-game-grid")!;
+    useUiStore.getState().updateAppearance({ ...defaultAppearance, accent: "#12AB34" });
+    await waitFor(() => expect(grid.style.getPropertyValue("--game-accent")).toBe("#12AB34"));
+    expect(document.querySelectorAll('[data-game-thumbnail] [fill*="var(--game-accent)"]').length).toBeGreaterThan(0);
+  });
+
+  it("preserves the existing recently played list when a game route loads", async () => {
+    await db.arcadeData.add({ id: "recent", value: '["snake","memory"]', updatedAt: 1 });
+    window.location.hash = "#/minigames/2048";
+    render(<App />);
+
+    expect(await screen.findByRole("grid", { name: "2048 game board" })).toBeInTheDocument();
+    await waitFor(async () => expect((await db.arcadeData.get("recent"))?.value).toBe('["2048","snake","memory"]'));
+  });
+
+  it("launches Block Stack and saves its resumable game state locally", async () => {
+    window.location.hash = "#/minigames/block-stack";
+    render(<App />);
+
+    expect(await screen.findByRole("grid", { name: "Block Stack board" })).toBeInTheDocument();
+    await waitFor(async () => {
+      const saved = await db.arcadeData.get("save:game:block-stack");
+      expect(saved).toBeDefined();
+      expect(JSON.parse(saved!.value)).toMatchObject({ board: expect.any(Array), piece: expect.any(Object) });
+    });
+  });
+
+  it("launches Minesweeper with a safe first reveal", async () => {
+    const user = userEvent.setup();
+    window.location.hash = "#/minigames/minesweeper";
+    render(<App />);
+
+    const board = await screen.findByRole("grid", { name: "Minesweeper board" });
+    const firstCell = within(board).getAllByRole("button")[40];
+    await user.click(firstCell);
+    await waitFor(() => expect(firstCell.getAttribute("aria-label")).toContain("Revealed cell"));
+    expect(firstCell.getAttribute("aria-label")).not.toContain("Mine");
+  });
+
+  it("launches Pong and persists the selected local multiplayer mode", async () => {
+    const user = userEvent.setup();
+    vi.spyOn(HTMLCanvasElement.prototype, "getContext").mockReturnValue(null);
+    window.location.hash = "#/minigames/pong";
+    render(<App />);
+
+    await screen.findByRole("heading", { name: "Pong" });
+    const canvas = await waitFor(() => {
+      const rendered = document.querySelector(".phase5-pong__canvas");
+      expect(rendered).not.toBeNull();
+      return rendered as HTMLCanvasElement;
+    });
+    expect(canvas.tagName).toBe("CANVAS");
+    await user.selectOptions(screen.getByRole("combobox", { name: "Mode" }), "local");
+    await waitFor(async () => expect((await db.arcadeData.get("preference:pong:mode"))?.value).toBe("local"));
+  });
+
+  it("launches Sudoku and persists a new puzzle and entered value", async () => {
+    const user = userEvent.setup();
+    window.location.hash = "#/minigames/sudoku";
+    render(<App />);
+
+    const board = await screen.findByRole("grid", { name: "Sudoku board" });
+    const emptyCell = board.querySelector<HTMLButtonElement>(".phase5-sudoku__cell:not(.is-given)");
+    expect(emptyCell).not.toBeNull();
+    await user.click(emptyCell!);
+    await user.click(within(screen.getByRole("group", { name: "Sudoku numbers" })).getByRole("button", { name: "1" }));
+    await waitFor(async () => {
+      const saved = await db.arcadeData.get("save:game:sudoku");
+      expect(saved).toBeDefined();
+      expect(JSON.parse(saved!.value)).toMatchObject({ board: expect.any(Array), puzzle: expect.any(Array), solution: expect.any(Array) });
+    });
+  });
+
+  it("launches Flappy Cube with pointer controls and an accessible playfield", async () => {
+    const user = userEvent.setup();
+    vi.spyOn(HTMLCanvasElement.prototype, "getContext").mockReturnValue(null);
+    window.location.hash = "#/minigames/flappy-cube";
+    render(<App />);
+
+    const canvas = await waitFor(() => {
+      const rendered = document.querySelector<HTMLCanvasElement>(".phase5b-flappy__canvas");
+      expect(rendered).not.toBeNull();
+      return rendered as HTMLCanvasElement;
+    });
+    expect(screen.getByRole("button", { name: "Start" })).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Start" }));
+    expect(screen.getByRole("status")).toHaveTextContent("Keep clear of the obstacles");
+    expect(screen.getByRole("button", { name: "Pause" })).toBeEnabled();
+    await user.click(screen.getByRole("button", { name: "Pause" }));
+    expect(screen.getByRole("status")).toHaveTextContent("Paused");
+    await user.click(screen.getByRole("button", { name: "Resume" }));
+    expect(screen.getByRole("status")).toHaveTextContent("Keep clear of the obstacles");
+    await user.click(screen.getByRole("button", { name: "Restart" }));
+    expect(screen.getByRole("button", { name: "Start" })).toBeInTheDocument();
+    expect(canvas).toHaveAttribute("aria-label", "Flappy Cube playfield");
+  });
+
+  it("plays Connect Four against the computer and persists its local state", async () => {
+    const user = userEvent.setup();
+    window.location.hash = "#/minigames/connect-four";
+    render(<App />);
+
+    const board = await screen.findByRole("grid", { name: "Connect Four game board" });
+    await user.click(within(board).getByRole("button", { name: "Drop piece in column 4" }));
+    await waitFor(() => expect(board.querySelectorAll(".phase5b-connect__cell.is-player-1")).toHaveLength(1));
+    await waitFor(() => expect(board.querySelectorAll(".phase5b-connect__cell.is-player-2")).toHaveLength(1));
+    await waitFor(async () => {
+      const saved = await db.arcadeData.get("save:game:connect-four");
+      expect(saved).toBeDefined();
+      expect(JSON.parse(saved!.value).state.board.filter((cell: number) => cell !== 0)).toHaveLength(2);
+    });
+  });
+
+  it("moves through the generated Maze Escape and persists progress", async () => {
+    const user = userEvent.setup();
+    window.location.hash = "#/minigames/maze-escape";
+    render(<App />);
+
+    const board = await screen.findByRole("grid", { name: "Maze Escape game board" });
+    const startIndex = [...board.querySelectorAll(".phase5b-maze__cell")].findIndex((cell) => cell.classList.contains("is-player"));
+    for (const label of ["Move up", "Move right", "Move down", "Move left"]) {
+      await user.click(screen.getByRole("button", { name: label }));
+      const nextIndex = [...board.querySelectorAll(".phase5b-maze__cell")].findIndex((cell) => cell.classList.contains("is-player"));
+      if (nextIndex !== startIndex) break;
+    }
+    await waitFor(async () => {
+      const saved = await db.arcadeData.get("save:game:maze-escape");
+      expect(saved).toBeDefined();
+      expect(JSON.parse(saved!.value).maze.moves).toBeGreaterThan(0);
+    });
+    expect(board.querySelectorAll(".phase5b-maze__cell")).toHaveLength(120);
+  });
+
+  it("calculates expressions and saves reusable history locally", async () => {
+    const user = userEvent.setup();
+    render(<App />);
+    await user.click(within(screen.getByRole("navigation", { name: "Main navigation" })).getByRole("link", { name: "Calculator" }));
+    expect(await screen.findByRole("heading", { name: "Calculator" })).toBeInTheDocument();
+    const expression = screen.getByRole("textbox", { name: "Expression" });
+    await user.type(expression, "(2 + 3) * 4");
+    await user.keyboard("{Enter}");
+    await waitFor(() => expect(document.querySelector(".calculator-result strong")).toHaveTextContent("20"));
+    await waitFor(async () => {
+      const stored = await db.arcadeData.get("calculator:history");
+      expect(JSON.parse(stored!.value)).toMatchObject([{ expression: "(2 + 3) * 4", result: 20 }]);
+    });
+
+    await user.click(screen.getByRole("button", { name: "Scientific" }));
+    await user.clear(expression);
+    await user.type(expression, "sin(90)");
+    await user.keyboard("{Enter}");
+    await waitFor(() => expect(document.querySelector(".calculator-result strong")).toHaveTextContent("1"));
+  });
+
+  it("persists the Arcade mute and master-volume controls locally", async () => {
+    const user = userEvent.setup();
+    render(<App />);
+    await user.click(within(screen.getByRole("navigation", { name: "Main navigation" })).getByRole("link", { name: "Minigames" }));
+    await screen.findByRole("heading", { name: "Minigames" });
+
+    const mute = await screen.findByRole("button", { name: "Mute arcade sounds" });
+    await user.click(mute);
+    await waitFor(async () => expect(await db.arcadeData.get("preference:audio")).toMatchObject({
+      value: JSON.stringify({ muted: true, volume: 0.2, mutedGames: [] }),
+    }));
+
+    fireEvent.change(screen.getByRole("slider", { name: "Arcade sound volume" }), { target: { value: "0.35" } });
+    await waitFor(async () => expect(await db.arcadeData.get("preference:audio")).toMatchObject({
+      value: JSON.stringify({ muted: true, volume: 0.35, mutedGames: [] }),
+    }));
+  });
+
+  it("plays a Simon round with keyboard-accessible pads and persists its best", async () => {
+    const random = vi.spyOn(Math, "random").mockReturnValue(0);
+    const user = userEvent.setup();
+    render(<App />);
+    await user.click(within(screen.getByRole("navigation", { name: "Main navigation" })).getByRole("link", { name: "Minigames" }));
+    await screen.findByRole("heading", { name: "Minigames" });
+    await user.click(within(screen.getByRole("heading", { name: "Simon Says" }).closest("article")!).getByRole("button", { name: "Play" }));
+    await user.click(await screen.findByRole("button", { name: "Start" }));
+    await screen.findByText("Your turn.", {}, { timeout: 5000 });
+    await user.keyboard("1");
+    expect(await screen.findByText("Round 1 complete.")).toBeInTheDocument();
+    await waitFor(async () => expect(await db.arcadeData.get("best:simon-says")).toMatchObject({ value: "1" }));
+    random.mockRestore();
+  });
+
+  it("saves and reloads Line Rider tracks in the isolated Arcade store", async () => {
+    vi.spyOn(HTMLCanvasElement.prototype, "getContext").mockReturnValue(null);
+    const user = userEvent.setup();
+    render(<App />);
+    await user.click(within(screen.getByRole("navigation", { name: "Main navigation" })).getByRole("link", { name: "Minigames" }));
+    await screen.findByRole("heading", { name: "Minigames" });
+    await user.click(within(screen.getByRole("heading", { name: "Line Rider" }).closest("article")!).getByRole("button", { name: "Play" }));
+    await user.type(screen.getByRole("textbox", { name: "Track name" }), "Practice loop");
+    await user.click(screen.getByRole("button", { name: "Save track" }));
+    await waitFor(async () => expect((await db.arcadeData.where("id").startsWith("track:line-rider:").toArray()).length).toBe(1));
+    const chooser = screen.getByRole("combobox", { name: "Saved tracks" });
+    await user.selectOptions(chooser, (await db.arcadeData.where("id").startsWith("track:line-rider:").first())!.id);
+    expect(screen.getByRole("textbox", { name: "Track name" })).toHaveValue("Practice loop");
+  });
+
+  it("buys an Idle Clicker automation upgrade and stores its state", async () => {
+    const user = userEvent.setup();
+    render(<App />);
+    await user.click(within(screen.getByRole("navigation", { name: "Main navigation" })).getByRole("link", { name: "Minigames" }));
+    await screen.findByRole("heading", { name: "Minigames" });
+    await user.click(within(screen.getByRole("heading", { name: "Idle Clicker" }).closest("article")!).getByRole("button", { name: "Play" }));
+    const collect = await screen.findByRole("button", { name: "Collect" });
+    await waitFor(() => expect(collect).toBeEnabled());
+    for (let index = 0; index < 30; index += 1) fireEvent.click(collect);
+    const automation = screen.getByRole("heading", { name: "Automation" }).closest("article")!;
+    await user.click(within(automation).getByRole("button", { name: "30 Buy" }));
+    await waitFor(async () => {
+      const record = await db.arcadeData.get("save:idle-clicker");
+      expect(JSON.parse(record!.value)).toMatchObject({ autoLevel: 1 });
+    });
+  });
+
+  it("plays a legal chess move locally, saves the game, and supports undo", async () => {
+    const user = userEvent.setup();
+    render(<App />);
+    await user.click(within(screen.getByRole("navigation", { name: "Main navigation" })).getByRole("link", { name: "Minigames" }));
+    await screen.findByRole("heading", { name: "Minigames" });
+    await user.click(within(screen.getByRole("heading", { name: "Chess" }).closest("article")!).getByRole("button", { name: "Play" }));
+    const board = await screen.findByRole("grid", { name: "Chess game" });
+    await user.selectOptions(screen.getByRole("combobox", { name: "Mode" }), "local");
+    await user.click(within(board).getByRole("gridcell", { name: /White pawn e2/ }));
+    await user.click(within(board).getByRole("gridcell", { name: /e4$/ }));
+    expect(await screen.findByText("e4")).toBeInTheDocument();
+    await waitFor(async () => expect(await db.arcadeData.get("chess:unfinished")).toBeDefined());
+    await user.click(screen.getByRole("button", { name: "Undo" }));
+    expect(screen.queryByText("e4")).not.toBeInTheDocument();
+  });
+
+  it("loads Word Guess with local dictionary modes and isolated statistics", async () => {
+    const user = userEvent.setup();
+    render(<App />);
+    await user.click(within(screen.getByRole("navigation", { name: "Main navigation" })).getByRole("link", { name: "Minigames" }));
+    expect(await screen.findByRole("heading", { name: "Word Guess" })).toBeInTheDocument();
+    await user.click(within(screen.getByRole("heading", { name: "Word Guess" }).closest("article")!).getByRole("button", { name: "Play" }));
+
+    await screen.findByRole("grid", { name: "Word Guess board" });
+    expect(screen.getAllByRole("row")).toHaveLength(6);
+    expect(screen.getAllByRole("gridcell")).toHaveLength(30);
+    const wordLength = screen.getByRole("combobox", { name: "Word length" });
+    await waitFor(() => expect(wordLength).toBeEnabled());
+    await user.selectOptions(wordLength, "6");
+    await waitFor(async () => expect(await db.arcadeData.get("preference:word-guess:length")).toMatchObject({ value: "6" }));
+    await user.click(screen.getByRole("button", { name: "B" }));
+    await waitFor(() => expect(screen.getByRole("gridcell", { name: "b" })).toBeInTheDocument());
+    act(() => useUiStore.getState().setAppearance("accent", "#347ab4"));
+    expect(document.querySelector(".arcade-game-area")).toHaveStyle({ "--game-accent": "#347ab4" });
+    expect(screen.getByRole("gridcell", { name: "b" })).toBeInTheDocument();
+    await user.selectOptions(screen.getByRole("combobox", { name: "Language" }), "de");
+    expect(await screen.findByRole("button", { name: "ß" })).toBeInTheDocument();
+    expect(await db.arcadeData.get("stats:word-guess")).toBeUndefined();
+  });
+
+  it("rejects a word that is not in the selected offline dictionary", async () => {
+    const user = userEvent.setup();
+    render(<App />);
+    await user.click(within(screen.getByRole("navigation", { name: "Main navigation" })).getByRole("link", { name: "Minigames" }));
+    await screen.findByRole("heading", { name: "Minigames" });
+    await user.click(within(screen.getByRole("heading", { name: "Word Guess" }).closest("article")!).getByRole("button", { name: "Play" }));
+    await screen.findByRole("grid", { name: "Word Guess board" });
+    await waitFor(() => expect(screen.getByRole("button", { name: "A" })).toBeEnabled());
+
+    await user.keyboard("QZVTX{Enter}");
+    expect(await screen.findByText("That word is not in the local dictionary.")).toBeInTheDocument();
+    expect(await db.arcadeData.get("stats:word-guess")).toBeUndefined();
+  });
+
+  it("persists Word Guess round results and personal wins locally", async () => {
+    const random = vi.spyOn(Math, "random").mockReturnValue(0);
+    const user = userEvent.setup();
+    render(<App />);
+    await user.click(within(screen.getByRole("navigation", { name: "Main navigation" })).getByRole("link", { name: "Minigames" }));
+    await user.click(within(screen.getByRole("heading", { name: "Word Guess" }).closest("article")!).getByRole("button", { name: "Play" }));
+    await screen.findByRole("grid", { name: "Word Guess board" });
+
+    for (const letter of ["T", "H", "E", "R", "E"]) await user.click(screen.getByRole("button", { name: new RegExp(`^${letter}$`) }));
+    await user.click(screen.getByRole("button", { name: /^Enter$/ }));
+
+    expect(await screen.findByText("Correct — THERE")).toBeInTheDocument();
+    await waitFor(async () => {
+      expect(await db.arcadeData.get("stats:word-guess")).toMatchObject({ value: JSON.stringify({ wins: 1, losses: 0, streak: 1, bestStreak: 1 }) });
+      expect(await db.arcadeData.get("best:word-guess")).toMatchObject({ value: "1" });
+    });
+    random.mockRestore();
+  });
+
+  it("provides playable controls for every Phase 1 game", async () => {
+    const user = userEvent.setup();
+    render(<App />);
+    const navigation = within(screen.getByRole("navigation", { name: "Main navigation" }));
+    await user.click(navigation.getByRole("link", { name: "Minigames" }));
+    await screen.findByRole("heading", { name: "Minigames" });
+    const launch = async (name: string) => {
+      const card = screen.getByRole("heading", { name }).closest("article");
+      await user.click(within(card!).getByRole("button", { name: "Play" }));
+    };
+    const back = async () => user.click(screen.getByRole("button", { name: "Back" }));
+
+    await launch("2048");
+    expect(screen.getByRole("grid", { name: "2048 game board" })).toBeInTheDocument();
+    await back();
+
+    await launch("Snake");
+    await user.click(screen.getByRole("button", { name: "Start" }));
+    expect(screen.getByRole("button", { name: "Pause" })).toBeInTheDocument();
+    await back();
+
+    await launch("Memory");
+    const memorySize = screen.getByRole("combobox", { name: "Board size" });
+    await waitFor(() => expect(memorySize).toBeEnabled());
+    await user.selectOptions(memorySize, "8");
+    expect(await db.arcadeData.get("preference:memory")).toMatchObject({ value: "8" });
+    const hiddenCards = screen.getAllByRole("button", { name: "Hidden card" });
+    await user.click(hiddenCards[0]);
+    await user.click(hiddenCards[1]);
+    await waitFor(() => expect(screen.getByText(/Moves:/).textContent).toContain("1"));
+    await back();
+    await launch("Memory");
+    await waitFor(() => expect(screen.getAllByRole("button", { name: "Hidden card" })).toHaveLength(16));
+    await back();
+
+    await launch("Reaction test");
+    await user.click(screen.getByRole("button", { name: "Tap to start" }));
+    expect(screen.getByRole("button", { name: /Wait for green/ })).toBeInTheDocument();
+    await back();
+
+    await launch("Sliding puzzle");
+    const puzzleSize = screen.getByRole("combobox", { name: "Board size" });
+    await waitFor(() => expect(puzzleSize).toBeEnabled());
+    await user.selectOptions(puzzleSize, "4");
+    expect(await db.arcadeData.get("preference:sliding")).toMatchObject({ value: "4" });
+    await user.click(document.querySelector(".sliding-tile:not(:disabled)") as HTMLButtonElement);
+    expect(screen.getByText(/Moves:/).textContent).toContain("1");
   });
 
   it("adds a subject and a lesson to the editable timetable", async () => {
     const user = userEvent.setup();
     render(<App />);
     await user.click(screen.getByRole("link", { name: "Timetable" }));
-    await user.click(screen.getByRole("button", { name: "Manage" }));
+    await user.click(await screen.findByRole("button", { name: "Manage" }));
 
     await user.type(screen.getAllByRole("textbox", { name: "Name" })[0], "Algebra");
     await user.click(screen.getByRole("button", { name: "Add subject" }));
@@ -109,7 +494,7 @@ describe("Kxno Desk shell", () => {
     render(<App />);
     await user.click(screen.getByRole("link", { name: "Settings" }));
 
-    await user.selectOptions(screen.getByRole("combobox", { name: "Language" }), "de");
+    await user.selectOptions(await screen.findByRole("combobox", { name: "Language" }), "de");
     expect(await screen.findByRole("heading", { name: "Einstellungen" })).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "Stundenplan" })).toBeInTheDocument();
 
@@ -119,6 +504,144 @@ describe("Kxno Desk shell", () => {
 
     await user.selectOptions(screen.getByRole("combobox", { name: "Hintergrundstil" }), "grid");
     expect(document.querySelector(".background-layer--grid")).toBeInTheDocument();
+  });
+
+  it("always exposes the local assistant without enabling cloud settings", async () => {
+    const user = userEvent.setup();
+    render(<App />);
+
+    const link = await screen.findByRole("link", { name: "AI Assistant" });
+    await user.click(link);
+    expect(await screen.findByRole("heading", { name: "Kxno AI" }, { timeout: 5000 })).toBeInTheDocument();
+    expect(await db.settings.get("aiCloudEnabled")).toBeUndefined();
+  });
+
+  it("saves the interface scale and selected federal state", async () => {
+    const user = userEvent.setup();
+    render(<App />);
+    await user.click(screen.getByRole("link", { name: "Settings" }));
+    await screen.findByRole("heading", { name: "Settings" });
+    fireEvent.change(screen.getByRole("slider", { name: "Interface scale" }), { target: { value: "1.3" } });
+    await user.click(screen.getByRole("button", { name: /Arctic/ }));
+    await user.selectOptions(screen.getByRole("combobox", { name: "Federal state" }), "NW");
+
+    expect(document.querySelector(".app-frame")).toHaveStyle({ "--ui-scale": "1.3" });
+    expect((await db.settings.get("schoolState"))?.value).toBe("NW");
+  });
+
+  it("loads the selected state's school holidays into the calendar agenda", async () => {
+    await db.settings.put({ key: "schoolState", value: "NW" });
+    const today = localDateKey(new Date());
+    const fetchMock = vi.fn((input: RequestInfo | URL) => {
+      const isSchoolHolidayRequest = String(input).includes("SchoolHolidays");
+      return Promise.resolve(new Response(JSON.stringify(isSchoolHolidayRequest ? [{
+        id: "school-break",
+        name: [{ language: "EN", text: "Autumn break" }],
+        startDate: today,
+        endDate: today,
+        nationwide: false,
+        subdivisions: [{ code: "DE-NW" }],
+      }] : [])));
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    const user = userEvent.setup();
+    render(<App />);
+    await user.click(within(screen.getByRole("navigation", { name: "Main navigation" })).getByRole("link", { name: "Calendar" }));
+
+    expect(await screen.findByText("Autumn break")).toBeInTheDocument();
+    expect(screen.getByText("School holiday")).toBeInTheDocument();
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  it("uses saved holidays offline and refreshes them after reconnecting", async () => {
+    const date = localDateKey(new Date());
+    const year = date.slice(0, 4);
+    const cacheKey = `regionalCalendar:NW:${year}:en`;
+    await db.settings.bulkPut([
+      { key: "schoolState", value: "NW" },
+      {
+        key: cacheKey,
+        value: JSON.stringify([{
+          id: "school-saved",
+          name: "Saved autumn break",
+          startDate: date,
+          endDate: date,
+          type: "school",
+        }]),
+      },
+    ]);
+    const onlineDescriptor = Object.getOwnPropertyDescriptor(window.navigator, "onLine");
+    Object.defineProperty(window.navigator, "onLine", { configurable: true, value: false });
+    const fetchMock = vi.fn((input: RequestInfo | URL) => Promise.resolve(new Response(JSON.stringify(
+      String(input).includes("SchoolHolidays") ? [{
+        id: "school-current",
+        name: [{ language: "EN", text: "Updated autumn break" }],
+        startDate: date,
+        endDate: date,
+        nationwide: false,
+        subdivisions: [{ code: "DE-NW" }],
+      }] : [],
+    ))));
+    vi.stubGlobal("fetch", fetchMock);
+
+    try {
+      render(<App />);
+      const navigation = within(screen.getByRole("navigation", { name: "Main navigation" }));
+      await userEvent.setup().click(navigation.getByRole("link", { name: "Calendar" }));
+      expect(await screen.findByText("Saved autumn break")).toBeInTheDocument();
+      expect(screen.getByText(/Offline · showing saved holiday data/)).toBeInTheDocument();
+      expect(fetchMock).not.toHaveBeenCalled();
+
+      Object.defineProperty(window.navigator, "onLine", { configurable: true, value: true });
+      window.dispatchEvent(new Event("online"));
+      expect(await screen.findByText("Updated autumn break")).toBeInTheDocument();
+      await waitFor(async () => {
+        const saved = await db.settings.get(cacheKey);
+        expect(JSON.parse(saved!.value)).toMatchObject({
+          version: 1,
+          dates: [expect.objectContaining({ name: "Updated autumn break", type: "school" })],
+        });
+      });
+      expect(fetchMock).toHaveBeenCalledTimes(2);
+    } finally {
+      if (onlineDescriptor) Object.defineProperty(window.navigator, "onLine", onlineDescriptor);
+      else Reflect.deleteProperty(window.navigator, "onLine");
+    }
+  });
+
+  it("keeps local calendar events usable offline without cached regional data", async () => {
+    const date = localDateKey(new Date());
+    await db.settings.put({ key: "schoolState", value: "NW" });
+    await db.calendarEvents.add({
+      id: "offline-event",
+      type: "event",
+      title: "Local study session",
+      description: "",
+      startAt: new Date(`${date}T09:00:00`).toISOString(),
+      endAt: new Date(`${date}T10:00:00`).toISOString(),
+      allDay: false,
+      color: "#347ab4",
+      createdAt: 1,
+      updatedAt: 1,
+    });
+    const onlineDescriptor = Object.getOwnPropertyDescriptor(window.navigator, "onLine");
+    Object.defineProperty(window.navigator, "onLine", { configurable: true, value: false });
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+
+    try {
+      render(<App />);
+      await userEvent.setup().click(
+        within(screen.getByRole("navigation", { name: "Main navigation" })).getByRole("link", { name: "Calendar" }),
+      );
+      expect(await screen.findByRole("heading", { name: "Calendar", level: 1 })).toBeInTheDocument();
+      expect(await screen.findByText("Local study session")).toBeInTheDocument();
+      expect(await screen.findByText(/holiday data is unavailable/)).toBeInTheDocument();
+      expect(fetchMock).not.toHaveBeenCalled();
+    } finally {
+      if (onlineDescriptor) Object.defineProperty(window.navigator, "onLine", onlineDescriptor);
+      else Reflect.deleteProperty(window.navigator, "onLine");
+    }
   });
 
   it("persists settings and school records locally", async () => {
@@ -141,23 +664,65 @@ describe("Kxno Desk shell", () => {
     expect(JSON.parse((await db.settings.get("schoolDays"))!.value)[5]).toBe(true);
 
     await user.click(screen.getByRole("link", { name: "Home" }));
-    expect(await screen.findByRole("heading", { name: /^Good (morning|afternoon|evening), Ari$/ })).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: /^(Good (morning|afternoon|evening), Ari|Working late, Ari)$/ })).toBeInTheDocument();
     await user.click(screen.getByRole("link", { name: "Timetable" }));
     expect(await screen.findByText("Sat")).toBeInTheDocument();
   });
 
-  it("keeps assistant messages local and clearly reports the unconfigured backend", async () => {
+  it("does not download the model or send prompts before explicit confirmation", async () => {
+    vi.spyOn(localAiClient, "status").mockResolvedValue({ cached: false, loaded: false });
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
     const user = userEvent.setup();
     render(<App />);
+    await user.click(await screen.findByRole("link", { name: "AI Assistant" }));
+    await screen.findByRole("combobox", { name: "Preset" });
+    const downloadButton = await screen.findByRole("button", { name: /Download model/ });
+    expect(downloadButton).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Send" })).toBeDisabled();
+    await user.click(downloadButton);
+    expect(await screen.findByRole("dialog", { name: "Download local model?" })).toBeInTheDocument();
+    expect(fetchMock).not.toHaveBeenCalled();
+    await user.click(screen.getByRole("button", { name: "Cancel" }));
+    expect(await db.aiMessages.count()).toBe(0);
+  });
+
+  it("persists the selected local model and applies it when opening the assistant", async () => {
+    const user = userEvent.setup();
+    const selectModelSpy = vi.spyOn(localAiClient, "selectModel").mockImplementation(async (modelKey) => ({
+      cached: false,
+      loaded: false,
+      modelKey,
+    }));
+    render(<App />);
+
+    await user.click(await screen.findByRole("link", { name: "Settings" }));
+    await user.selectOptions(
+      await screen.findByRole("combobox", { name: "Local model" }),
+      "qwen2.5-0.5b",
+    );
+    await waitFor(async () => {
+      expect((await db.settings.get(LOCAL_AI_MODEL_SETTING_KEY))?.value).toBe("qwen2.5-0.5b");
+    });
+
     await user.click(screen.getByRole("link", { name: "AI Assistant" }));
     await screen.findByRole("combobox", { name: "Preset" });
-    await user.type(screen.getByRole("textbox", { name: "Message" }), "Explain fractions");
-    await user.click(screen.getByRole("button", { name: "Send" }));
+    await waitFor(() => expect(selectModelSpy).toHaveBeenCalledWith("qwen2.5-0.5b"));
+    expect(screen.getByText("Qwen2.5 0.5B")).toBeInTheDocument();
+  });
 
-    expect(await screen.findByText(/AI is not connected/)).toBeInTheDocument();
-    const savedMessages = await db.aiMessages.toArray();
-    expect(savedMessages).toHaveLength(2);
-    expect(savedMessages.find((message) => message.role === "user")?.content).toBe("Explain fractions");
+  it("shows local storage errors without falling back to remote inference", async () => {
+    vi.spyOn(localAiClient, "status").mockRejectedValue(new LocalAiError("cacheUnavailable"));
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+    const user = userEvent.setup();
+    render(<App />);
+    await user.click(await screen.findByRole("link", { name: "AI Assistant" }));
+
+    expect(await screen.findByRole("alert")).toHaveTextContent("This browser does not provide local model storage.");
+    expect(screen.getByRole("button", { name: "Send" })).toBeDisabled();
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(await db.aiMessages.count()).toBe(0);
   });
 
   it("preserves saved assistant presets while loading the assistant", async () => {
@@ -178,66 +743,117 @@ describe("Kxno Desk shell", () => {
 
     const user = userEvent.setup();
     render(<App />);
-    await user.click(screen.getByRole("link", { name: "AI Assistant" }));
+    await user.click(await screen.findByRole("link", { name: "AI Assistant" }));
     await screen.findByRole("combobox", { name: "Preset" });
 
     expect(await db.aiPresets.get(savedPreset.id)).toEqual(savedPreset);
     expect(await db.aiPresets.count()).toBe(1);
   });
 
-  it("requires per-message consent before enabling a cloud AI request", async () => {
+  it("generates locally even when legacy cloud settings are present", async () => {
     await db.settings.bulkPut([
       { key: "aiBackendUrl", value: "https://worker.example.test" },
       { key: "aiCloudEnabled", value: "true" },
       { key: "turnstileSiteKey", value: "0x4AAAAAAAtestsitekey" },
     ]);
-    vi.stubGlobal("turnstile", {
-      render: (_container: HTMLElement, options: { callback: (token: string) => void }) => {
-        options.callback("test-turnstile-token");
-        return "test-widget";
-      },
-      remove: () => undefined,
+    vi.spyOn(localAiClient, "status").mockResolvedValue({ cached: true, loaded: true, device: "wasm", wasmThreads: 1 });
+    const generateSpy = vi.spyOn(localAiClient, "generate").mockImplementation(async (_messages, _maxNewTokens, onToken) => {
+      onToken?.("4");
+      return { tokenCount: 1, timeToFirstTokenMs: 100, tokensPerSecond: 5, interrupted: false, device: "wasm" };
+    });
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+    const user = userEvent.setup();
+    render(<App />);
+    await user.click(await screen.findByRole("link", { name: "AI Assistant" }));
+
+    const message = await screen.findByRole("textbox", { name: "Message" });
+    const send = screen.getByRole("button", { name: "Send" });
+    await user.type(message, "Explain fractions");
+    await waitFor(() => expect(send).toBeEnabled());
+    await user.click(send);
+
+    expect(await screen.findByText("4")).toBeInTheDocument();
+    expect(generateSpy).toHaveBeenCalledOnce();
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect((await db.settings.get("aiCloudEnabled"))?.value).toBe("true");
+    expect((await db.aiMessages.toArray()).find((message) => message.role === "user")).toMatchObject({ content: "Explain fractions" });
+  });
+
+  it("keeps old assistant messages and attachments available after switching to local AI", async () => {
+    vi.spyOn(localAiClient, "status").mockResolvedValue({ cached: false, loaded: false });
+    await db.aiPresets.put({
+      id: "study-assistant",
+      name: "Tutor",
+      assistantName: "Tutor",
+      description: "",
+      style: "",
+      length: "medium",
+      depth: "guided",
+      language: "auto",
+      instructions: "",
+      model: "openrouter/free",
+      isDefault: true,
+    });
+    await db.aiConversations.put({ id: "old-chat", title: "Old chat", presetId: "study-assistant", updatedAt: Date.now() });
+    await db.aiMessages.put({ id: "old-message", conversationId: "old-chat", role: "user", content: "Keep this", createdAt: 1 });
+    const document = new Blob(["local attachment"], { type: "application/pdf" });
+    await db.aiAttachments.put({
+      id: "old-attachment",
+      messageId: "old-message",
+      name: "worksheet.pdf",
+      mimeType: "application/pdf",
+      size: document.size,
+      blob: document,
+      createdAt: 2,
     });
     const user = userEvent.setup();
     render(<App />);
-    await user.click(screen.getByRole("link", { name: "AI Assistant" }));
-
-    const message = await screen.findByRole("textbox", { name: "Message" });
-    const consent = await screen.findByRole("checkbox", { name: /Google Gemini/ });
-    const send = screen.getByRole("button", { name: "Send" });
-    await user.type(message, "Explain fractions");
-
-    expect(send).toBeDisabled();
-    await user.click(consent);
-    await waitFor(() => expect(send).toBeEnabled());
-    expect(await db.aiMessages.count()).toBe(0);
-  });
-
-  it("stores image attachments locally only after the user submits the message", async () => {
-    vi.stubGlobal("Blob", NodeBlob);
-    const user = userEvent.setup();
-    render(<App />);
-    await user.click(screen.getByRole("link", { name: "AI Assistant" }));
+    await user.click(await screen.findByRole("link", { name: "AI Assistant" }));
     await screen.findByRole("combobox", { name: "Preset" });
 
-    const image = new File([new Uint8Array([137, 80, 78, 71, 13, 10, 26, 10])], "diagram.png", { type: "image/png" });
-    fireEvent.change(screen.getAllByLabelText("Attach images or PDF")[0], { target: { files: [image] } });
-    expect(await db.aiAttachments.count()).toBe(0);
-    expect(screen.getByRole("button", { name: "Preview diagram.png" })).toBeInTheDocument();
+    expect(await screen.findByText("Keep this")).toBeInTheDocument();
+    expect(await screen.findByRole("button", { name: /worksheet\.pdf/ })).toBeInTheDocument();
+    expect(await db.aiMessages.get("old-message")).toMatchObject({ content: "Keep this" });
+    expect(await db.aiAttachments.get("old-attachment")).toMatchObject({
+      name: "worksheet.pdf",
+      mimeType: "application/pdf",
+      size: document.size,
+    });
+    expect((await db.aiAttachments.get("old-attachment"))?.blob).toBeDefined();
+  });
 
-    await user.type(screen.getByRole("textbox", { name: "Message" }), "Explain this");
-    await user.click(screen.getByRole("button", { name: "Send" }));
-    await waitFor(async () => expect(await db.aiAttachments.count()).toBe(1));
-    const saved = await db.aiAttachments.toCollection().first();
-    expect(saved).toMatchObject({ name: "diagram.png", mimeType: "image/png", size: 8 });
-    expect([...new Uint8Array(await readBlobAsArrayBuffer(saved!.blob))]).toEqual([137, 80, 78, 71, 13, 10, 26, 10]);
-    expect(await screen.findByText(/AI is not connected/)).toBeInTheDocument();
+  it("persists a paused timer and stores imported files on this device", async () => {
+    vi.spyOn(URL, "createObjectURL").mockReturnValue("blob:local-test-file");
+    vi.spyOn(URL, "revokeObjectURL").mockImplementation(() => undefined);
+    const user = userEvent.setup();
+    render(<App />);
+    await user.click(within(screen.getByRole("navigation", { name: "Main navigation" })).getByRole("link", { name: "Timer" }));
+    const duration = await screen.findByRole("spinbutton", { name: "Duration" });
+    fireEvent.change(duration, { target: { value: "1" } });
+    await user.click(screen.getByRole("button", { name: "Start timer" }));
+    await new Promise((resolve) => window.setTimeout(resolve, 1_100));
+    await user.click(await screen.findByRole("button", { name: "Pause" }));
+
+    const timerSetting = await db.settings.get("focusTimerState");
+    expect(JSON.parse(timerSetting!.value)).toMatchObject({
+      plannedSeconds: 60,
+      runningSince: null,
+    });
+    expect(JSON.parse(timerSetting!.value).elapsedSeconds).toBeGreaterThanOrEqual(1);
+
+    await user.click(within(screen.getByRole("navigation", { name: "Main navigation" })).getByRole("link", { name: "Files" }));
+    const file = new File(["local reference"], "reference.txt", { type: "text/plain" });
+    fireEvent.change(await screen.findByLabelText("Add files"), { target: { files: [file] } });
+    await waitFor(async () => expect(await db.files.count()).toBe(1));
+    expect(await db.files.toCollection().first()).toMatchObject({ name: "reference.txt", size: file.size });
   });
 
   it("creates and edits tasks, calendar events, and autosaved notes locally", async () => {
     const user = userEvent.setup();
     render(<App />);
     await user.click(within(screen.getByRole("navigation", { name: "Main navigation" })).getByRole("link", { name: "Tasks" }));
+    await screen.findByRole("heading", { name: "Tasks", level: 1 });
     await user.click(screen.getAllByRole("button", { name: "Add task" })[0]);
     await user.type(screen.getByRole("textbox", { name: "Task" }), "Finish worksheet");
     await user.click(screen.getByRole("button", { name: "Save" }));
@@ -245,6 +861,7 @@ describe("Kxno Desk shell", () => {
     expect(await db.tasks.count()).toBe(1);
 
     await user.click(within(screen.getByRole("navigation", { name: "Main navigation" })).getByRole("link", { name: "Calendar" }));
+    await screen.findByRole("heading", { name: "Calendar", level: 1 });
     await user.click(screen.getAllByRole("button", { name: "Add event" })[0]);
     await user.type(screen.getByRole("textbox", { name: "Title" }), "Biology exam");
     await user.selectOptions(screen.getByRole("combobox", { name: "Type" }), "exam");
@@ -252,7 +869,7 @@ describe("Kxno Desk shell", () => {
     expect(await db.calendarEvents.toCollection().first()).toMatchObject({ title: "Biology exam", type: "exam" });
 
     await user.click(screen.getByRole("link", { name: "Notes" }));
-    await user.click(screen.getAllByRole("button", { name: "New note" })[0]);
+    await user.click((await screen.findAllByRole("button", { name: "New note" }))[0]);
     fireEvent.change(await screen.findByRole("textbox", { name: "Note title" }), { target: { value: "Cell structure" } });
     await user.type(screen.getByRole("textbox", { name: "Note content" }), "Mitochondria produce energy.");
     fireEvent.blur(screen.getByRole("textbox", { name: "Note content" }));
@@ -262,20 +879,24 @@ describe("Kxno Desk shell", () => {
     });
   });
 
-  it("records focus sessions and stores imported files on this device", async () => {
+  it("runs a simple persistent timer and stores imported files on this device", async () => {
     const user = userEvent.setup();
+    vi.spyOn(URL, "createObjectURL").mockReturnValue("blob:test-preview");
     render(<App />);
-    await user.click(screen.getByRole("link", { name: "Focus" }));
-    await user.click(screen.getByRole("button", { name: "Start focus" }));
-    await new Promise((resolve) => window.setTimeout(resolve, 1100));
-    await user.click(screen.getByRole("button", { name: "Stop session" }));
-    await waitFor(async () => expect(await db.focusSessions.count()).toBe(1));
-    expect(await db.focusSessions.toCollection().first()).toMatchObject({ kind: "focus", completed: false });
+    await user.click(within(screen.getByRole("navigation", { name: "Main navigation" })).getByRole("link", { name: "Timer" }));
+    await user.click(await screen.findByRole("button", { name: "Start timer" }));
+    await waitFor(async () => expect((await db.settings.get("focusTimerState"))?.value).toContain('"plannedSeconds":1500'));
+    expect(screen.getByRole("button", { name: "Pause" })).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Reset" }));
+    expect(await db.settings.get("focusTimerState")).toBeUndefined();
 
     await user.click(screen.getByRole("link", { name: "Files" }));
+    await screen.findByRole("heading", { name: "Files", level: 1 });
     const file = new File(["local reference"], "reference.txt", { type: "text/plain" });
     fireEvent.change(screen.getByLabelText("Add files"), { target: { files: [file] } });
     await waitFor(async () => expect(await db.files.count()).toBe(1));
     expect(await db.files.toCollection().first()).toMatchObject({ name: "reference.txt", size: file.size });
+    expect(await screen.findByRole("heading", { name: "reference.txt" })).toBeInTheDocument();
+    expect(URL.createObjectURL).toHaveBeenCalled();
   });
 });

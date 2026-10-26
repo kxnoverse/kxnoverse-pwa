@@ -2,11 +2,14 @@ name = "kxnodesk-ai"
 main = "src/index.ts"
 compatibility_date = "2025-06-01"
 
+[observability.logs]
+enabled = true
+
 [vars]
-APP_ORIGIN = ""
-AI_PROVIDER = "gemini"
-AI_MODEL = ""
-ALLOWED_MODELS = ""
+APP_ORIGIN = "https://kxnoverse.github.io"
+AI_PROVIDER = "openrouter"
+AI_MODEL = "openrouter/free"
+ALLOWED_MODELS = "openrouter/free"
 
 [[durable_objects.bindings]]
 name = "USER_QUOTA"
@@ -15,6 +18,3 @@ class_name = "UserQuota"
 [[migrations]]
 tag = "v1"
 new_sqlite_classes = ["UserQuota"]
-
-[ai]
-binding = "AI"

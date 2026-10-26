@@ -165,6 +165,12 @@ export interface LocalFile {
   blob: Blob;
 }
 
+export interface ArcadeRecord {
+  id: string;
+  value: string;
+  updatedAt: number;
+}
+
 class KxnoDatabase extends Dexie {
   subjects!: EntityTable<Subject, "id">;
   teachers!: EntityTable<Teacher, "id">;
@@ -180,6 +186,7 @@ class KxnoDatabase extends Dexie {
   notes!: EntityTable<SchoolNote, "id">;
   focusSessions!: EntityTable<FocusSession, "id">;
   files!: EntityTable<LocalFile, "id">;
+  arcadeData!: EntityTable<ArcadeRecord, "id">;
 
   constructor() {
     super("KxnoDesk");
@@ -230,6 +237,23 @@ class KxnoDatabase extends Dexie {
       notes: "id, updatedAt, pinned, folder, subjectId",
       focusSessions: "id, startedAt, endedAt, kind, taskId",
       files: "id, name, category, subjectId, noteId, modifiedAt",
+    });
+    this.version(5).stores({
+      subjects: "id, name",
+      teachers: "id, name",
+      timetable: "id, weekday, subjectId, teacherId, weekType",
+      exceptions: "id, date, type, entryId",
+      settings: "key",
+      aiPresets: "id, name",
+      aiConversations: "id, updatedAt",
+      aiMessages: "id, conversationId, createdAt",
+      aiAttachments: "id, messageId, createdAt",
+      tasks: "id, dueDate, completed, subjectId, priority, updatedAt",
+      calendarEvents: "id, startAt, endAt, taskId",
+      notes: "id, updatedAt, pinned, folder, subjectId",
+      focusSessions: "id, startedAt, endedAt, kind, taskId",
+      files: "id, name, category, subjectId, noteId, modifiedAt",
+      arcadeData: "id, updatedAt",
     });
   }
 }

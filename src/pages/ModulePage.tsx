@@ -9,7 +9,6 @@ export function ModulePage() {
     tasks: "tasks",
     calendar: "calendar",
     notes: "notes",
-    focus: "focus",
     files: "files",
   };
   const label = labels[module.toLowerCase()];

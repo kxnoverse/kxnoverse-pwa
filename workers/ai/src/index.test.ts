@@ -1,25 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-const geminiMocks = vi.hoisted(() => ({
-  constructor: vi.fn(),
-  createPartFromBase64: vi.fn((data: string, mimeType: string) => ({ inlineData: { data, mimeType } })),
-  generateContentStream: vi.fn(),
-  generateContent: vi.fn(),
-}));
-
-vi.mock("@google/genai", () => ({
-  createPartFromBase64: geminiMocks.createPartFromBase64,
-  GoogleGenAI: class {
-    models = {
-      generateContentStream: geminiMocks.generateContentStream,
-      generateContent: geminiMocks.generateContent,
-    };
-    constructor(options: unknown) {
-      geminiMocks.constructor(options);
-    }
-  },
-}));
-
 import worker, { generateAnswerStream, UserQuota, validRequest } from "./index";
 
 beforeEach(() => {
@@ -75,7 +55,7 @@ describe("AI Worker access controls", () => {
     expect((await (await consume(limiter, "2026-06-01", 100)).json()).allowed).toBe(false);
   });
 
-  describe("Gemini multimodal requests", () => {
+  describe("OpenRouter chat and attachments", () => {
     const preset = {
       assistantName: "Tutor",
       style: "Clear",
@@ -87,7 +67,7 @@ describe("AI Worker access controls", () => {
     const request = {
       turnstileToken: "valid-turnstile-token",
       message: "Explain these files",
-      model: "gemini-2.5-flash",
+      model: "openrouter/free",
       preset,
       history: [{ role: "user" as const, content: "Earlier question" }, { role: "model" as const, content: "Earlier answer" }],
       attachments: [
@@ -103,48 +83,104 @@ describe("AI Worker access controls", () => {
       expect(validRequest({ ...request, attachments: [{ ...request.attachments[0], mimeType: "image/svg+xml" }] })).toBe(false);
     });
 
-    it("places conversation history, system preset, text, and real inline attachment parts in the Google SDK request", async () => {
-      const signal = new AbortController().signal;
-      geminiMocks.generateContentStream.mockResolvedValue((async function* () {
-        yield { text: "A useful " };
-        yield { text: "explanation." };
-      })());
+    it("uses the dedicated OpenRouter secret for free-model chat requests", async () => {
+      const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({
+        choices: [{ message: { content: "OpenRouter answer" } }],
+      }), { headers: { "Content-Type": "application/json" } }));
+      vi.stubGlobal("fetch", fetchMock);
       const env = {
-        AI_PROVIDER: "gemini" as const,
-        AI_MODEL: "gemini-2.5-flash",
-        AI_API_KEY: "server-only-test-key",
-        ALLOWED_MODELS: "gemini-2.5-flash,gemini-2.5-pro",
+        AI_PROVIDER: "openrouter" as const,
+        AI_MODEL: "openrouter/free",
+        ALLOWED_MODELS: "openrouter/free",
+        OPENROUTER_API_KEY: "server-only-openrouter-test-key",
       };
       const chunks: string[] = [];
-      for await (const chunk of generateAnswerStream(env, "https://app.example.test", request, signal)) chunks.push(chunk);
+      for await (const chunk of generateAnswerStream(
+        env,
+        "https://app.example.test",
+        { ...request, model: env.AI_MODEL, attachments: [] },
+        new AbortController().signal,
+      )) chunks.push(chunk);
 
-      expect(chunks.join("")).toBe("A useful explanation.");
-      expect(geminiMocks.constructor).toHaveBeenCalledWith(expect.objectContaining({
-        apiKey: "server-only-test-key",
-        httpOptions: expect.objectContaining({ timeout: 90_000, retryOptions: expect.objectContaining({ attempts: 2 }) }),
-      }));
-      const [sdkRequest] = geminiMocks.generateContentStream.mock.calls[0];
-      expect(sdkRequest.model).toBe("gemini-2.5-flash");
-      expect(sdkRequest.contents).toHaveLength(3);
-      expect(sdkRequest.contents[0]).toMatchObject({ role: "user", parts: [{ text: "Earlier question" }] });
-      expect(sdkRequest.contents[1]).toMatchObject({ role: "model", parts: [{ text: "Earlier answer" }] });
-      expect(sdkRequest.contents[2].parts).toEqual([
-        { text: "Explain these files" },
-        { inlineData: { data: "iVBORw0KGgo=", mimeType: "image/png" } },
-        { inlineData: { data: "JVBERi0xLjc=", mimeType: "application/pdf" } },
+      expect(chunks.join("")).toBe("OpenRouter answer");
+      expect(fetchMock).toHaveBeenCalledWith(
+        "https://openrouter.ai/api/v1/chat/completions",
+        expect.objectContaining({
+          headers: expect.objectContaining({ Authorization: "Bearer server-only-openrouter-test-key" }),
+        }),
+      );
+      expect(JSON.parse(String(fetchMock.mock.calls[0][1].body))).toMatchObject({
+        model: env.AI_MODEL,
+        stream: false,
+      });
+    });
+
+    it("sends OpenRouter image and PDF attachments as multimodal data and uses the free PDF parser", async () => {
+      const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({
+        choices: [{ message: { content: "I can read both attachments." } }],
+      }), { headers: { "Content-Type": "application/json" } }));
+      vi.stubGlobal("fetch", fetchMock);
+      const env = {
+        AI_PROVIDER: "openrouter" as const,
+        AI_MODEL: "openrouter/free",
+        ALLOWED_MODELS: "openrouter/free",
+        OPENROUTER_API_KEY: "server-only-openrouter-test-key",
+      };
+      const chunks: string[] = [];
+      for await (const chunk of generateAnswerStream(
+        env,
+        "https://app.example.test",
+        { ...request, model: env.AI_MODEL },
+        new AbortController().signal,
+      )) chunks.push(chunk);
+
+      expect(chunks.join("")).toBe("I can read both attachments.");
+      const body = JSON.parse(String(fetchMock.mock.calls[0][1].body));
+      expect(body.messages[1].content).toEqual([
+        { type: "text", text: "Explain these files" },
+        { type: "image_url", image_url: { url: "data:image/png;base64,iVBORw0KGgo=" } },
+        {
+          type: "file",
+          file: {
+            filename: "notes.pdf",
+            file_data: "data:application/pdf;base64,JVBERi0xLjc=",
+          },
+        },
       ]);
-      expect(sdkRequest.config.systemInstruction).toContain("Use examples");
-      expect(sdkRequest.config.abortSignal).toBe(signal);
-      expect(geminiMocks.createPartFromBase64).toHaveBeenCalledTimes(2);
+      expect(body.plugins).toEqual([{ id: "file-parser", pdf: { engine: "cloudflare-ai" } }]);
+    });
+
+    it("does not enable PDF parsing for OpenRouter image-only requests", async () => {
+      const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({
+        choices: [{ message: { content: "Image received." } }],
+      }), { headers: { "Content-Type": "application/json" } }));
+      vi.stubGlobal("fetch", fetchMock);
+      const env = {
+        AI_PROVIDER: "openrouter" as const,
+        AI_MODEL: "openrouter/free",
+        ALLOWED_MODELS: "openrouter/free",
+        OPENROUTER_API_KEY: "server-only-openrouter-test-key",
+      };
+      for await (const _chunk of generateAnswerStream(
+        env,
+        "https://app.example.test",
+        { ...request, model: env.AI_MODEL, attachments: [request.attachments[0]] },
+        new AbortController().signal,
+      )) { /* consume */ }
+
+      const body = JSON.parse(String(fetchMock.mock.calls[0][1].body));
+      expect(body.messages[1].content[1].image_url.url).toBe("data:image/png;base64,iVBORw0KGgo=");
+      expect(body.plugins).toBeUndefined();
     });
   });
 
   it("rejects unapproved origins and requires a verified Turnstile token before quota or provider use", async () => {
     const env = {
       APP_ORIGIN: "https://app.example.test",
-      AI_PROVIDER: "gemini" as const,
-      AI_MODEL: "gemini-2.5-flash",
-      AI_API_KEY: "server-only-test-key",
+      AI_PROVIDER: "openrouter" as const,
+      AI_MODEL: "openrouter/free",
+      ALLOWED_MODELS: "openrouter/free",
+      OPENROUTER_API_KEY: "server-only-openrouter-test-key",
       TURNSTILE_SECRET_KEY: "server-only-turnstile-secret",
       USER_QUOTA: {
         idFromName: (id: string) => id,
@@ -169,6 +205,9 @@ describe("AI Worker access controls", () => {
         success: true,
         hostname: "app.example.test",
         action: "test",
+      }), { headers: { "Content-Type": "application/json" } }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({
+        choices: [{ message: { content: "OK" } }],
       }), { headers: { "Content-Type": "application/json" } }));
     vi.stubGlobal("fetch", fetchMock);
     const invalidChallenge = await worker.fetch(new Request("https://worker.example.test/api/test", {
@@ -187,7 +226,6 @@ describe("AI Worker access controls", () => {
     expect(wrongAction.status).toBe(403);
     expect(await wrongAction.json()).toEqual({ error: "challenge_required" });
 
-    geminiMocks.generateContent.mockResolvedValue({ text: "OK" });
     const verified = await worker.fetch(new Request("https://worker.example.test/api/test", {
       method: "POST",
       headers: { Origin: env.APP_ORIGIN, "Content-Type": "application/json", "CF-Connecting-IP": "192.0.2.5" },
@@ -195,10 +233,31 @@ describe("AI Worker access controls", () => {
     }), env);
     expect(verified.status).toBe(200);
     expect(await verified.json()).toMatchObject({ ok: true, model: env.AI_MODEL });
-    expect(fetchMock).toHaveBeenCalledTimes(3);
+    expect(fetchMock).toHaveBeenCalledTimes(4);
     expect(String(fetchMock.mock.calls[2][1]?.body)).toContain("server-only-turnstile-secret");
     expect(String(fetchMock.mock.calls[2][1]?.body)).toContain("valid-token");
     expect(String(fetchMock.mock.calls[2][1]?.body)).toContain("192.0.2.5");
+
+    const providerErrorLog = vi.spyOn(console, "error").mockImplementation(() => {});
+    fetchMock.mockResolvedValueOnce(new Response(JSON.stringify({
+      success: true,
+      hostname: "app.example.test",
+      action: "test",
+    }), { headers: { "Content-Type": "application/json" } }))
+      .mockResolvedValueOnce(new Response("rate limited", { status: 429 }));
+    const unavailable = await worker.fetch(new Request("https://worker.example.test/api/test", {
+      method: "POST",
+      headers: { Origin: env.APP_ORIGIN, "Content-Type": "application/json", "CF-Connecting-IP": "192.0.2.5" },
+      body: JSON.stringify({ turnstileToken: "valid-token" }),
+    }), env);
+    expect(unavailable.status).toBe(503);
+    expect(await unavailable.json()).toEqual({ error: "provider_unavailable" });
+    expect(providerErrorLog).toHaveBeenCalledWith("AI provider connection test failed.", {
+      provider: "openrouter",
+      errorType: "Error",
+      failureStage: "http",
+      status: 429,
+    });
 
     const preflight = await worker.fetch(new Request("https://worker.example.test/api/chat", {
       method: "OPTIONS",
@@ -206,5 +265,188 @@ describe("AI Worker access controls", () => {
     }), env);
     expect(preflight.status).toBe(204);
     expect(preflight.headers.get("Access-Control-Allow-Origin")).toBe(env.APP_ORIGIN);
+  });
+
+  it("tests OpenRouter with its dedicated server-side key and restricts it to free routing", async () => {
+    const env = {
+      APP_ORIGIN: "https://app.example.test",
+      AI_PROVIDER: "openrouter" as const,
+      AI_MODEL: "openrouter/free",
+      ALLOWED_MODELS: "openrouter/free",
+      OPENROUTER_API_KEY: "server-only-openrouter-test-key",
+      TURNSTILE_SECRET_KEY: "server-only-turnstile-secret",
+      USER_QUOTA: {
+        idFromName: (id: string) => id,
+        get: () => ({ fetch: async () => new Response(JSON.stringify({ allowed: true })) }),
+      },
+    };
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(new Response(JSON.stringify({
+        success: true,
+        hostname: "app.example.test",
+        action: "test",
+      }), { headers: { "Content-Type": "application/json" } }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({
+        choices: [{ message: { content: "OK" } }],
+      }), { headers: { "Content-Type": "application/json" } }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const tested = await worker.fetch(new Request("https://worker.example.test/api/test", {
+      method: "POST",
+      headers: { Origin: env.APP_ORIGIN, "Content-Type": "application/json", "CF-Connecting-IP": "192.0.2.7" },
+      body: JSON.stringify({ turnstileToken: "valid-token" }),
+    }), env);
+
+    expect(tested.status).toBe(200);
+    expect(await tested.json()).toEqual({ ok: true, model: env.AI_MODEL });
+    const [providerUrl, providerInit] = fetchMock.mock.calls[1];
+    expect(providerUrl).toBe("https://openrouter.ai/api/v1/chat/completions");
+    expect(providerInit.headers).toMatchObject({
+      Authorization: "Bearer server-only-openrouter-test-key",
+      "HTTP-Referer": env.APP_ORIGIN,
+      "X-Title": "Kxno Desk",
+    });
+    expect(JSON.parse(String(providerInit.body))).toMatchObject({
+      model: env.AI_MODEL,
+      max_tokens: 64,
+      stream: false,
+    });
+
+    const providerErrorLog = vi.spyOn(console, "error").mockImplementation(() => {});
+    fetchMock
+      .mockResolvedValueOnce(new Response(JSON.stringify({
+        success: true,
+        hostname: "app.example.test",
+        action: "test",
+      }), { headers: { "Content-Type": "application/json" } }))
+      .mockRejectedValueOnce(new TypeError("Do not log this sensitive network error."));
+    const networkFailure = await worker.fetch(new Request("https://worker.example.test/api/test", {
+      method: "POST",
+      headers: { Origin: env.APP_ORIGIN, "Content-Type": "application/json", "CF-Connecting-IP": "192.0.2.7" },
+      body: JSON.stringify({ turnstileToken: "valid-token" }),
+    }), env);
+    expect(networkFailure.status).toBe(503);
+    expect(providerErrorLog).toHaveBeenCalledWith("AI provider connection test failed.", {
+      provider: "openrouter",
+      errorType: "Error",
+      failureStage: "network",
+    });
+
+    const paidModelResponse = await worker.fetch(new Request("https://worker.example.test/api/test", {
+      method: "POST",
+      headers: { Origin: env.APP_ORIGIN, "Content-Type": "application/json", "CF-Connecting-IP": "192.0.2.7" },
+      body: JSON.stringify({ turnstileToken: "valid-token" }),
+    }), { ...env, AI_MODEL: "openai/some-model" });
+    expect(paidModelResponse.status).toBe(503);
+    expect(await paidModelResponse.json()).toEqual({ error: "provider_not_configured" });
+    expect(fetchMock).toHaveBeenCalledTimes(4);
+
+    fetchMock
+      .mockResolvedValueOnce(new Response(JSON.stringify({
+        success: true,
+        hostname: "app.example.test",
+        action: "test",
+      }), { headers: { "Content-Type": "application/json" } }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({
+        choices: [{ message: { content: "OK" } }],
+      }), { headers: { "Content-Type": "application/json" } }));
+    const freeRouter = await worker.fetch(new Request("https://worker.example.test/api/test", {
+      method: "POST",
+      headers: { Origin: env.APP_ORIGIN, "Content-Type": "application/json", "CF-Connecting-IP": "192.0.2.7" },
+      body: JSON.stringify({ turnstileToken: "valid-token" }),
+    }), {
+      ...env,
+      AI_MODEL: "openrouter/free",
+      ALLOWED_MODELS: "openrouter/free",
+    });
+    expect(freeRouter.status).toBe(200);
+    expect(await freeRouter.json()).toEqual({ ok: true, model: "openrouter/free" });
+    expect(fetchMock).toHaveBeenCalledTimes(6);
+    expect(JSON.parse(String(fetchMock.mock.calls[5][1]?.body)).model).toBe("openrouter/free");
+  });
+
+  it("uses the server-configured free model for chat even when the client sends a stale model ID", async () => {
+    const env = {
+      APP_ORIGIN: "https://app.example.test",
+      AI_PROVIDER: "openrouter" as const,
+      AI_MODEL: "openrouter/free",
+      ALLOWED_MODELS: "openrouter/free",
+      OPENROUTER_API_KEY: "server-only-openrouter-test-key",
+      TURNSTILE_SECRET_KEY: "server-only-turnstile-secret",
+      USER_QUOTA: {
+        idFromName: (id: string) => id,
+        get: () => ({ fetch: async () => new Response(JSON.stringify({ allowed: true })) }),
+      },
+    };
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(new Response(JSON.stringify({
+        success: true,
+        hostname: "app.example.test",
+        action: "chat",
+      }), { headers: { "Content-Type": "application/json" } }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({
+        choices: [{ message: { content: "OpenRouter chat answer" } }],
+      }), { headers: { "Content-Type": "application/json" } }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const chat = await worker.fetch(new Request("https://worker.example.test/api/chat", {
+      method: "POST",
+      headers: { Origin: env.APP_ORIGIN, "Content-Type": "application/json", "CF-Connecting-IP": "192.0.2.8" },
+      body: JSON.stringify({
+        turnstileToken: "valid-token",
+        message: "Explain this topic",
+        model: "legacy/old-model",
+        preset: {
+          assistantName: "Tutor",
+          style: "Clear",
+          length: "short",
+          depth: "basic",
+          language: "en",
+          instructions: "",
+        },
+        history: [],
+        attachments: [],
+      }),
+    }), env);
+
+    expect(chat.status).toBe(200);
+    const eventStream = await chat.text();
+    expect(eventStream).toContain('data: {"text":"OpenRouter chat answer"}');
+    expect(eventStream).not.toContain("legacy/old-model");
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(JSON.parse(String(fetchMock.mock.calls[1][1]?.body)).model).toBe("openrouter/free");
+  });
+
+  it("accepts OpenAI-compatible text content blocks from OpenRouter", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({
+      choices: [{ message: { content: [{ type: "text", text: "Free " }, { type: "text", text: "router answer" }] } }],
+    }), { headers: { "Content-Type": "application/json" } }));
+    vi.stubGlobal("fetch", fetchMock);
+    const env = {
+      AI_PROVIDER: "openrouter" as const,
+      AI_MODEL: "openrouter/free",
+      ALLOWED_MODELS: "openrouter/free",
+      OPENROUTER_API_KEY: "server-only-openrouter-test-key",
+    };
+    const request = {
+      turnstileToken: "valid-turnstile-token",
+      message: "Explain this",
+      model: "openrouter/free",
+      preset: {
+        assistantName: "Tutor",
+        style: "Clear",
+        length: "short" as const,
+        depth: "basic" as const,
+        language: "en" as const,
+        instructions: "",
+      },
+      history: [],
+      attachments: [],
+    };
+    const chunks: string[] = [];
+    for await (const chunk of generateAnswerStream(env, "https://app.example.test", request, new AbortController().signal)) {
+      chunks.push(chunk);
+    }
+    expect(chunks.join("")).toBe("Free router answer");
   });
 });

@@ -1,0 +1,29 @@
+Offline Word Guess data
+=======================
+
+The bundled word lists are filtered from the Hunspell dictionaries distributed
+by wooorm/dictionaries:
+- English: https://github.com/wooorm/dictionaries/tree/main/dictionaries/en
+  The source dictionary is SCOWL-derived and is covered by the MIT and BSD
+  terms described in LICENSE-en.txt.
+- German: https://github.com/wooorm/dictionaries/tree/main/dictionaries/de
+  The source dictionary is igerman98 and is covered by GPL-2.0 or GPL-3.0.
+  See LICENSE-de.txt and the accompanying GPL license texts.
+
+The solution lists are drawn from the most frequent matching entries in the
+2018 English and German lists from FrequencyWords by hermitdave:
+https://github.com/hermitdave/FrequencyWords/tree/master/content/2018
+Those lists are derived from OpenSubtitles 2018 and their content is licensed
+CC BY-SA 4.0. The bundled solution lists are filtered to words present in the
+corresponding Hunspell dictionary; known offensive terms and unsuitable
+solutions are excluded. Attribution: hermitdave, FrequencyWords, 2018.
+See LICENSE-CC-BY-SA-4.0.txt.
+
+Lists are normalized to NFC and lowercase. German ä, ö, ü and ß remain
+distinct single letters. Every solution is also in the valid-guess list.
+Current list counts (valid guesses / solutions):
+  English: 4 letters 2,916 / 2,306; 5 letters 4,564 / 3,387; 6 letters 6,497 / 4,183.
+  German:  4 letters 1,249 /   963; 5 letters 1,969 / 1,445; 6 letters 3,269 / 2,069.
+
+The JSON files are dynamically bundled under src/data/word-lists and included
+in the production service-worker precache; no dictionary network request occurs.

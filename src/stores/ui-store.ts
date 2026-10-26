@@ -25,6 +25,7 @@ export const defaultAppearance = {
   imageBlur: 0,
   imageOverlay: 0.52,
   hourFormat: "24" as "12" | "24",
+  uiScale: 1,
 };
 
 export type Appearance = typeof defaultAppearance;

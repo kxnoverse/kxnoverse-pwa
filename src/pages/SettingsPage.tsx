@@ -10,8 +10,14 @@ import { builtInThemes, type ThemePreset } from "../data/theme-presets";
 import { createId } from "../data/db";
 import { Link } from "react-router-dom";
 import { exportDataBackup, importDataBackup } from "../data/backup";
-import { assistantClient, AssistantServiceError } from "../data/ai-client";
-import { TurnstileChallenge } from "../components/TurnstileChallenge";
+import { germanStates } from "../data/regional-calendar";
+import {
+  DEFAULT_LOCAL_AI_MODEL,
+  LOCAL_AI_MODELS,
+  LOCAL_AI_MODEL_SETTING_KEY,
+  getLocalAiModel,
+  localAiModelSizeLabel,
+} from "../data/local-ai";
 
 const styles: Appearance["backgroundStyle"][] = ["solid", "grid", "glow", "chrome", "custom"];
 
@@ -22,11 +28,15 @@ export function SettingsPage() {
   const image = useLiveQuery(() => db.settings.get("backgroundImage"), [], undefined)?.value;
   const profile = useLiveQuery(() => db.settings.get("profileName"), [], undefined);
   const daysSetting = useLiveQuery(() => db.settings.get("schoolDays"), [], undefined);
+  const schoolStateSetting = useLiveQuery(() => db.settings.get("schoolState"), [], undefined);
   const customThemesSetting = useLiveQuery(() => db.settings.get("customThemes"), [], undefined);
+  const localAiModelKey = useLiveQuery(
+    async () => (await db.settings.get(LOCAL_AI_MODEL_SETTING_KEY))?.value ?? DEFAULT_LOCAL_AI_MODEL.key,
+    [],
+    DEFAULT_LOCAL_AI_MODEL.key,
+  ) ?? DEFAULT_LOCAL_AI_MODEL.key;
+  const selectedLocalAiModel = getLocalAiModel(localAiModelKey) ?? DEFAULT_LOCAL_AI_MODEL;
   const selectedTheme = useLiveQuery(() => db.settings.get("selectedTheme"), [], undefined)?.value ?? "amethyst";
-  const aiEndpointSetting = useLiveQuery(() => db.settings.get("aiBackendUrl"), [], undefined);
-  const aiCloudEnabledSetting = useLiveQuery(() => db.settings.get("aiCloudEnabled"), [], undefined);
-  const turnstileSiteKeySetting = useLiveQuery(() => db.settings.get("turnstileSiteKey"), [], undefined);
   const localRecordCount = useLiveQuery(async () => {
     const counts = await Promise.all([
       db.subjects.count(), db.teachers.count(), db.timetable.count(), db.exceptions.count(),
@@ -40,12 +50,6 @@ export function SettingsPage() {
   const backupInput = useRef<HTMLInputElement>(null);
   const [error, setError] = useState("");
   const [backupNotice, setBackupNotice] = useState("");
-  const [aiEndpointDraft, setAiEndpointDraft] = useState("");
-  const [turnstileSiteKeyDraft, setTurnstileSiteKeyDraft] = useState("");
-  const [turnstileToken, setTurnstileToken] = useState("");
-  const [turnstileVersion, setTurnstileVersion] = useState(0);
-  const [aiEndpointError, setAiEndpointError] = useState("");
-  const [aiConnectionState, setAiConnectionState] = useState<"idle" | "testing" | "connected" | "error">("idle");
   const [nameDraft, setNameDraft] = useState("");
   const [themeNameDraft, setThemeNameDraft] = useState("");
   const customThemes = useMemo<ThemePreset[]>(() => {
@@ -64,7 +68,6 @@ export function SettingsPage() {
       return Array.from({ length: 7 }, (_, index) => index < 5);
     }
   }, [daysSetting?.value]);
-  const aiCloudEnabled = aiCloudEnabledSetting?.value === "true";
   const [colorDrafts, setColorDrafts] = useState({
     accent: appearance.accent,
     background: appearance.background,
@@ -80,8 +83,6 @@ export function SettingsPage() {
   }, [appearance.accent, appearance.background, appearance.surface]);
 
   useEffect(() => setNameDraft(profile?.value ?? ""), [profile?.value]);
-  useEffect(() => setAiEndpointDraft(aiEndpointSetting?.value ?? ""), [aiEndpointSetting?.value]);
-  useEffect(() => setTurnstileSiteKeyDraft(turnstileSiteKeySetting?.value ?? ""), [turnstileSiteKeySetting?.value]);
   useEffect(() => {
     const theme = [...builtInThemes, ...customThemes].find((item) => item.id === selectedTheme);
     setThemeNameDraft(theme?.name ?? "");
@@ -101,7 +102,8 @@ export function SettingsPage() {
   async function applyTheme(theme: ThemePreset) {
     try {
       if (theme.id !== "custom") {
-        useUiStore.getState().updateAppearance({ ...defaultAppearance, ...theme.appearance });
+        const uiScale = useUiStore.getState().appearance.uiScale;
+        useUiStore.getState().updateAppearance({ ...defaultAppearance, ...theme.appearance, uiScale });
       }
       await db.settings.put({ key: "selectedTheme", value: theme.id });
       setError("");
@@ -168,6 +170,32 @@ export function SettingsPage() {
     }
   }
 
+  async function updateSchoolState(value: string) {
+    if (value && !germanStates.includes(value as (typeof germanStates)[number])) {
+      setError("saveError");
+      return;
+    }
+    try {
+      await db.settings.put({ key: "schoolState", value });
+      setError("");
+    } catch {
+      setError("saveError");
+    }
+  }
+
+  async function updateLocalAiModel(value: string) {
+    if (!getLocalAiModel(value)) {
+      setError("saveError");
+      return;
+    }
+    try {
+      await db.settings.put({ key: LOCAL_AI_MODEL_SETTING_KEY, value });
+      setError("");
+    } catch {
+      setError("saveError");
+    }
+  }
+
   async function selectImage(event: ChangeEvent<HTMLInputElement>) {
     const file = event.target.files?.[0];
     if (!file) return;
@@ -224,75 +252,9 @@ export function SettingsPage() {
     }
   }
 
-  async function saveAiEndpoint() {
-    const value = aiEndpointDraft.trim().replace(/\/+$/, "");
-    if (value) {
-      try {
-        const endpoint = new URL(value);
-        const localHttp = endpoint.protocol === "http:" && ["localhost", "127.0.0.1", "[::1]"].includes(endpoint.hostname);
-        if ((endpoint.protocol !== "https:" && !localHttp) || endpoint.username || endpoint.password || endpoint.search || endpoint.hash) {
-          setAiEndpointError("invalidAiEndpoint");
-          return;
-        }
-
-      } catch {
-        setAiEndpointError("invalidAiEndpoint");
-        return;
-      }
-    }
-    try {
-      await db.settings.put({ key: "aiBackendUrl", value });
-      setAiEndpointDraft(value);
-      setAiEndpointError("");
-    } catch {
-      setAiEndpointError("saveError");
-    }
-  }
-
-  async function setAiCloudEnabled(enabled: boolean) {
-    try {
-      await db.settings.put({ key: "aiCloudEnabled", value: String(enabled) });
-      setAiConnectionState("idle");
-    } catch {
-      setAiEndpointError("saveError");
-    }
-  }
-
-  async function saveTurnstileSiteKey() {
-    const value = turnstileSiteKeyDraft.trim();
-    if (value && (!/^[A-Za-z0-9_-]{10,128}$/.test(value))) {
-      setAiEndpointError("invalidTurnstileSiteKey");
-      return;
-    }
-    try {
-      await db.settings.put({ key: "turnstileSiteKey", value });
-      setAiEndpointError("");
-      setTurnstileToken("");
-      setAiConnectionState("idle");
-    } catch {
-      setAiEndpointError("saveError");
-    }
-  }
-
-  async function testAiConnection() {
-    if (!aiCloudEnabled || !aiEndpointSetting?.value || !turnstileToken) return;
-    setAiConnectionState("testing");
-    try {
-      await assistantClient.testConnection(aiEndpointSetting.value, turnstileToken);
-      setAiConnectionState("connected");
-      setAiEndpointError("");
-    } catch (cause) {
-      setAiConnectionState("error");
-      setAiEndpointError(cause instanceof AssistantServiceError ? `aiConnection.${cause.code}` : "aiConnection.requestFailed");
-    } finally {
-      setTurnstileToken("");
-      setTurnstileVersion((version) => version + 1);
-    }
-  }
-
   const range = (
     label: string,
-    key: "textContrast" | "borderIntensity" | "cornerRadius" | "intensity" | "opacity" | "gridSpacing" | "imageBlur" | "imageOverlay" | "animationSpeed" | "reflectionStrength" | "accentInfluence",
+    key: "textContrast" | "borderIntensity" | "cornerRadius" | "intensity" | "opacity" | "gridSpacing" | "imageBlur" | "imageOverlay" | "animationSpeed" | "reflectionStrength" | "accentInfluence" | "uiScale",
     min: number,
     max: number,
     step: number,
@@ -433,17 +395,48 @@ export function SettingsPage() {
         </div>
       </section>
 
+      <section className="settings-section settings-section--region">
+        <h2>{t("settings.schoolCalendar")}</h2>
+        <label className="setting-row">
+          <span>{t("settings.federalState")}</span>
+          <select
+            aria-label={t("settings.federalState")}
+            onChange={(event) => void updateSchoolState(event.target.value)}
+            value={germanStates.includes(schoolStateSetting?.value as (typeof germanStates)[number]) ? schoolStateSetting?.value : ""}
+          >
+            <option value="">{t("settings.selectFederalState")}</option>
+            {germanStates.map((state) => <option key={state} value={state}>{t(`settings.states.${state}`)}</option>)}
+          </select>
+        </label>
+        <p className="settings-hint">{t("settings.schoolCalendarHint")}</p>
+      </section>
+
       <section className="settings-section settings-section--ai">
         <h2>{t("settings.ai")}</h2>
-        <div className="ai-settings-row"><span>{t("settings.backendStatus")}</span><span className="status-pill">{aiCloudEnabled ? t("settings.aiEnabled") : t("settings.aiDisabled")}</span><Link to="/assistant">{t("settings.openAssistant")}</Link></div>
-        <label className="ai-endpoint-field"><span>{t("settings.aiEndpoint")}</span><input autoComplete="off" maxLength={300} onChange={(event) => setAiEndpointDraft(event.target.value)} placeholder="https://your-worker.example.com" spellCheck={false} type="url" value={aiEndpointDraft} /></label>
-        <div className="ai-endpoint-actions"><button className="button button--quiet" onClick={() => void saveAiEndpoint()} type="button">{t("settings.saveEndpoint")}</button><span>{t("settings.aiEndpointHint")}</span></div>
-        <label className="ai-endpoint-field"><span>{t("settings.turnstileSiteKey")}</span><input autoComplete="off" maxLength={128} onChange={(event) => setTurnstileSiteKeyDraft(event.target.value)} placeholder={t("settings.turnstileSiteKeyPlaceholder")} spellCheck={false} type="text" value={turnstileSiteKeyDraft} /></label>
-        <div className="ai-endpoint-actions"><button className="button button--quiet" onClick={() => void saveTurnstileSiteKey()} type="button">{t("settings.saveTurnstileSiteKey")}</button><span>{t("settings.turnstileSiteKeyHint")}</span></div>
-        <label className="ai-cloud-toggle"><input checked={aiCloudEnabled} onChange={(event) => void setAiCloudEnabled(event.target.checked)} type="checkbox" /><span>{t("settings.enableCloudAi")}</span></label>
-        {aiCloudEnabled && turnstileSiteKeySetting?.value && <TurnstileChallenge action="test" key={turnstileVersion} onToken={setTurnstileToken} siteKey={turnstileSiteKeySetting.value} />}
-        <div className="ai-endpoint-actions"><button className="button button--quiet" disabled={!aiCloudEnabled || !aiEndpointSetting?.value || !turnstileToken || aiConnectionState === "testing"} onClick={() => void testAiConnection()} type="button">{aiConnectionState === "testing" ? t("settings.testingAi") : t("settings.testAiConnection")}</button><span>{t(aiConnectionState === "connected" ? "settings.aiConnection.connected" : aiConnectionState === "error" ? "settings.aiConnection.requestFailed" : "settings.aiConnectionHint")}</span></div>
-        {aiEndpointError && <p className="form-error" role="alert">{t(`settings.${aiEndpointError}`)}</p>}
+        <div className="ai-settings-row">
+          <div>
+            <strong>{t("settings.localAiTitle")}</strong>
+            <p className="settings-hint">{t("settings.localAiDescription")}</p>
+          </div>
+          <span className="status-pill">{t("settings.localOnly")}</span>
+          <Link className="button button--quiet" to="/assistant">{t("settings.openAssistant")}</Link>
+        </div>
+        <label className="setting-row">
+          <span>{t("settings.localAiModel")}</span>
+          <select
+            aria-label={t("settings.localAiModel")}
+            onChange={(event) => void updateLocalAiModel(event.target.value)}
+            value={selectedLocalAiModel.key}
+          >
+            {LOCAL_AI_MODELS.map((model) => (
+              <option key={model.key} value={model.key}>
+                {model.name} · {model.dtype} · {localAiModelSizeLabel(model)}
+              </option>
+            ))}
+          </select>
+        </label>
+        <p className="settings-hint">{t("settings.localAiModelHint")}</p>
+        <p className="settings-hint">{t("settings.localAiStorage")}</p>
       </section>
 
       <section className="settings-section settings-section--appearance">
@@ -494,6 +487,7 @@ export function SettingsPage() {
             {range(t("settings.textContrast"), "textContrast", 0.7, 1.4, 0.05)}
             {range(t("settings.borderIntensity"), "borderIntensity", 0, 1, 0.05)}
             {range(t("settings.cornerRadius"), "cornerRadius", 0, 12, 1)}
+            {range(t("settings.uiScale"), "uiScale", 0.8, 1.4, 0.05)}
             {error && <p className="form-error" role="alert">{t(`settings.${error}`)}</p>}
           </div>
         </div>
