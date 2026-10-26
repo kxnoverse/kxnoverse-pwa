@@ -502,6 +502,7 @@ describe("Kxno Desk shell", () => {
     await user.selectOptions(await screen.findByRole("combobox", { name: "Language" }), "de");
     expect(await screen.findByRole("heading", { name: "Einstellungen" })).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "Stundenplan" })).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Assistent" })).toBeInTheDocument();
 
     await user.selectOptions(screen.getByRole("combobox", { name: "Modus" }), "light");
     expect(document.querySelector(".app-frame")).toHaveAttribute("data-theme", "light");
@@ -515,9 +516,9 @@ describe("Kxno Desk shell", () => {
     const user = userEvent.setup();
     render(<App />);
 
-    const link = await screen.findByRole("link", { name: "AI Assistant" });
+    const link = await screen.findByRole("link", { name: "Assistant" });
     await user.click(link);
-    expect(await screen.findByRole("heading", { name: "Kxno AI" }, { timeout: 5000 })).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: "Assistant" }, { timeout: 5000 })).toBeInTheDocument();
     expect(await db.settings.get("aiCloudEnabled")).toBeUndefined();
   });
 
@@ -704,7 +705,7 @@ describe("Kxno Desk shell", () => {
     const sendSpy = vi.spyOn(assistantClient, "send").mockResolvedValue();
     const user = userEvent.setup();
     render(<App />);
-    await user.click(await screen.findByRole("link", { name: "AI Assistant" }));
+    await user.click(await screen.findByRole("link", { name: "Assistant" }));
 
     await user.type(await screen.findByRole("textbox", { name: "Message" }), "Explain fractions");
     const worksheet = new File(["%PDF-1.4 worksheet"], "worksheet.pdf", { type: "application/pdf" });
@@ -725,23 +726,43 @@ describe("Kxno Desk shell", () => {
       options.onToken("Cloud answer");
     });
     const user = userEvent.setup();
-    render(<App />);
-    await user.click(await screen.findByRole("link", { name: "AI Assistant" }));
-    await user.type(await screen.findByRole("textbox", { name: "Message" }), "Explain fractions");
-    await user.click(screen.getByRole("checkbox", { name: /Send this message/ }));
+    const view = render(<App />);
+    await user.click(await screen.findByRole("link", { name: "Assistant" }));
+    const composer = await screen.findByRole("textbox", { name: "Message" });
+    await user.type(composer, "Explain fractions");
+    await user.keyboard("{Shift>}{Enter}{/Shift}");
+    await user.type(composer, " please");
+    expect(composer).toHaveValue("Explain fractions\n please");
+    await user.click(screen.getByRole("checkbox", { name: /Allow the AI provider/ }));
     await user.click(screen.getByRole("button", { name: "Complete verification" }));
     await waitFor(() => expect(screen.getByRole("button", { name: "Send" })).toBeEnabled());
-    await user.click(screen.getByRole("button", { name: "Send" }));
+    await user.click(composer);
+    await user.keyboard("{Enter}");
 
     await waitFor(() => expect(sendSpy).toHaveBeenCalledOnce());
     expect(sendSpy.mock.calls[0][0]).toMatchObject({
       endpoint: "https://worker.example.test",
       model: "openrouter/free",
-      message: "Explain fractions",
+      message: "Explain fractions\n please",
       turnstileToken: "test-turnstile-token",
     });
     expect(await screen.findByText("Cloud answer")).toBeInTheDocument();
-    expect((await db.aiMessages.toArray()).find((message) => message.role === "user")).toMatchObject({ content: "Explain fractions" });
+    expect((await db.aiMessages.toArray()).find((message) => message.role === "user")).toMatchObject({ content: "Explain fractions\n please" });
+    expect(await db.settings.get("aiCloudConsentEndpoint")).toMatchObject({ value: "https://worker.example.test" });
+    expect(screen.getByRole("checkbox", { name: /Allow the AI provider/ })).toBeChecked();
+
+    await user.type(composer, "A follow-up question");
+    await user.click(screen.getByRole("button", { name: "Complete verification" }));
+    await waitFor(() => expect(screen.getByRole("button", { name: "Send" })).toBeEnabled());
+    await user.click(composer);
+    await user.keyboard("{Enter}");
+    await waitFor(() => expect(sendSpy).toHaveBeenCalledTimes(2));
+    expect(screen.getByRole("checkbox", { name: /Allow the AI provider/ })).toBeChecked();
+
+    view.unmount();
+    render(<App />);
+    await user.click(await screen.findByRole("link", { name: "Assistant" }));
+    expect(await screen.findByRole("checkbox", { name: /Allow the AI provider/ })).toBeChecked();
   });
 
   it("preserves saved assistant presets while loading the assistant", async () => {
@@ -762,7 +783,7 @@ describe("Kxno Desk shell", () => {
 
     const user = userEvent.setup();
     render(<App />);
-    await user.click(await screen.findByRole("link", { name: "AI Assistant" }));
+    await user.click(await screen.findByRole("link", { name: "Assistant" }));
     await screen.findByRole("combobox", { name: "Preset" });
 
     await waitFor(async () => expect(await db.aiPresets.get(savedPreset.id)).toEqual({ ...savedPreset, model: "openrouter/free" }));
@@ -797,7 +818,7 @@ describe("Kxno Desk shell", () => {
     });
     const user = userEvent.setup();
     render(<App />);
-    await user.click(await screen.findByRole("link", { name: "AI Assistant" }));
+    await user.click(await screen.findByRole("link", { name: "Assistant" }));
     await screen.findByRole("combobox", { name: "Preset" });
 
     expect(await screen.findByText("Keep this")).toBeInTheDocument();

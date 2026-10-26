@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, type ChangeEvent, type ClipboardEvent, type DragEvent, type FormEvent } from "react";
+import { useEffect, useMemo, useRef, useState, type ChangeEvent, type ClipboardEvent, type DragEvent, type FormEvent, type KeyboardEvent } from "react";
 import { useLiveQuery } from "dexie-react-hooks";
 import { Copy, FileText, ImagePlus, MessageSquarePlus, Pencil, Plus, Send, Settings2, Square, Trash2, X } from "lucide-react";
 import ReactMarkdown from "react-markdown";
@@ -20,7 +20,7 @@ import {
 } from "../data/ai-client";
 
 const starters: AiPreset[] = [
-  { id: "study-assistant", name: "Study Assistant", assistantName: "Kxno AI", description: "Homework explanations", style: "Clear and educational", length: "medium", depth: "guided", language: "auto", instructions: "", model: "openrouter/free", isDefault: true },
+  { id: "study-assistant", name: "Study Assistant", assistantName: "Kxno", description: "Homework explanations", style: "Clear and educational", length: "medium", depth: "guided", language: "auto", instructions: "", model: "openrouter/free", isDefault: true },
   { id: "quick-answers", name: "Quick Answers", assistantName: "Quick", description: "Concise answers", style: "Direct", length: "short", depth: "basic", language: "auto", instructions: "", model: "openrouter/free", isDefault: false },
   { id: "tutor", name: "Tutor", assistantName: "Tutor", description: "Step by step understanding", style: "Step by step", length: "detailed", depth: "advanced", language: "auto", instructions: "", model: "openrouter/free", isDefault: false },
 ];
@@ -78,6 +78,8 @@ export function AssistantPage() {
   const endpoint = useLiveQuery(() => db.settings.get("aiBackendUrl"), [], undefined)?.value.trim() ?? "";
   const cloudSetting = useLiveQuery(() => db.settings.get("aiCloudEnabled"), [], undefined);
   const cloudEnabled = cloudSetting?.value === "true";
+  const cloudConsentSetting = useLiveQuery(() => db.settings.get("aiCloudConsentEndpoint"), [], undefined);
+  const cloudConsent = Boolean(endpoint && cloudConsentSetting?.value === endpoint);
   const turnstileSiteKey = useLiveQuery(() => db.settings.get("turnstileSiteKey"), [], undefined)?.value.trim() ?? "";
   const [activeConversationId, setActiveConversationId] = useState("");
   const activeConversation = conversations.find((item) => item.id === activeConversationId) ?? conversations[0];
@@ -101,7 +103,6 @@ export function AssistantPage() {
   const [isSending, setIsSending] = useState(false);
   const [presetDraft, setPresetDraft] = useState<AiPreset>();
   const [error, setError] = useState("");
-  const [cloudConsent, setCloudConsent] = useState(false);
   const [uploadProgress, setUploadProgress] = useState<number>();
   const [preparingAttachments, setPreparingAttachments] = useState(false);
   const [streamingText, setStreamingText] = useState("");
@@ -130,10 +131,6 @@ export function AssistantPage() {
     setActiveConversationId(conversations[0].id);
   }, [activeConversationId, conversations]);
 
-  useEffect(() => {
-    if (!cloudEnabled || !endpoint) setCloudConsent(false);
-  }, [cloudEnabled, endpoint]);
-
   const activePreset = useMemo(
     () => presets.find((item) => item.id === activeConversation?.presetId) ?? presets.find((item) => item.isDefault) ?? presets[0],
     [activeConversation?.presetId, presets],
@@ -141,6 +138,15 @@ export function AssistantPage() {
 
   const canSend = Boolean(activePreset && (draft.trim() || draftFiles.length)) && !isSending &&
     !(endpoint && (!cloudEnabled || !cloudConsent || !turnstileSiteKey || !turnstileToken));
+
+  async function saveCloudConsent(approved: boolean) {
+    try {
+      await db.settings.put({ key: "aiCloudConsentEndpoint", value: approved ? endpoint : "" });
+      setError("");
+    } catch {
+      setError("saveError");
+    }
+  }
 
   async function createConversation(presetId = activePreset?.id ?? "study-assistant") {
     const id = createId();
@@ -354,8 +360,13 @@ export function AssistantPage() {
     setActiveConversationId(conversation.id);
     setDraft("");
     setDraftFiles([]);
-    setCloudConsent(false);
     await requestAssistantReply(conversation, userMessage, [...messages, userMessage], turnstileToken);
+  }
+
+  function handleComposerKeyDown(event: KeyboardEvent<HTMLTextAreaElement>) {
+    if (event.key !== "Enter" || event.shiftKey || event.nativeEvent.isComposing) return;
+    event.preventDefault();
+    event.currentTarget.form?.requestSubmit();
   }
 
   async function retryMessage(assistantMessage: AiMessage) {
@@ -365,7 +376,6 @@ export function AssistantPage() {
     const userMessage = priorMessages.slice(0, currentIndex).reverse().find((item) => item.role === "user");
     const conversation = conversations.find((item) => item.id === assistantMessage.conversationId);
     if (currentIndex < 0 || !userMessage || !conversation) return;
-    setCloudConsent(false);
     await requestAssistantReply(conversation, userMessage, priorMessages.slice(0, currentIndex), turnstileToken);
   }
 
@@ -483,6 +493,11 @@ export function AssistantPage() {
             </label>
             <span className="status-pill">{endpoint && cloudEnabled ? "OpenRouter · Free" : t("assistant.cloudDisabledStatus")}</span>
           </div>
+          {endpoint && cloudEnabled && turnstileSiteKey && (
+            <div className="assistant-thread__verification">
+              <TurnstileChallenge action="chat" key={turnstileVersion} onToken={setTurnstileToken} siteKey={turnstileSiteKey} />
+            </div>
+          )}
           {!endpoint && <p className="assistant-cloud-notice">{t("assistant.backendUnavailable")}</p>}
           <div className="assistant-messages" aria-live="polite">
             {messages.length === 0 && (
@@ -532,14 +547,14 @@ export function AssistantPage() {
               aria-label={t("assistant.composer")}
               maxLength={4000}
               onChange={(event) => setDraft(event.target.value)}
+              onKeyDown={handleComposerKeyDown}
               onPaste={onPaste}
               placeholder={t("assistant.composerPlaceholder")}
               rows={2}
               value={draft}
             />
             <input accept="image/png,image/jpeg,image/webp,application/pdf,.pdf" aria-label={t("assistant.attachFiles")} className="visually-hidden" hidden multiple onChange={onFileChange} ref={draftFilesInput} type="file" />
-            {endpoint && cloudEnabled && <label className="assistant-cloud-consent"><input checked={cloudConsent} onChange={(event) => setCloudConsent(event.target.checked)} type="checkbox" /><span>{t("assistant.cloudConsent")}</span></label>}
-            {endpoint && cloudEnabled && turnstileSiteKey && <TurnstileChallenge action="chat" key={turnstileVersion} onToken={setTurnstileToken} siteKey={turnstileSiteKey} />}
+            {endpoint && cloudEnabled && <label className="assistant-cloud-consent"><input checked={cloudConsent} onChange={(event) => void saveCloudConsent(event.target.checked)} type="checkbox" /><span>{t("assistant.cloudConsent")}</span></label>}
             <div className="assistant-composer__footer">
               <div className="assistant-composer__status">
                 <button aria-label={t("assistant.attachFiles")} className="icon-button icon-button--small" onClick={() => draftFilesInput.current?.click()} type="button"><ImagePlus size={14} /></button>
