@@ -51,30 +51,7 @@ export default defineConfig(({ mode }) => {
           cleanupOutdatedCaches: false,
           navigateFallback: "index.html",
           globPatterns: ["**/*.{js,css,html,svg,ico,png,json,txt,webmanifest,wasm,mjs}"],
-          globIgnores: ["**/assets/ort-wasm-*.wasm"],
           maximumFileSizeToCacheInBytes: 30 * 1024 * 1024,
-          runtimeCaching: [
-            {
-              urlPattern: ({ url }) => url.pathname.includes("/assets/ort-wasm-") &&
-                url.pathname.endsWith(".wasm"),
-              handler: "CacheFirst",
-              options: {
-                cacheName: "kxno-onnx-wasm-runtime-v1",
-                plugins: [
-                  {
-                    cacheWillUpdate: async ({ response }) => {
-                      if (!response?.ok) return null;
-                      return new Response(await response.arrayBuffer(), {
-                        status: response.status,
-                        statusText: response.statusText,
-                        headers: response.headers,
-                      });
-                    },
-                  },
-                ],
-              },
-            },
-          ],
         },
         devOptions: {
           enabled: false,

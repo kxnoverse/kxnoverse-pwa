@@ -10,7 +10,7 @@ interface TurnstileApi {
       theme: "dark";
       callback: (token: string) => void;
       "expired-callback": () => void;
-      "error-callback": () => void;
+      "error-callback": (errorCode?: string) => void;
     },
   ): string;
   remove(widgetId: string): void;
@@ -56,7 +56,8 @@ export function TurnstileChallenge({
   const { t } = useTranslation();
   const container = useRef<HTMLDivElement>(null);
   const onTokenRef = useRef(onToken);
-  const [status, setStatus] = useState<"loading" | "ready" | "error">("loading");
+  const [status, setStatus] = useState<"loading" | "ready" | "load-error" | "widget-error">("loading");
+  const [errorCode, setErrorCode] = useState("");
 
   useEffect(() => {
     onTokenRef.current = onToken;
@@ -67,6 +68,7 @@ export function TurnstileChallenge({
     let widgetId: string | undefined;
     onTokenRef.current("");
     setStatus("loading");
+    setErrorCode("");
     void loadTurnstile().then((turnstile) => {
       if (!active || !container.current) return;
       widgetId = turnstile.render(container.current, {
@@ -78,13 +80,14 @@ export function TurnstileChallenge({
           onTokenRef.current(token);
         },
         "expired-callback": () => onTokenRef.current(""),
-        "error-callback": () => {
-          setStatus("error");
+        "error-callback": (code) => {
+          setErrorCode(code ?? "");
+          setStatus("widget-error");
           onTokenRef.current("");
         },
       });
     }).catch(() => {
-      if (active) setStatus("error");
+      if (active) setStatus("load-error");
     });
     return () => {
       active = false;
@@ -97,7 +100,13 @@ export function TurnstileChallenge({
     <div className="turnstile-challenge">
       <div ref={container} />
       {status === "loading" && <span role="status">{t("assistant.turnstileLoading")}</span>}
-      {status === "error" && <span className="form-error" role="alert">{t("assistant.turnstileError")}</span>}
+      {status === "load-error" && <span className="form-error" role="alert">{t("assistant.turnstileLoadError")}</span>}
+      {status === "widget-error" && (
+        <span className="form-error" role="alert">
+          {t("assistant.turnstileWidgetError")}
+          {errorCode && ` (${errorCode})`}
+        </span>
+      )}
     </div>
   );
 }

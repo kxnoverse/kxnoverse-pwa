@@ -6,8 +6,13 @@ import App from "./App";
 import { db, localDateKey } from "./data/db";
 import { i18n } from "./i18n";
 import { defaultAppearance, useUiStore } from "./stores/ui-store";
-import { LocalAiError, localAiClient } from "./data/local-ai-client";
-import { LOCAL_AI_MODEL_SETTING_KEY } from "./data/local-ai";
+import { assistantClient } from "./data/ai-client";
+
+vi.mock("./components/TurnstileChallenge", () => ({
+  TurnstileChallenge: ({ onToken }: { onToken: (token: string) => void }) => (
+    <button type="button" onClick={() => onToken("test-turnstile-token")}>Complete verification</button>
+  ),
+}));
 
 beforeEach(async () => {
   localStorage.clear();
@@ -652,6 +657,27 @@ describe("Kxno Desk shell", () => {
     expect(await db.subjects.get("persisted-subject")).toMatchObject({ name: "Local subject" });
   });
 
+  it("configures and tests the protected AI worker from Settings", async () => {
+    const testConnectionSpy = vi.spyOn(assistantClient, "testConnection").mockResolvedValue();
+    const user = userEvent.setup();
+    render(<App />);
+    await user.click(await screen.findByRole("link", { name: "Settings" }));
+    await user.type(screen.getByRole("textbox", { name: "Worker endpoint" }), "https://worker.example.test");
+    await user.click(screen.getByRole("button", { name: "Save endpoint" }));
+    expect(await screen.findByText("Endpoint saved on this device.")).toBeInTheDocument();
+    await user.type(screen.getByRole("textbox", { name: "Turnstile site key (public)" }), "0x4AAAAAAAtestsitekey");
+    await user.click(screen.getByRole("button", { name: "Save site key" }));
+    expect(await screen.findByText("Site key saved on this device.")).toBeInTheDocument();
+    await user.click(screen.getByRole("checkbox", { name: /Enable optional cloud AI/ }));
+    await user.click(await screen.findByRole("button", { name: "Complete verification" }));
+    await user.click(screen.getByRole("button", { name: "Test AI connection" }));
+
+    await waitFor(() => expect(testConnectionSpy).toHaveBeenCalledWith("https://worker.example.test", "test-turnstile-token"));
+    expect((await db.settings.get("aiBackendUrl"))?.value).toBe("https://worker.example.test");
+    expect((await db.settings.get("aiCloudEnabled"))?.value).toBe("true");
+    expect((await db.settings.get("turnstileSiteKey"))?.value).toBe("0x4AAAAAAAtestsitekey");
+  });
+
   it("saves a local profile, applies a theme, and enables a weekend school day", async () => {
     const user = userEvent.setup();
     render(<App />);
@@ -669,60 +695,53 @@ describe("Kxno Desk shell", () => {
     expect(await screen.findByText("Sat")).toBeInTheDocument();
   });
 
-  it("does not download the model or send prompts before explicit confirmation", async () => {
-    vi.spyOn(localAiClient, "status").mockResolvedValue({ cached: false, loaded: false });
-    const fetchMock = vi.fn();
-    vi.stubGlobal("fetch", fetchMock);
+  it("keeps AI messages local and does not call the worker without explicit consent", async () => {
+    await db.settings.bulkPut([
+      { key: "aiBackendUrl", value: "https://worker.example.test" },
+      { key: "aiCloudEnabled", value: "true" },
+      { key: "turnstileSiteKey", value: "0x4AAAAAAAtestsitekey" },
+    ]);
+    const sendSpy = vi.spyOn(assistantClient, "send").mockResolvedValue();
     const user = userEvent.setup();
     render(<App />);
     await user.click(await screen.findByRole("link", { name: "AI Assistant" }));
-    await screen.findByRole("combobox", { name: "Preset" });
-    const downloadButton = await screen.findByRole("button", { name: /Download model/ });
-    expect(downloadButton).toBeInTheDocument();
+
+    await user.type(await screen.findByRole("textbox", { name: "Message" }), "Explain fractions");
+    const worksheet = new File(["%PDF-1.4 worksheet"], "worksheet.pdf", { type: "application/pdf" });
+    fireEvent.change(screen.getByLabelText("Attach images or PDF", { selector: "input" }), { target: { files: [worksheet] } });
+    expect(await screen.findByText("worksheet.pdf")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Send" })).toBeDisabled();
-    await user.click(downloadButton);
-    expect(await screen.findByRole("dialog", { name: "Download local model?" })).toBeInTheDocument();
-    expect(fetchMock).not.toHaveBeenCalled();
-    await user.click(screen.getByRole("button", { name: "Cancel" }));
+    expect(sendSpy).not.toHaveBeenCalled();
     expect(await db.aiMessages.count()).toBe(0);
   });
 
-  it("persists the selected local model and applies it when opening the assistant", async () => {
-    const user = userEvent.setup();
-    const selectModelSpy = vi.spyOn(localAiClient, "selectModel").mockImplementation(async (modelKey) => ({
-      cached: false,
-      loaded: false,
-      modelKey,
-    }));
-    render(<App />);
-
-    await user.click(await screen.findByRole("link", { name: "Settings" }));
-    await user.selectOptions(
-      await screen.findByRole("combobox", { name: "Local model" }),
-      "qwen2.5-0.5b",
-    );
-    await waitFor(async () => {
-      expect((await db.settings.get(LOCAL_AI_MODEL_SETTING_KEY))?.value).toBe("qwen2.5-0.5b");
+  it("sends authorized assistant messages only through the OpenRouter worker", async () => {
+    await db.settings.bulkPut([
+      { key: "aiBackendUrl", value: "https://worker.example.test" },
+      { key: "aiCloudEnabled", value: "true" },
+      { key: "turnstileSiteKey", value: "0x4AAAAAAAtestsitekey" },
+    ]);
+    const sendSpy = vi.spyOn(assistantClient, "send").mockImplementation(async (_request, options) => {
+      options.onToken("Cloud answer");
     });
-
-    await user.click(screen.getByRole("link", { name: "AI Assistant" }));
-    await screen.findByRole("combobox", { name: "Preset" });
-    await waitFor(() => expect(selectModelSpy).toHaveBeenCalledWith("qwen2.5-0.5b"));
-    expect(screen.getByText("Qwen2.5 0.5B")).toBeInTheDocument();
-  });
-
-  it("shows local storage errors without falling back to remote inference", async () => {
-    vi.spyOn(localAiClient, "status").mockRejectedValue(new LocalAiError("cacheUnavailable"));
-    const fetchMock = vi.fn();
-    vi.stubGlobal("fetch", fetchMock);
     const user = userEvent.setup();
     render(<App />);
     await user.click(await screen.findByRole("link", { name: "AI Assistant" }));
+    await user.type(await screen.findByRole("textbox", { name: "Message" }), "Explain fractions");
+    await user.click(screen.getByRole("checkbox", { name: /Send this message/ }));
+    await user.click(screen.getByRole("button", { name: "Complete verification" }));
+    await waitFor(() => expect(screen.getByRole("button", { name: "Send" })).toBeEnabled());
+    await user.click(screen.getByRole("button", { name: "Send" }));
 
-    expect(await screen.findByRole("alert")).toHaveTextContent("This browser does not provide local model storage.");
-    expect(screen.getByRole("button", { name: "Send" })).toBeDisabled();
-    expect(fetchMock).not.toHaveBeenCalled();
-    expect(await db.aiMessages.count()).toBe(0);
+    await waitFor(() => expect(sendSpy).toHaveBeenCalledOnce());
+    expect(sendSpy.mock.calls[0][0]).toMatchObject({
+      endpoint: "https://worker.example.test",
+      model: "openrouter/free",
+      message: "Explain fractions",
+      turnstileToken: "test-turnstile-token",
+    });
+    expect(await screen.findByText("Cloud answer")).toBeInTheDocument();
+    expect((await db.aiMessages.toArray()).find((message) => message.role === "user")).toMatchObject({ content: "Explain fractions" });
   });
 
   it("preserves saved assistant presets while loading the assistant", async () => {
@@ -736,7 +755,7 @@ describe("Kxno Desk shell", () => {
       depth: "basic" as const,
       language: "en" as const,
       instructions: "Keep my existing setup.",
-      model: "my-configured-model",
+      model: "legacy/old-model",
       isDefault: true,
     };
     await db.aiPresets.put(savedPreset);
@@ -746,42 +765,11 @@ describe("Kxno Desk shell", () => {
     await user.click(await screen.findByRole("link", { name: "AI Assistant" }));
     await screen.findByRole("combobox", { name: "Preset" });
 
-    expect(await db.aiPresets.get(savedPreset.id)).toEqual(savedPreset);
+    await waitFor(async () => expect(await db.aiPresets.get(savedPreset.id)).toEqual({ ...savedPreset, model: "openrouter/free" }));
     expect(await db.aiPresets.count()).toBe(1);
   });
 
-  it("generates locally even when legacy cloud settings are present", async () => {
-    await db.settings.bulkPut([
-      { key: "aiBackendUrl", value: "https://worker.example.test" },
-      { key: "aiCloudEnabled", value: "true" },
-      { key: "turnstileSiteKey", value: "0x4AAAAAAAtestsitekey" },
-    ]);
-    vi.spyOn(localAiClient, "status").mockResolvedValue({ cached: true, loaded: true, device: "wasm", wasmThreads: 1 });
-    const generateSpy = vi.spyOn(localAiClient, "generate").mockImplementation(async (_messages, _maxNewTokens, onToken) => {
-      onToken?.("4");
-      return { tokenCount: 1, timeToFirstTokenMs: 100, tokensPerSecond: 5, interrupted: false, device: "wasm" };
-    });
-    const fetchMock = vi.fn();
-    vi.stubGlobal("fetch", fetchMock);
-    const user = userEvent.setup();
-    render(<App />);
-    await user.click(await screen.findByRole("link", { name: "AI Assistant" }));
-
-    const message = await screen.findByRole("textbox", { name: "Message" });
-    const send = screen.getByRole("button", { name: "Send" });
-    await user.type(message, "Explain fractions");
-    await waitFor(() => expect(send).toBeEnabled());
-    await user.click(send);
-
-    expect(await screen.findByText("4")).toBeInTheDocument();
-    expect(generateSpy).toHaveBeenCalledOnce();
-    expect(fetchMock).not.toHaveBeenCalled();
-    expect((await db.settings.get("aiCloudEnabled"))?.value).toBe("true");
-    expect((await db.aiMessages.toArray()).find((message) => message.role === "user")).toMatchObject({ content: "Explain fractions" });
-  });
-
-  it("keeps old assistant messages and attachments available after switching to local AI", async () => {
-    vi.spyOn(localAiClient, "status").mockResolvedValue({ cached: false, loaded: false });
+  it("keeps old assistant messages and attachments available with OpenRouter-only chat", async () => {
     await db.aiPresets.put({
       id: "study-assistant",
       name: "Tutor",
