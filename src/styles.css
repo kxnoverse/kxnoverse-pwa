@@ -218,11 +218,21 @@ button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible
 }
 
 .page-scroll {
+  display: flex;
+  flex-direction: column;
   width: min(100%, 1140px);
   min-height: 100vh;
   flex: 1;
   align-self: center;
   padding: 32px 40px 34px;
+}
+.app-footer {
+  margin-top: auto;
+  padding-top: 30px;
+  color: var(--text-muted);
+  font-size: 9px;
+  letter-spacing: .02em;
+  text-align: center;
 }
 .route-loading { margin: 10px 0; color: var(--text-muted); font-size: 11px; }
 .pwa-update-notice {

@@ -46,11 +46,16 @@ function weekStart(date: Date): string {
   return localDateKey(monday);
 }
 
-function initialEntry(weekday = 0): EditorValue {
+function addMinutes(time: string, minutes: number): string {
+  const total = minutesOfDay(time) + minutes;
+  return `${String(Math.floor(total / 60)).padStart(2, "0")}:${String(total % 60).padStart(2, "0")}`;
+}
+
+function initialEntry(weekday = 0, start = "08:00"): EditorValue {
   return {
     weekday,
-    start: "09:00",
-    end: "09:45",
+    start,
+    end: addMinutes(start, 45),
     weekType: "all",
     kind: "lesson",
     inheritTeacher: true,
@@ -71,8 +76,8 @@ function formatTime(totalMinutes: number): string {
   return `${String(Math.floor(totalMinutes / 60)).padStart(2, "0")}:${String(totalMinutes % 60).padStart(2, "0")}`;
 }
 
-function findAvailableSlot(entries: TimetableEntry[], weekday: number, weekType: WeekType) {
-  for (let start = 8 * 60; start + 45 <= 16 * 60; start += 45) {
+function findAvailableSlot(entries: TimetableEntry[], weekday: number, weekType: WeekType, schoolStartTime: string) {
+  for (let start = minutesOfDay(schoolStartTime); start + 45 <= 23 * 60 + 45; start += 45) {
     const candidate = { start: formatTime(start), end: formatTime(start + 45) };
     const overlaps = entries.some((entry) =>
       entry.weekday === weekday &&
@@ -89,6 +94,7 @@ function LessonDialog({
   subjects,
   teachers,
   onCreateTeacher,
+  onCreateSubject,
   onClose,
   onSave,
 }: {
@@ -96,6 +102,7 @@ function LessonDialog({
   subjects: Subject[];
   teachers: Teacher[];
   onCreateTeacher: (name: string, subjectId: string) => Promise<string>;
+  onCreateSubject: (name: string) => Promise<string>;
   onClose: () => void;
   onSave: (value: EditorValue) => Promise<void>;
 }) {
@@ -119,6 +126,7 @@ function LessonDialog({
   const [error, setError] = useState("");
   const [teacherDraft, setTeacherDraft] = useState("");
   const [showTeacherDraft, setShowTeacherDraft] = useState(false);
+  const [subjectDraft, setSubjectDraft] = useState("");
   const selectedSubject = subjects.find((subject) => subject.id === draft.subjectId);
   const set = <K extends keyof EditorValue>(key: K, next: EditorValue[K]) =>
     setDraft((current) => ({ ...current, [key]: next }));
@@ -161,6 +169,18 @@ function LessonDialog({
     }
   }
 
+  async function createSubject() {
+    if (!subjectDraft.trim()) return;
+    try {
+      const subjectId = await onCreateSubject(subjectDraft);
+      setDraft((current) => ({ ...current, subjectId }));
+      setSubjectDraft("");
+      setError("");
+    } catch {
+      setError("subjectCreateError");
+    }
+  }
+
   return (
     <div className="dialog-backdrop" onMouseDown={(event) => event.target === event.currentTarget && onClose()}>
       <form aria-labelledby="timetable-dialog-title" aria-modal="true" className="editor-dialog" onSubmit={submit} role="dialog">
@@ -194,6 +214,21 @@ function LessonDialog({
           </label>
           {draft.kind === "lesson" && (
             <>
+              {subjects.length === 0 && (
+                <div className="subject-inline-create form-grid__wide">
+                  <span>{t("timetable.noSubjects")}</span>
+                  <div className="teacher-create-inline">
+                    <input
+                      aria-label={t("timetable.newSubject")}
+                      maxLength={40}
+                      onChange={(event) => setSubjectDraft(event.target.value)}
+                      placeholder={t("timetable.newSubject")}
+                      value={subjectDraft}
+                    />
+                    <button className="icon-button" aria-label={t("timetable.addSubject")} disabled={!subjectDraft.trim()} onClick={() => void createSubject()} type="button"><Plus size={14} /></button>
+                  </div>
+                </div>
+              )}
               <label className="form-grid__wide">
                 <span>{t("timetable.subject")}</span>
                 <select required value={draft.subjectId ?? ""} onChange={(event) => {
@@ -300,6 +335,10 @@ export function TimetablePage() {
   const exceptions = useLiveQuery(() => db.exceptions.toArray(), [], []);
   const weekAnchor = useLiveQuery(() => db.settings.get("weekAnchor"), [], undefined);
   const schoolDaysSetting = useLiveQuery(() => db.settings.get("schoolDays"), [], undefined);
+  const schoolStartSetting = useLiveQuery(() => db.settings.get("schoolStartTime"), [], undefined);
+  const schoolStartTime = schoolStartSetting?.value && /^(?:[01]\d|2[0-3]):[0-5]\d$/.test(schoolStartSetting.value) && schoolStartSetting.value <= "23:00"
+    ? schoolStartSetting.value
+    : "08:00";
   const schoolDays = useMemo(() => {
     try {
       const value = schoolDaysSetting?.value ? JSON.parse(schoolDaysSetting.value) as boolean[] : undefined;
@@ -373,6 +412,14 @@ export function TimetablePage() {
     }
     const id = createId();
     await db.teachers.add({ id, name: trimmedName, subjectIds: [subjectId] });
+    return id;
+  }
+
+  async function createSubjectForLesson(name: string): Promise<string> {
+    const trimmedName = name.trim();
+    if (!trimmedName) throw new Error("invalid-subject");
+    const id = createId();
+    await db.subjects.add({ id, name: trimmedName, color: "#8da9c0" });
     return id;
   }
 
@@ -542,7 +589,7 @@ export function TimetablePage() {
       const subject = paletteSubjectId ? subjects.find((item) => item.id === paletteSubjectId) : undefined;
       if (paletteSubjectId && !subject) return;
       const weekType: WeekType = selectedWeek;
-      const slot = findAvailableSlot(lessons, weekday, weekType);
+      const slot = findAvailableSlot(lessons, weekday, weekType, schoolStartTime);
       if (!slot) {
         setNotice("noOpenSlot");
         return;
@@ -617,10 +664,8 @@ export function TimetablePage() {
           </button>
           <button
             className="button button--primary"
-            disabled={subjects.length === 0}
-            onClick={() => setEditor(initialEntry())}
+            onClick={() => setEditor(initialEntry(0, schoolStartTime))}
             type="button"
-            title={subjects.length === 0 ? t("timetable.noSubjects") : undefined}
           >
             <Plus size={15} /> {t("timetable.add")}
           </button>
@@ -853,7 +898,7 @@ export function TimetablePage() {
                   </article>
                 );
               })}
-              {entries.length === 0 && <button className="day-column__empty" onClick={() => setEditor(initialEntry(index))} type="button"><Plus size={13} /><span>{t("timetable.add")}</span></button>}
+              {entries.length === 0 && <button className="day-column__empty" onClick={() => setEditor(initialEntry(index, schoolStartTime))} type="button"><Plus size={13} /><span>{t("timetable.add")}</span></button>}
             </div>
           </section>
         ))}
@@ -865,6 +910,7 @@ export function TimetablePage() {
           key={"id" in editor ? editor.id : `new-${editor.weekday}`}
           onClose={() => setEditor(undefined)}
           onCreateTeacher={createTeacherForSubject}
+          onCreateSubject={createSubjectForLesson}
           onSave={(value) => saveEntry(value, "id" in editor ? editor.id : undefined)}
           subjects={subjects}
           teachers={teachers}
@@ -876,6 +922,7 @@ export function TimetablePage() {
           key={`extra-${extraEditor.date}`}
           onClose={() => setExtraEditor(undefined)}
           onCreateTeacher={createTeacherForSubject}
+          onCreateSubject={createSubjectForLesson}
           onSave={saveExtra}
           subjects={subjects}
           teachers={teachers}

@@ -131,6 +131,7 @@ export function AppShell() {
           <Suspense fallback={<p className="route-loading" role="status">{t("app.loading")}</p>}>
             <Outlet />
           </Suspense>
+          <footer className="app-footer">Kxno Desk · Made By Kxno (Shero)</footer>
         </div>
       </main>
       <PwaUpdateNotice />

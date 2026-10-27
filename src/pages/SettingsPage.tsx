@@ -75,6 +75,7 @@ export function SettingsPage() {
   const image = useLiveQuery(() => db.settings.get("backgroundImage"), [], undefined)?.value;
   const profile = useLiveQuery(() => db.settings.get("profileName"), [], undefined);
   const daysSetting = useLiveQuery(() => db.settings.get("schoolDays"), [], undefined);
+  const schoolStartSetting = useLiveQuery(() => db.settings.get("schoolStartTime"), [], undefined);
   const schoolStateSetting = useLiveQuery(() => db.settings.get("schoolState"), [], undefined);
   const customThemesSetting = useLiveQuery(() => db.settings.get("customThemes"), [], undefined);
   const selectedTheme = useLiveQuery(() => db.settings.get("selectedTheme"), [], undefined)?.value ?? "arctic";
@@ -228,6 +229,19 @@ export function SettingsPage() {
     const next = schoolDays.map((day, dayIndex) => dayIndex === index ? enabled : day);
     try {
       await db.settings.put({ key: "schoolDays", value: JSON.stringify(next) });
+    } catch {
+      setError("saveError");
+    }
+  }
+
+  async function updateSchoolStartTime(value: string) {
+    if (!/^(?:[01]\d|2[0-3]):[0-5]\d$/.test(value) || value > "23:00") {
+      setError("saveError");
+      return;
+    }
+    try {
+      await db.settings.put({ key: "schoolStartTime", value });
+      setError("");
     } catch {
       setError("saveError");
     }
@@ -572,6 +586,18 @@ export function SettingsPage() {
 
       <section className="settings-section settings-section--timetable">
         <h2>{t("settings.timetable")}</h2>
+        <label className="setting-row">
+          <span>{t("settings.schoolStartTime")}</span>
+          <input
+            aria-label={t("settings.schoolStartTime")}
+            max="23:00"
+            min="00:00"
+            onChange={(event) => void updateSchoolStartTime(event.target.value)}
+            type="time"
+            value={schoolStartSetting?.value && /^(?:[01]\d|2[0-3]):[0-5]\d$/.test(schoolStartSetting.value) && schoolStartSetting.value <= "23:00" ? schoolStartSetting.value : "08:00"}
+          />
+          <output>{schoolStartSetting?.value ?? "08:00"}</output>
+        </label>
         <div className="school-days">
           {(["monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"] as const).map((day, index) => (
             <label key={day}>

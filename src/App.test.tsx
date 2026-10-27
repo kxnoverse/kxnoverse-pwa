@@ -69,6 +69,7 @@ describe("Kxno Desk shell", () => {
     expect(screen.getByRole("time")).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "Today’s schedule" })).toBeInTheDocument();
     expect(within(screen.getByRole("navigation", { name: "Main navigation" })).queryByRole("link", { name: "Files" })).not.toBeInTheDocument();
+    expect(screen.getByText("Kxno Desk · Made By Kxno (Shero)")).toBeInTheDocument();
 
     await user.click(
       within(screen.getByRole("navigation", { name: "Main navigation" })).getByRole(
@@ -490,8 +491,8 @@ describe("Kxno Desk shell", () => {
     expect(await db.timetable.toCollection().first()).toMatchObject({
       weekday: 0,
       subjectId: subject!.id,
-      start: "09:00",
-      end: "09:45",
+      start: "08:00",
+      end: "08:45",
       weekType: "all",
       inheritTeacher: true,
       inheritRoom: true,
@@ -548,7 +549,7 @@ describe("Kxno Desk shell", () => {
     fireEvent.drop(monday, { dataTransfer });
     await waitFor(async () => expect(await db.timetable.count()).toBe(2));
     expect(await db.timetable.where("weekday").equals(0).toArray()).toEqual(
-      expect.arrayContaining([expect.objectContaining({ subjectId: subject!.id, start: "08:00", end: "08:45", weekType: "A" })]),
+      expect.arrayContaining([expect.objectContaining({ subjectId: subject!.id, start: "08:45", end: "09:30", weekType: "A" })]),
     );
 
     const pause = within(document.querySelector(".timetable-editor__palette") as HTMLElement).getByRole("button", { name: "Pause" });
@@ -556,8 +557,30 @@ describe("Kxno Desk shell", () => {
     fireEvent.drop(monday, { dataTransfer });
     await waitFor(async () => expect(await db.timetable.count()).toBe(3));
     expect(await db.timetable.where("weekday").equals(0).toArray()).toEqual(
-      expect.arrayContaining([expect.objectContaining({ kind: "break", title: "Pause", start: "10:15", end: "11:00" })]),
+      expect.arrayContaining([expect.objectContaining({ kind: "break", title: "Pause", start: "09:30", end: "10:15" })]),
     );
+  });
+
+  it("creates a subject and lesson from the new lesson flow when the timetable is empty", async () => {
+    const user = userEvent.setup();
+    render(<App />);
+    await user.click(screen.getByRole("link", { name: "Timetable" }));
+    const addLesson = (await screen.findAllByRole("button", { name: "Add lesson" }))[0];
+    expect(addLesson).toBeEnabled();
+    await user.click(addLesson);
+    const dialog = within(screen.getByRole("dialog", { name: "Add lesson" }));
+    await user.type(dialog.getByRole("textbox", { name: "Subject name" }), "Chemistry");
+    await user.click(dialog.getByRole("button", { name: "Add subject" }));
+    await waitFor(async () => expect(await db.subjects.count()).toBe(1));
+    await user.click(dialog.getByRole("button", { name: "Save" }));
+
+    expect(await db.timetable.count()).toBe(1);
+    expect(await db.timetable.toCollection().first()).toMatchObject({
+      kind: "lesson",
+      subjectId: (await db.subjects.toCollection().first())!.id,
+      start: "08:00",
+      end: "08:45",
+    });
   });
 
   it("switches language immediately and applies theme settings", async () => {
@@ -658,6 +681,20 @@ describe("Kxno Desk shell", () => {
 
     expect(document.querySelector(".app-frame")).toHaveStyle({ "--ui-scale": "1.3" });
     expect((await db.settings.get("schoolState"))?.value).toBe("NW");
+  });
+
+  it("saves a custom school start time and uses it for new lessons", async () => {
+    const user = userEvent.setup();
+    render(<App />);
+    await user.click(screen.getByRole("link", { name: "Settings" }));
+    const schoolStart = await screen.findByLabelText("School start time");
+    fireEvent.change(schoolStart, { target: { value: "07:30" } });
+    await waitFor(async () => expect(await db.settings.get("schoolStartTime")).toMatchObject({ value: "07:30" }));
+
+    await user.click(screen.getByRole("link", { name: "Timetable" }));
+    await user.click((await screen.findAllByRole("button", { name: "Add lesson" }))[0]);
+    expect(screen.getByLabelText("Starts")).toHaveValue("07:30");
+    expect(screen.getByLabelText("Ends")).toHaveValue("08:15");
   });
 
   it("loads the selected state's school holidays into the calendar agenda", async () => {
