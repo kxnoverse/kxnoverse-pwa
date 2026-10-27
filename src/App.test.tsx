@@ -223,7 +223,7 @@ describe("Kxno Desk shell", () => {
     await user.click(within(screen.getByRole("heading", { name: "2048" }).closest("article")!).getByRole("button", { name: "Play" }));
     expect(await screen.findByRole("heading", { name: "2048" })).toBeInTheDocument();
     expect(await screen.findByRole("grid", { name: "2048 game board" })).toBeInTheDocument();
-    await user.click(screen.getByRole("button", { name: "Back", exact: true }));
+    await user.click(screen.getByRole("button", { name: /^Back$/ }));
     await waitFor(async () => expect((await db.arcadeData.get("recent"))?.value).toBe('["2048"]'));
 
     const crosswordCard = screen.getByRole("heading", { name: "Crossword Infinite" }).closest("article");
@@ -237,7 +237,7 @@ describe("Kxno Desk shell", () => {
     expect(document.querySelectorAll(".phase6d-crossword__cell.has-letter")).toHaveLength(1);
     await waitFor(async () => expect(await db.arcadeData.get("crossword-infinite:session")).toBeDefined());
 
-    await user.click(screen.getByRole("button", { name: "Back", exact: true }));
+    await user.click(screen.getByRole("button", { name: /^Back$/ }));
     const ludoCard = screen.getByRole("heading", { name: "Color Ludo" }).closest("article");
     expect(ludoCard).not.toBeNull();
     await user.click(within(ludoCard!).getByRole("button", { name: "Play" }));
