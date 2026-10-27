@@ -800,27 +800,6 @@ export function TimetablePage() {
 
       {notice &&       <div className="inline-notice" role="status">{t(`timetable.${notice}`)}<button onClick={() => setNotice("")} aria-label={t("timetable.close")}><X size={13} /></button></div>}
 
-      {editorMode && (
-        <section className="timetable-editor" aria-label={t("timetable.editMode")}>
-          <div className="timetable-editor__palette">
-            <h2>{t("timetable.dragToSchedule")}</h2>
-            {subjects.map((subject) => (
-              <button
-                className="timetable-editor__item"
-                draggable
-                key={subject.id}
-                onDragStart={(event) => event.dataTransfer.setData("text/plain", `palette:subject:${subject.id}`)}
-                type="button"
-              >
-                <span className="timetable-editor__swatch" style={{ backgroundColor: subject.color }} />
-                {subject.name}
-              </button>
-            ))}
-            <p className="timetable-editor__hint">{t("timetable.editorHint")}</p>
-          </div>
-        </section>
-      )}
-
       {manageOpen && (
         <section className="manage-panel">
           <div className="lesson-grid-settings">
@@ -916,7 +895,6 @@ export function TimetablePage() {
                   {teachers.map((teacher) => <option key={teacher.id} value={teacher.id}>{teacher.name}</option>)}
                 </select>
                 <input aria-label={t("timetable.defaultRoom")} maxLength={32} placeholder={t("timetable.defaultRoom")} value={subjectDraft.defaultRoom} onChange={(event) => setSubjectDraft({ ...subjectDraft, defaultRoom: event.target.value })} />
-                <input aria-label={t("timetable.subjectNotes")} maxLength={160} placeholder={t("timetable.subjectNotes")} value={subjectDraft.notes} onChange={(event) => setSubjectDraft({ ...subjectDraft, notes: event.target.value })} />
                 <div className="hex-color-control">
                   <input aria-label={t("timetable.color")} type="color" value={/^#[0-9a-f]{6}$/i.test(subjectDraft.color) ? subjectDraft.color : "#8da9c0"} onChange={(event) => setSubjectDraft({ ...subjectDraft, color: event.target.value })} />
                   <input aria-label={`${t("timetable.color")} HEX`} maxLength={7} pattern="#[0-9a-fA-F]{6}" value={subjectDraft.color} onChange={(event) => setSubjectDraft({ ...subjectDraft, color: event.target.value })} />
@@ -936,7 +914,6 @@ export function TimetablePage() {
                           {teachers.map((teacher) => <option key={teacher.id} value={teacher.id}>{teacher.name}</option>)}
                         </select>
                         <input aria-label={t("timetable.defaultRoom")} value={subjectDraft.defaultRoom} onChange={(event) => setSubjectDraft({ ...subjectDraft, defaultRoom: event.target.value })} />
-                        <input aria-label={t("timetable.subjectNotes")} value={subjectDraft.notes} onChange={(event) => setSubjectDraft({ ...subjectDraft, notes: event.target.value })} />
                         <input aria-label={t("timetable.color")} type="color" value={subjectDraft.color} onChange={(event) => setSubjectDraft({ ...subjectDraft, color: event.target.value })} />
                         <input aria-label={`${t("timetable.color")} HEX`} maxLength={7} pattern="#[0-9a-fA-F]{6}" value={subjectDraft.color} onChange={(event) => setSubjectDraft({ ...subjectDraft, color: event.target.value })} />
                         <button className="inline-button" type="submit">{t("timetable.save")}</button>
@@ -1043,6 +1020,27 @@ export function TimetablePage() {
                 </div>
               ))}
             </div>
+          </div>
+        </section>
+      )}
+
+      {editorMode && (
+        <section className="timetable-editor" aria-label={t("timetable.editMode")}>
+          <div className="timetable-editor__palette">
+            <h2>{t("timetable.dragToSchedule")}</h2>
+            {subjects.map((subject) => (
+              <button
+                className="timetable-editor__item"
+                draggable
+                key={subject.id}
+                onDragStart={(event) => event.dataTransfer.setData("text/plain", `palette:subject:${subject.id}`)}
+                type="button"
+              >
+                <span className="timetable-editor__swatch" style={{ backgroundColor: subject.color }} />
+                <span className="timetable-editor__item-name">{subject.name}</span>
+              </button>
+            ))}
+            <p className="timetable-editor__hint">{t("timetable.editorHint")}</p>
           </div>
         </section>
       )}

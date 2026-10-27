@@ -443,12 +443,13 @@ h1 { color: var(--text); }
   border-top: 1px solid var(--line);
 }
 .timetable-page { min-width: 0; }
-.timetable-page > .page-heading--compact { margin-bottom: 3px; }
+.timetable-page > .page-heading--compact { min-height: 56px; margin-bottom: 3px; }
 .timetable-page { overflow-x: auto; }
 .timetable-grid__row { display: contents; }
 .timetable-grid__corner, .timetable-grid__day {
   display: flex;
-  min-height: 40px;
+  height: 34px;
+  min-height: 34px;
   align-items: center;
   justify-content: center;
   border-bottom: 1px solid var(--line);
@@ -461,8 +462,10 @@ h1 { color: var(--text); }
 .day-column__today { width: 5px; height: 5px; border-radius: 50%; background: var(--accent); }
 .timetable-grid__period, .timetable-grid__slot {
   display: flex;
+  box-sizing: border-box;
   min-width: 0;
-  min-height: 76px;
+  height: 56px;
+  min-height: 56px;
   align-items: center;
   padding: 5px;
   border-bottom: 1px solid color-mix(in srgb, var(--line) 58%, transparent);
@@ -472,16 +475,21 @@ h1 { color: var(--text); }
 .timetable-grid__period span { font-size: 8px; font-variant-numeric: tabular-nums; white-space: nowrap; }
 .timetable-grid__slot { border-left: 1px solid color-mix(in srgb, var(--line) 58%, transparent); transition: background 120ms ease; }
 .timetable-grid__slot.is-drop-target { background: color-mix(in srgb, var(--accent) 9%, transparent); }
-.timetable-grid__empty-slot { display: flex; width: 100%; min-height: 58px; align-items: center; justify-content: center; gap: 5px; border: 1px dashed color-mix(in srgb, var(--line) 75%, transparent); background: transparent; color: var(--text-muted); cursor: pointer; font-size: 9px; opacity: .7; }
+.timetable-grid__empty-slot { display: flex; width: 100%; height: 100%; min-height: 0; align-items: center; justify-content: center; gap: 5px; border: 1px dashed color-mix(in srgb, var(--line) 75%, transparent); background: transparent; color: var(--text-muted); cursor: pointer; font-size: 9px; opacity: .7; }
 .timetable-grid__empty-slot:hover { border-color: color-mix(in srgb, var(--accent) 55%, var(--line)); color: var(--accent); opacity: 1; }
-.timetable-grid__break { display: flex; min-height: 24px; align-items: center; justify-content: center; border-bottom: 1px solid var(--line); background: color-mix(in srgb, #94ad9e 7%, transparent); color: var(--text-muted); font-size: 8px; }
+.timetable-grid__break { display: flex; height: 14px; min-height: 14px; align-items: center; justify-content: center; overflow: hidden; border-bottom: 1px solid var(--line); background: color-mix(in srgb, #94ad9e 7%, transparent); color: var(--text-muted); font-size: 7px; }
 .lesson-item {
   position: relative;
   display: flex;
-  min-height: 74px;
+  box-sizing: border-box;
+  width: 100%;
+  height: 100%;
+  min-height: 0;
   flex-direction: column;
-  gap: 5px;
-  padding: 8px 7px 7px 10px;
+  justify-content: center;
+  gap: 3px;
+  overflow: hidden;
+  padding: 5px 6px 5px 9px;
   border: 0;
   border-radius: max(1px, calc(var(--radius) - 2px));
   background: color-mix(in srgb, var(--surface-1) 72%, transparent);
@@ -498,7 +506,7 @@ h1 { color: var(--text); }
 .lesson-item__subject { overflow: hidden; color: var(--text); font-size: 10px; font-weight: 540; text-overflow: ellipsis; white-space: nowrap; }
 .lesson-item__meta { display: flex; justify-content: space-between; gap: 4px; overflow: hidden; color: var(--text-muted); font-size: 8px; white-space: nowrap; }
 .lesson-item__meta span { overflow: hidden; text-overflow: ellipsis; }
-.lesson-item__actions { display: flex; gap: 1px; margin-top: auto; opacity: 0; transition: opacity 120ms ease; }
+.lesson-item__actions { position: absolute; right: 2px; bottom: 2px; display: flex; gap: 1px; padding-left: 3px; background: var(--surface-1); opacity: 0; transition: opacity 120ms ease; }
 .lesson-item:hover .lesson-item__actions, .lesson-item:focus-within .lesson-item__actions { opacity: 1; }
 .day-column__empty { display: flex; min-height: 40px; align-items: center; gap: 5px; padding: 0 4px; border: 0; background: transparent; color: color-mix(in srgb, var(--text-muted) 70%, transparent); cursor: pointer; font-size: 9px; text-align: left; }
 .day-column__empty:hover { color: var(--accent); }
@@ -687,12 +695,13 @@ h1 { color: var(--text); }
 .feature-toolbar .segmented-control button span { margin-left: 4px; color: var(--text-muted); font-size: 8px; }
 .timer-mode { width: fit-content; margin: -20px auto 10px; }
 .timer-mode button { min-width: 95px; }
-.timetable-editor { margin: 0 0 14px; padding: 12px; border: 1px solid var(--line); background: color-mix(in srgb, var(--surface-1) 45%, transparent); }
+.timetable-editor { margin: 0 0 8px; padding: 7px 9px; border: 1px solid var(--line); background: color-mix(in srgb, var(--surface-1) 45%, transparent); }
 .timetable-editor__palette { display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); align-items: center; gap: 5px; }
 .timetable-editor__palette h2 { margin: 0 0 4px; color: var(--text-dim); font-size: 10px; font-weight: 560; }
 .timetable-editor__palette h2, .timetable-editor__hint { grid-column: 1 / -1; }
-.timetable-editor__item { display: flex; min-height: 31px; align-items: center; gap: 7px; padding: 0 8px; border: 1px solid var(--line); border-radius: var(--radius); background: var(--surface-1); color: var(--text); cursor: grab; font-size: 9px; text-align: left; }
+.timetable-editor__item { display: flex; min-width: 0; height: 30px; align-items: center; gap: 7px; overflow: hidden; padding: 0 8px; border: 1px solid var(--line); border-radius: var(--radius); background: var(--surface-1); color: var(--text); cursor: grab; font-size: 9px; text-align: left; }
 .timetable-editor__item:hover { border-color: color-mix(in srgb, var(--accent) 45%, var(--line)); background: var(--surface-hover); }
+.timetable-editor__item-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .timetable-editor__swatch { width: 6px; height: 16px; border-radius: 2px; }
 .timetable-editor__hint { margin: 4px 0 0; color: var(--text-muted); font-size: 9px; line-height: 1.5; }
 .timetable-grid--editing .timetable-grid__empty-slot { opacity: 1; }

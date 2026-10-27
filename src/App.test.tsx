@@ -519,6 +519,7 @@ describe("Kxno Desk shell", () => {
     render(<App />);
     await user.click(screen.getByRole("link", { name: "Timetable" }));
     await user.click(await screen.findByRole("button", { name: "Manage" }));
+    expect(screen.queryByLabelText("Subject notes")).not.toBeInTheDocument();
     await user.type(screen.getAllByRole("textbox", { name: "Name" })[0], "Biology");
     await user.click(screen.getByRole("button", { name: "Add subject" }));
     const subject = await db.subjects.toCollection().first();
@@ -540,6 +541,10 @@ describe("Kxno Desk shell", () => {
     });
 
     await user.click(screen.getByRole("button", { name: "Edit timetable" }));
+    const palette = document.querySelector(".timetable-editor");
+    const timetableGrid = document.querySelector(".timetable-grid");
+    expect(document.querySelector(".manage-panel")!.compareDocumentPosition(palette!) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(palette?.nextElementSibling).toBe(timetableGrid);
     await user.click(screen.getByRole("button", { name: "Week A" }));
     await user.selectOptions(screen.getByLabelText("Lesson 0 duration"), "30");
     await user.selectOptions(screen.getByLabelText("Break after"), "1");
