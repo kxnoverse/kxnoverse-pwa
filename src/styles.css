@@ -139,18 +139,18 @@ button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible
 
 .sidebar__brand {
   display: flex;
-  height: 66px;
-  flex: 0 0 66px;
+  height: 76px;
+  flex: 0 0 76px;
   align-items: center;
   justify-content: flex-start;
   padding: 0 0 0 20px;
 }
 
-.brand { display: inline-flex; align-items: center; gap: 9px; }
+.brand { display: inline-flex; align-items: center; gap: 10px; }
 .brand__mark {
   display: block;
-  width: 31px;
-  height: 31px;
+  width: 39px;
+  height: 39px;
   flex: 0 0 auto;
   object-fit: contain;
 }
@@ -161,7 +161,7 @@ button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible
   align-items: flex-start;
   gap: 2px;
   color: var(--text);
-  font-size: 15px;
+  font-size: 18px;
   font-weight: 650;
   line-height: 1;
   letter-spacing: .055em;
@@ -431,6 +431,7 @@ h1 { color: var(--text); }
 .day-column__header { display: flex; height: 41px; align-items: center; justify-content: space-between; color: var(--text-muted); font-size: 10px; }
 .day-column--today .day-column__header { color: var(--text); }
 .day-column__today { width: 5px; height: 5px; border-radius: 50%; background: var(--accent); }
+.day-column--drop-target { background: color-mix(in srgb, var(--accent) 5%, transparent); }
 .day-column__entries { display: grid; align-content: start; gap: 7px; }
 .lesson-item {
   position: relative;
@@ -544,6 +545,32 @@ h1 { color: var(--text); }
 .setting-row--toggle { grid-template-columns: 1fr auto; }
 .setting-row--toggle input { width: 14px; height: 14px; accent-color: var(--accent); }
 .setting-row--color { grid-template-columns: minmax(95px, .7fr) 20px minmax(180px, 2fr) 76px; gap: 10px; }
+.setting-color-sliders { display: grid; min-width: 0; gap: 3px; }
+.setting-row--color .setting-color-sliders input { width: 100%; height: 14px; margin: 0; }
+.setting-row--color .setting-color-brightness {
+  appearance: none;
+  border: 0;
+  border-radius: 99px;
+  background: linear-gradient(to right, #000, var(--brightness-color), #fff);
+  cursor: pointer;
+}
+.setting-color-brightness::-webkit-slider-thumb {
+  width: 11px;
+  height: 11px;
+  appearance: none;
+  border: 2px solid white;
+  border-radius: 50%;
+  background: var(--brightness-color);
+  box-shadow: 0 0 0 1px rgb(0 0 0 / 35%);
+}
+.setting-color-brightness::-moz-range-thumb {
+  width: 8px;
+  height: 8px;
+  border: 2px solid white;
+  border-radius: 50%;
+  background: var(--brightness-color);
+  box-shadow: 0 0 0 1px rgb(0 0 0 / 35%);
+}
 .setting-color-swatch { width: 18px; height: 18px; border: 1px solid var(--line); border-radius: 50%; }
 .setting-row--color .setting-color-slider {
   width: 100%;
@@ -615,6 +642,22 @@ h1 { color: var(--text); }
 .feature-toolbar > select, .files-import-controls > select { height: 30px; min-width: 120px; padding: 0 8px; border: 1px solid var(--line); border-radius: var(--radius); background: var(--surface-1); color: var(--text-dim); font-size: 9px; }
 .feature-toolbar .segmented-control { flex: 0 0 auto; }
 .feature-toolbar .segmented-control button span { margin-left: 4px; color: var(--text-muted); font-size: 8px; }
+.timer-mode { width: fit-content; margin: -20px auto 10px; }
+.timer-mode button { min-width: 95px; }
+.timetable-editor { margin: 0 0 14px; padding: 12px; border: 1px solid var(--line); background: color-mix(in srgb, var(--surface-1) 45%, transparent); }
+.timetable-editor__palette { display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); align-items: center; gap: 5px; }
+.timetable-editor__palette h2 { margin: 0 0 4px; color: var(--text-dim); font-size: 10px; font-weight: 560; }
+.timetable-editor__palette h2, .timetable-editor__hint { grid-column: 1 / -1; }
+.timetable-editor__item { display: flex; min-height: 31px; align-items: center; gap: 7px; padding: 0 8px; border: 1px solid var(--line); border-radius: var(--radius); background: var(--surface-1); color: var(--text); cursor: grab; font-size: 9px; text-align: left; }
+.timetable-editor__item:hover { border-color: color-mix(in srgb, var(--accent) 45%, var(--line)); background: var(--surface-hover); }
+.timetable-editor__swatch { width: 6px; height: 16px; border-radius: 2px; }
+.timetable-editor__hint { margin: 4px 0 0; color: var(--text-muted); font-size: 9px; line-height: 1.5; }
+.timetable-grid--editing .day-column__entries { min-height: 110px; }
+.timetable-grid--editing .day-column { transition: background 120ms ease; }
+.teacher-create-inline { display: flex; gap: 5px; align-items: center; margin-top: 5px; }
+.teacher-create-inline input { min-width: 0; height: 27px; padding: 0 7px; border: 1px solid var(--line); border-radius: var(--radius); background: var(--surface-1); color: var(--text); font-size: 9px; }
+.teacher-inline-control { display: flex; align-items: end; }
+.teacher-inline-control .inline-button { display: inline-flex; min-height: 28px; align-items: center; gap: 4px; white-space: nowrap; }
 .feature-form { margin: 0 0 16px; padding: 13px 14px 12px; border: 1px solid var(--line); border-radius: var(--radius); background: color-mix(in srgb, var(--surface-1) 45%, transparent); }
 .feature-form__heading { display: flex; align-items: center; justify-content: space-between; margin-bottom: 11px; }
 .feature-form__heading h2 { margin: 0; color: var(--text); font-size: 12px; font-weight: 560; }
@@ -727,6 +770,7 @@ h1 { color: var(--text); }
 .simple-timer__eyebrow { color: var(--text-muted); font-size: 10px; letter-spacing: .12em; text-transform: uppercase; }
 .simple-timer__clock { margin: 18px 0; color: var(--text); font-size: clamp(68px, 10vw, 112px); font-variant-numeric: tabular-nums; font-weight: 350; letter-spacing: -.08em; line-height: 1; }
 .simple-timer__clock.is-running { color: var(--accent); }
+.simple-timer__clock--stopwatch { font-size: clamp(35px, 8vw, 78px); letter-spacing: -.055em; }
 .simple-timer__duration { display: flex; align-items: center; gap: 8px; color: var(--text-muted); font-size: 10px; }
 .simple-timer__duration input { width: 66px; height: 30px; padding: 0 5px; border: 1px solid var(--line); border-radius: var(--radius); background: var(--surface-1); color: var(--text); text-align: center; }
 .simple-timer__presets { display: flex; gap: 5px; margin-top: 12px; }
@@ -859,6 +903,10 @@ h1 { color: var(--text); }
   .page-controls { gap: 5px; }
   .page-controls .button { min-height: 29px; padding: 0 7px; }
   .timetable-grid { min-width: 770px; }
+  .timetable-editor { padding: 8px; }
+  .timetable-editor__palette { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .timetable-editor__palette h2, .timetable-editor__hint { grid-column: 1 / -1; }
+  .setting-row--color { grid-template-columns: minmax(80px, .7fr) 20px minmax(100px, 2fr) 70px; gap: 7px; }
 }
 
 .setting-row select, .setting-row > input:not([type="range"]):not([type="color"]) {

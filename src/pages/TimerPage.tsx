@@ -12,7 +12,13 @@ interface TimerState {
   runningSince: number | null;
 }
 
+interface StopwatchState {
+  elapsedMs: number;
+  runningSince: number | null;
+}
+
 const TIMER_SETTING = "focusTimerState";
+const STOPWATCH_SETTING = "stopwatchState";
 
 function parseTimer(value?: string): TimerState | undefined {
   if (!value) return undefined;
@@ -43,25 +49,61 @@ function formatTimer(totalSeconds: number): string {
   return `${String(Math.floor(seconds / 60)).padStart(2, "0")}:${String(seconds % 60).padStart(2, "0")}`;
 }
 
+function parseStopwatch(value?: string): StopwatchState | undefined {
+  if (!value) return undefined;
+  try {
+    const item = JSON.parse(value) as Partial<StopwatchState>;
+    if (
+      Number.isSafeInteger(item.elapsedMs) &&
+      item.elapsedMs! >= 0 &&
+      (typeof item.runningSince === "number" || item.runningSince === null)
+    ) return item as StopwatchState;
+  } catch {
+    return undefined;
+  }
+  return undefined;
+}
+
+function elapsedStopwatch(stopwatch: StopwatchState | undefined, now: number): number {
+  if (!stopwatch) return 0;
+  return stopwatch.elapsedMs + (stopwatch.runningSince === null ? 0 : Math.max(0, now - stopwatch.runningSince));
+}
+
+function formatStopwatch(totalMs: number): string {
+  const tenths = Math.floor(totalMs / 100);
+  const seconds = Math.floor(tenths / 10);
+  const hours = Math.floor(seconds / 3600);
+  const minutes = Math.floor((seconds % 3600) / 60);
+  return `${String(hours).padStart(2, "0")}:${String(minutes).padStart(2, "0")}:${String(seconds % 60).padStart(2, "0")}.${tenths % 10}`;
+}
+
 export function TimerPage() {
   const { t } = useTranslation();
   const timerSetting = useLiveQuery(() => db.settings.get(TIMER_SETTING), [], null);
+  const stopwatchSetting = useLiveQuery(() => db.settings.get(STOPWATCH_SETTING), [], null);
   const [now, setNow] = useState(Date.now());
   const [minutes, setMinutes] = useState(25);
+  const [mode, setMode] = useState<"countdown" | "stopwatch">("countdown");
   const [error, setError] = useState("");
   const [completed, setCompleted] = useState(false);
   const finishingId = useRef("");
   const timer = parseTimer(timerSetting?.value);
+  const stopwatch = parseStopwatch(stopwatchSetting?.value);
   const elapsed = timer ? elapsedNow(timer, now) : 0;
+  const stopwatchElapsed = elapsedStopwatch(stopwatch, now);
   const remaining = timer ? Math.max(0, timer.plannedSeconds - elapsed) : minutes * 60;
   const ready = timerSetting !== null;
   const invalidSavedTimer = Boolean(timerSetting?.value && !timer);
+  const invalidSavedStopwatch = Boolean(stopwatchSetting?.value && !stopwatch);
 
   useEffect(() => {
-    if (!timer || timer.runningSince === null) return;
-    const interval = window.setInterval(() => setNow(Date.now()), 1000);
+    if ((!timer || timer.runningSince === null) && (!stopwatch || stopwatch.runningSince === null)) return;
+    const interval = window.setInterval(
+      () => setNow(Date.now()),
+      mode === "stopwatch" ? 100 : 1000,
+    );
     return () => window.clearInterval(interval);
-  }, [timer?.id, timer?.runningSince]);
+  }, [mode, timer?.id, timer?.runningSince, stopwatch?.runningSince]);
 
   async function saveTimer(next: TimerState) {
     await db.transaction("rw", db.settings, async () => {
@@ -134,56 +176,116 @@ export function TimerPage() {
     }
   }
 
+  async function toggleStopwatch() {
+    if (!ready) return;
+    try {
+      const startedAt = Date.now();
+      const next: StopwatchState = stopwatch
+        ? {
+            elapsedMs: elapsedStopwatch(stopwatch, startedAt),
+            runningSince: stopwatch.runningSince === null ? startedAt : null,
+          }
+        : { elapsedMs: 0, runningSince: startedAt };
+      await db.settings.put({ key: STOPWATCH_SETTING, value: JSON.stringify(next) });
+      setNow(startedAt);
+      setError("");
+    } catch {
+      setError(t("timer.saveError"));
+    }
+  }
+
+  async function resetStopwatch() {
+    try {
+      await db.settings.delete(STOPWATCH_SETTING);
+      setNow(Date.now());
+      setError("");
+    } catch {
+      setError(t("timer.saveError"));
+    }
+  }
+
   return (
     <section className="feature-page timer-page">
       <header className="page-heading--compact feature-heading">
         <div><h1>{t("nav.timer")}</h1><p>{t("timer.subtitle")}</p></div>
       </header>
 
-      <section className="simple-timer" aria-label={t("timer.title")}>
-        <span className="simple-timer__eyebrow">{t("timer.title")}</span>
-        <div className={`simple-timer__clock${timer?.runningSince !== null && timer ? " is-running" : ""}`} role="timer" aria-label={t("timer.remaining")}>
-          {formatTimer(remaining)}
-        </div>
-        {!timer && (
+      <div className="segmented-control timer-mode" aria-label={t("timer.mode")}>
+        {(["countdown", "stopwatch"] as const).map((nextMode) => (
+          <button
+            aria-pressed={mode === nextMode}
+            className={mode === nextMode ? "is-selected" : ""}
+            key={nextMode}
+            onClick={() => { setMode(nextMode); setError(""); }}
+            type="button"
+          >{t(`timer.${nextMode}`)}</button>
+        ))}
+      </div>
+
+      <section className="simple-timer" aria-label={t(mode === "countdown" ? "timer.title" : "timer.stopwatch")}>
+        <span className="simple-timer__eyebrow">{t(`timer.${mode}`)}</span>
+        {mode === "countdown" ? (
           <>
-            <label className="simple-timer__duration">
-              <span>{t("timer.duration")}</span>
-              <input
-                aria-label={t("timer.duration")}
-                disabled={!ready || invalidSavedTimer}
-                max={180}
-                min={1}
-                onChange={(event) => setMinutes(Math.max(1, Math.min(180, Number(event.target.value) || 1)))}
-                type="number"
-                value={minutes}
-              />
-              <span>{t("timer.minutes")}</span>
-            </label>
-            <div className="simple-timer__presets" aria-label={t("timer.presets")}>
-              {[15, 25, 45].map((value) => (
-                <button
-                  aria-pressed={minutes === value}
-                  className={minutes === value ? "is-selected" : ""}
-                  disabled={!ready || invalidSavedTimer}
-                  key={value}
-                  onClick={() => setMinutes(value)}
-                  type="button"
-                >{value}</button>
-              ))}
+            <div className={`simple-timer__clock${timer?.runningSince !== null && timer ? " is-running" : ""}`} role="timer" aria-label={t("timer.remaining")}>
+              {formatTimer(remaining)}
             </div>
+            {!timer && (
+              <>
+                <label className="simple-timer__duration">
+                  <span>{t("timer.duration")}</span>
+                  <input
+                    aria-label={t("timer.duration")}
+                    disabled={!ready || invalidSavedTimer}
+                    max={180}
+                    min={1}
+                    onChange={(event) => setMinutes(Math.max(1, Math.min(180, Number(event.target.value) || 1)))}
+                    type="number"
+                    value={minutes}
+                  />
+                  <span>{t("timer.minutes")}</span>
+                </label>
+                <div className="simple-timer__presets" aria-label={t("timer.presets")}>
+                  {[15, 25, 45].map((value) => (
+                    <button
+                      aria-pressed={minutes === value}
+                      className={minutes === value ? "is-selected" : ""}
+                      disabled={!ready || invalidSavedTimer}
+                      key={value}
+                      onClick={() => setMinutes(value)}
+                      type="button"
+                    >{value}</button>
+                  ))}
+                </div>
+              </>
+            )}
+            {timer && <p className="simple-timer__state">{t(timer.runningSince === null ? "timer.paused" : "timer.running")}</p>}
+            <div className="simple-timer__controls">
+              <button className="button button--primary" disabled={!ready || invalidSavedTimer} onClick={() => void toggleTimer()} type="button">
+                {timer?.runningSince !== null && timer
+                  ? <><CirclePause size={15} />{t("timer.pause")}</>
+                  : <><CirclePlay size={15} />{timer ? t("timer.resume") : t("timer.start")}</>}
+              </button>
+              {(timer || invalidSavedTimer) && <button className="button button--quiet" onClick={() => void resetTimer()} type="button"><RotateCcw size={14} />{t("timer.reset")}</button>}
+            </div>
+            {completed && <p className="simple-timer__message" role="status">{t("timer.completed")}</p>}
+          </>
+        ) : (
+          <>
+            <div className={`simple-timer__clock simple-timer__clock--stopwatch${stopwatch?.runningSince !== null && stopwatch ? " is-running" : ""}`} role="timer" aria-label={t("timer.stopwatch")}>
+              {formatStopwatch(stopwatchElapsed)}
+            </div>
+            <p className="simple-timer__state">{t(stopwatch?.runningSince !== null && stopwatch ? "timer.running" : "timer.paused")}</p>
+            <div className="simple-timer__controls">
+              <button className="button button--primary" disabled={!ready || invalidSavedStopwatch} onClick={() => void toggleStopwatch()} type="button">
+                {stopwatch?.runningSince !== null && stopwatch
+                  ? <><CirclePause size={15} />{t("timer.pause")}</>
+                  : <><CirclePlay size={15} />{t(stopwatch ? "timer.resume" : "timer.startStopwatch")}</>}
+              </button>
+              {(stopwatch || invalidSavedStopwatch) && <button className="button button--quiet" onClick={() => void resetStopwatch()} type="button"><RotateCcw size={14} />{t("timer.reset")}</button>}
+            </div>
+            {invalidSavedStopwatch && <p className="form-error" role="alert">{t("timer.invalidStopwatch")}</p>}
           </>
         )}
-        {timer && <p className="simple-timer__state">{t(timer.runningSince === null ? "timer.paused" : "timer.running")}</p>}
-        <div className="simple-timer__controls">
-          <button className="button button--primary" disabled={!ready || invalidSavedTimer} onClick={() => void toggleTimer()} type="button">
-            {timer?.runningSince !== null && timer
-              ? <><CirclePause size={15} />{t("timer.pause")}</>
-              : <><CirclePlay size={15} />{timer ? t("timer.resume") : t("timer.start")}</>}
-          </button>
-          {(timer || invalidSavedTimer) && <button className="button button--quiet" onClick={() => void resetTimer()} type="button"><RotateCcw size={14} />{t("timer.reset")}</button>}
-        </div>
-        {completed && <p className="simple-timer__message" role="status">{t("timer.completed")}</p>}
         {error && <p className="form-error" role="alert">{error}</p>}
         <p className="simple-timer__note">{t("timer.localNote")}</p>
       </section>

@@ -32,6 +32,7 @@ export interface TimetableEntry {
   inheritRoom?: boolean;
   inheritColor?: boolean;
   notes?: string;
+  title?: string;
   weekType: WeekType;
   kind: SessionKind;
 }

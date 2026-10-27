@@ -33,16 +33,19 @@ function hueFromHex(hex: string): number {
   return Math.round((hue * 60 + 360) % 360);
 }
 
-function hexWithHue(hex: string, hue: number): string {
+function hexWithHue(hex: string, hue: number, brightness?: number): string {
   const match = /^#([0-9a-f]{6})$/i.exec(hex);
   if (!match) return hex;
   const channels = [0, 2, 4].map((offset) => parseInt(match[1].slice(offset, offset + 2), 16) / 255);
   const [red, green, blue] = channels;
   const max = Math.max(red, green, blue);
   const min = Math.min(red, green, blue);
-  const lightness = (max + min) / 2;
+  const sourceLightness = (max + min) / 2;
+  const lightness = brightness === undefined
+    ? sourceLightness
+    : 0.08 + Math.min(100, Math.max(0, brightness)) / 100 * 0.84;
   const delta = max - min;
-  const saturation = delta === 0 ? 0 : delta / (1 - Math.abs(2 * lightness - 1));
+  const saturation = delta === 0 ? 0 : delta / (1 - Math.abs(2 * sourceLightness - 1));
   const normalizedHue = ((hue % 360) + 360) % 360;
   const chroma = (1 - Math.abs(2 * lightness - 1)) * saturation;
   const section = normalizedHue / 60;
@@ -55,6 +58,14 @@ function hexWithHue(hex: string, hue: number): string {
           : section < 5 ? [secondary, 0, chroma]
             : [chroma, 0, secondary];
   return `#${rgb.map((channel) => Math.round((channel + offset) * 255).toString(16).padStart(2, "0")).join("")}`;
+}
+
+function brightnessFromHex(hex: string): number {
+  const match = /^#([0-9a-f]{6})$/i.exec(hex);
+  if (!match) return 50;
+  const channels = [0, 2, 4].map((offset) => parseInt(match[1].slice(offset, offset + 2), 16) / 255);
+  const lightness = (Math.max(...channels) + Math.min(...channels)) / 2;
+  return Math.round(Math.min(100, Math.max(0, (lightness - 0.08) / 0.84 * 100)));
 }
 
 export function SettingsPage() {
@@ -437,22 +448,41 @@ export function SettingsPage() {
       <div className="setting-row setting-row--color">
         <span>{label}</span>
         <span className="setting-color-swatch" style={{ backgroundColor: draftColor }} aria-hidden="true" />
-        <input
-          aria-label={`${label} hue`}
-          className="setting-color-slider"
-          max={359}
-          min={0}
-          onBlur={commitColor}
-          onChange={(event) => {
-            const base = /^#[0-9a-f]{6}$/i.test(colorDrafts[key]) ? colorDrafts[key] : appearance[key];
-            setColorDrafts((draft) => ({ ...draft, [key]: hexWithHue(base, Number(event.target.value)) }));
-          }}
-          onKeyUp={commitColor}
-          onPointerUp={commitColor}
-          step={1}
-          type="range"
-          value={hueFromHex(draftColor)}
-        />
+        <div className="setting-color-sliders">
+          <input
+            aria-label={`${label} hue`}
+            className="setting-color-slider"
+            max={359}
+            min={0}
+            onBlur={commitColor}
+            onChange={(event) => {
+              const base = /^#[0-9a-f]{6}$/i.test(colorDrafts[key]) ? colorDrafts[key] : appearance[key];
+              setColorDrafts((draft) => ({ ...draft, [key]: hexWithHue(base, Number(event.target.value)) }));
+            }}
+            onKeyUp={commitColor}
+            onPointerUp={commitColor}
+            step={1}
+            type="range"
+            value={hueFromHex(draftColor)}
+          />
+          <input
+            aria-label={`${label} ${t("settings.brightness")}`}
+            className="setting-color-brightness"
+            max={100}
+            min={0}
+            onBlur={commitColor}
+            onChange={(event) => {
+              const base = /^#[0-9a-f]{6}$/i.test(colorDrafts[key]) ? colorDrafts[key] : appearance[key];
+              setColorDrafts((draft) => ({ ...draft, [key]: hexWithHue(base, hueFromHex(base), Number(event.target.value)) }));
+            }}
+            onKeyUp={commitColor}
+            onPointerUp={commitColor}
+            step={1}
+            style={{ "--brightness-color": draftColor } as React.CSSProperties}
+            type="range"
+            value={brightnessFromHex(draftColor)}
+          />
+        </div>
         <input
           aria-label={`${label} HEX`}
           className="setting-color-hex"

@@ -4,7 +4,6 @@ import {
   CalendarDays,
   CalendarRange,
   Calculator,
-  Files,
   House,
   ListTodo,
   Gamepad2,
@@ -29,7 +28,6 @@ const navigation = [
   { key: "calendar", path: "/calendar", icon: CalendarDays },
   { key: "timer", path: "/timer", icon: Timer },
   { key: "notes", path: "/notes", icon: NotebookPen },
-  { key: "files", path: "/files", icon: Files },
   { key: "minigames", path: "/minigames", icon: Gamepad2 },
   { key: "calculator", path: "/calculator", icon: Calculator },
 ] as const;
@@ -42,9 +40,11 @@ export function AppShell() {
   const pageName =
     location.pathname === "/settings"
       ? "settings"
-      : location.pathname.startsWith("/minigames")
-        ? "minigames"
-      : navigation.find((item) => item.path === location.pathname)?.key ?? "home";
+      : location.pathname === "/files"
+        ? "files"
+        : location.pathname.startsWith("/minigames")
+          ? "minigames"
+          : navigation.find((item) => item.path === location.pathname)?.key ?? "home";
 
   useEffect(() => {
     document.title = `${t("appName")} — ${t(`nav.${pageName}`)}`;

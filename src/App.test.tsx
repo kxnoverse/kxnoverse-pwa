@@ -68,6 +68,7 @@ describe("Kxno Desk shell", () => {
     expect(document.querySelector(".background-layer--chrome")).toBeInTheDocument();
     expect(screen.getByRole("time")).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "Today’s schedule" })).toBeInTheDocument();
+    expect(within(screen.getByRole("navigation", { name: "Main navigation" })).queryByRole("link", { name: "Files" })).not.toBeInTheDocument();
 
     await user.click(
       within(screen.getByRole("navigation", { name: "Main navigation" })).getByRole(
@@ -509,6 +510,56 @@ describe("Kxno Desk shell", () => {
     expect(await db.teachers.get(teacher!.id)).toBeDefined();
   });
 
+  it("creates a teacher from a lesson and snaps palette items to free timetable slots", async () => {
+    const user = userEvent.setup();
+    render(<App />);
+    await user.click(screen.getByRole("link", { name: "Timetable" }));
+    await user.click(await screen.findByRole("button", { name: "Manage" }));
+    await user.type(screen.getAllByRole("textbox", { name: "Name" })[0], "Biology");
+    await user.click(screen.getByRole("button", { name: "Add subject" }));
+    const subject = await db.subjects.toCollection().first();
+    expect(subject).toBeDefined();
+
+    await user.click(screen.getAllByRole("button", { name: "Add lesson" })[0]);
+    await user.selectOptions(screen.getByRole("combobox", { name: "Subject" }), subject!.id);
+    await user.click(screen.getByRole("button", { name: "Create teacher" }));
+    const dialog = within(screen.getByRole("dialog", { name: "Add lesson" }));
+    await user.type(dialog.getByRole("textbox", { name: "Teacher name" }), "Dr Local");
+    await user.click(dialog.getByRole("button", { name: "Add teacher" }));
+    const teacher = await db.teachers.toCollection().first();
+    expect(teacher).toMatchObject({ name: "Dr Local", subjectIds: [subject!.id] });
+    await user.click(dialog.getByRole("button", { name: "Save" }));
+    expect(await db.timetable.toCollection().first()).toMatchObject({
+      subjectId: subject!.id,
+      teacherId: teacher!.id,
+      inheritTeacher: false,
+    });
+
+    await user.click(screen.getByRole("button", { name: "Edit timetable" }));
+    await user.click(screen.getByRole("button", { name: "Week A" }));
+    const paletteSubject = within(document.querySelector(".timetable-editor__palette") as HTMLElement).getByRole("button", { name: "Biology" });
+    const monday = document.querySelectorAll(".day-column")[0] as HTMLElement;
+    let payload = "";
+    const dataTransfer = {
+      setData: (_format: string, value: string) => { payload = value; },
+      getData: () => payload,
+    };
+    fireEvent.dragStart(paletteSubject, { dataTransfer });
+    fireEvent.drop(monday, { dataTransfer });
+    await waitFor(async () => expect(await db.timetable.count()).toBe(2));
+    expect(await db.timetable.where("weekday").equals(0).toArray()).toEqual(
+      expect.arrayContaining([expect.objectContaining({ subjectId: subject!.id, start: "08:00", end: "08:45", weekType: "A" })]),
+    );
+
+    const pause = within(document.querySelector(".timetable-editor__palette") as HTMLElement).getByRole("button", { name: "Pause" });
+    fireEvent.dragStart(pause, { dataTransfer });
+    fireEvent.drop(monday, { dataTransfer });
+    await waitFor(async () => expect(await db.timetable.count()).toBe(3));
+    expect(await db.timetable.where("weekday").equals(0).toArray()).toEqual(
+      expect.arrayContaining([expect.objectContaining({ kind: "break", title: "Pause", start: "10:15", end: "11:00" })]),
+    );
+  });
+
   it("switches language immediately and applies theme settings", async () => {
     const user = userEvent.setup();
     render(<App />);
@@ -544,6 +595,18 @@ describe("Kxno Desk shell", () => {
     const previewColor = (screen.getByRole("textbox", { name: "Accent HEX" }) as HTMLInputElement).value;
     expect(previewColor).not.toBe(defaultAppearance.accent);
 
+    fireEvent.pointerUp(slider);
+    expect(useUiStore.getState().appearance.accent).toBe(previewColor);
+  });
+
+  it("applies the brightness slider to the selected theme color", async () => {
+    const user = userEvent.setup();
+    render(<App />);
+    await user.click(screen.getByRole("link", { name: "Settings" }));
+    const slider = await screen.findByRole("slider", { name: "Accent Brightness" });
+    fireEvent.change(slider, { target: { value: "25" } });
+    const previewColor = (screen.getByRole("textbox", { name: "Accent HEX" }) as HTMLInputElement).value;
+    expect(previewColor).not.toBe(defaultAppearance.accent);
     fireEvent.pointerUp(slider);
     expect(useUiStore.getState().appearance.accent).toBe(previewColor);
   });
@@ -944,7 +1007,8 @@ describe("Kxno Desk shell", () => {
     });
     expect(JSON.parse(timerSetting!.value).elapsedSeconds).toBeGreaterThanOrEqual(1);
 
-    await user.click(within(screen.getByRole("navigation", { name: "Main navigation" })).getByRole("link", { name: "Files" }));
+    window.location.hash = "#/files";
+    await screen.findByRole("heading", { name: "Files", level: 1 });
     const file = new File(["local reference"], "reference.txt", { type: "text/plain" });
     fireEvent.change(await screen.findByLabelText("Add files"), { target: { files: [file] } });
     await waitFor(async () => expect(await db.files.count()).toBe(1));
@@ -992,7 +1056,7 @@ describe("Kxno Desk shell", () => {
     await user.click(screen.getByRole("button", { name: "Reset" }));
     expect(await db.settings.get("focusTimerState")).toBeUndefined();
 
-    await user.click(screen.getByRole("link", { name: "Files" }));
+    window.location.hash = "#/files";
     await screen.findByRole("heading", { name: "Files", level: 1 });
     const file = new File(["local reference"], "reference.txt", { type: "text/plain" });
     fireEvent.change(screen.getByLabelText("Add files"), { target: { files: [file] } });
@@ -1000,5 +1064,22 @@ describe("Kxno Desk shell", () => {
     expect(await db.files.toCollection().first()).toMatchObject({ name: "reference.txt", size: file.size });
     expect(await screen.findByRole("heading", { name: "reference.txt" })).toBeInTheDocument();
     expect(URL.createObjectURL).toHaveBeenCalled();
+  });
+
+  it("runs and persists a stopwatch independently from the countdown", async () => {
+    const user = userEvent.setup();
+    render(<App />);
+    await user.click(within(screen.getByRole("navigation", { name: "Main navigation" })).getByRole("link", { name: "Timer" }));
+    await user.click(await screen.findByRole("button", { name: "Stopwatch" }));
+    await user.click(screen.getByRole("button", { name: "Start stopwatch" }));
+    await new Promise((resolve) => window.setTimeout(resolve, 150));
+    await user.click(screen.getByRole("button", { name: "Pause" }));
+    await waitFor(async () => {
+      const saved = await db.settings.get("stopwatchState");
+      expect(JSON.parse(saved!.value)).toMatchObject({ runningSince: null });
+      expect(JSON.parse(saved!.value).elapsedMs).toBeGreaterThan(0);
+    });
+    await user.click(screen.getByRole("button", { name: "Reset" }));
+    expect(await db.settings.get("stopwatchState")).toBeUndefined();
   });
 });

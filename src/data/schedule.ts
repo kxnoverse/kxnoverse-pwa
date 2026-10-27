@@ -102,9 +102,9 @@ export function resolveEntries(
         teacher: teachers.find((item) => item.id === teacherId),
         label:
           entry.kind === "break"
-            ? "break"
+            ? entry.title || "break"
             : entry.kind === "free"
-              ? "free"
+              ? entry.title || "free"
               : subject?.name ?? "",
         color: entry.inheritColor ? subject?.color ?? "#8294a3" : entry.colorOverride ?? subject?.color ?? "#8294a3",
       };
