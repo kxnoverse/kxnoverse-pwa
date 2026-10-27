@@ -37,6 +37,11 @@ export interface AssistantRequest {
   attachments: AssistantAttachmentInput[];
 }
 
+export interface AssistantUsage {
+  remaining: number;
+  limit: number;
+}
+
 export type AssistantServiceErrorCode =
   | "accessRequired"
   | "rateLimited"
@@ -66,6 +71,7 @@ export class AssistantBackendUnavailableError extends Error {
 }
 
 export interface AssistantClient {
+  getUsage(endpoint: string | undefined): Promise<AssistantUsage>;
   send(
     request: AssistantRequest,
     options: {
@@ -209,6 +215,34 @@ function requestWithProgress(
 }
 
 export const assistantClient: AssistantClient = {
+  async getUsage(value) {
+    const endpoint = endpointUrl(value, "/api/usage");
+    try {
+      const response = await fetch(endpoint, { method: "GET", headers: { Accept: "application/json" }, cache: "no-store", credentials: "omit" });
+      const body = await response.text();
+      if (!response.ok) throw errorFromStatus(response.status, body);
+      let payload: unknown;
+      try {
+        payload = JSON.parse(body);
+      } catch {
+        throw new AssistantServiceError("requestFailed");
+      }
+      if (typeof payload !== "object" || payload === null || !("remaining" in payload) || !("limit" in payload)) {
+        throw new AssistantServiceError("requestFailed");
+      }
+      const { remaining, limit } = payload;
+      if (
+        typeof remaining !== "number" || !Number.isInteger(remaining) || remaining < 0 ||
+        typeof limit !== "number" || !Number.isInteger(limit) || limit < 1 || remaining > limit
+      ) {
+        throw new AssistantServiceError("requestFailed");
+      }
+      return { remaining, limit };
+    } catch (cause) {
+      if (cause instanceof AssistantServiceError || cause instanceof AssistantBackendUnavailableError) throw cause;
+      throw new AssistantServiceError("networkFailure");
+    }
+  },
   send(request, options) {
     const endpoint = endpointUrl(request.endpoint, "/api/chat");
     if (options.signal.aborted) return Promise.reject(new DOMException("Request cancelled.", "AbortError"));

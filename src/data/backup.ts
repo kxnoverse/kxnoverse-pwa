@@ -6,7 +6,7 @@ import { isBlobLike, readBlobAsArrayBuffer } from "./blob-utils";
 const BACKUP_FORMAT = "kxnodesk-local-backup";
 const MAX_IMPORT_BYTES = 150 * 1024 * 1024;
 const MAX_RECORDS = 50_000;
-const PRIVATE_RUNTIME_SETTINGS = new Set(["aiCloudConsent", "aiCloudEnabled", "focusTimerState"]);
+const PRIVATE_RUNTIME_SETTINGS = new Set(["aiCloudConsent", "aiCloudConsentEndpoint", "aiCloudEnabled", "focusTimerState"]);
 const PREFERENCE_KEYS = ["kxnodesk-ui", "kxnodesk-language"] as const;
 const DATA_TABLES = [
   "subjects",

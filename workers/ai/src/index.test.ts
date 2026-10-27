@@ -26,7 +26,7 @@ function createQuota() {
   return { limiter: new UserQuota({ storage }), values };
 }
 
-function consume(limiter: UserQuota, day: string, limit = 33) {
+function consume(limiter: UserQuota, day: string, limit = 100) {
   return limiter.fetch(new Request("https://quota.internal/consume", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -34,10 +34,14 @@ function consume(limiter: UserQuota, day: string, limit = 33) {
   }));
 }
 
+function getUsage(limiter: UserQuota, day: string, limit = 100) {
+  return limiter.fetch(new Request(`https://quota.internal/usage?day=${day}&limit=${limit}`));
+}
+
 describe("AI Worker access controls", () => {
-  it("enforces the per-IP daily request limit of 33 and rolls over by UTC day", async () => {
+  it("enforces the per-IP daily request limit of 100 and rolls over by UTC day", async () => {
     const { limiter } = createQuota();
-    for (let index = 0; index < 33; index += 1) {
+    for (let index = 0; index < 100; index += 1) {
       const response = await consume(limiter, "2026-06-01");
       expect(response.status).toBe(200);
       expect((await response.json()).allowed).toBe(true);
@@ -49,10 +53,17 @@ describe("AI Worker access controls", () => {
 
   it("supports the separate global daily cap", async () => {
     const { limiter } = createQuota();
-    for (let index = 0; index < 100; index += 1) {
-      expect((await (await consume(limiter, "2026-06-01", 100)).json()).allowed).toBe(true);
+    for (let index = 0; index < 300; index += 1) {
+      expect((await (await consume(limiter, "2026-06-01", 300)).json()).allowed).toBe(true);
     }
-    expect((await (await consume(limiter, "2026-06-01", 100)).json()).allowed).toBe(false);
+    expect((await (await consume(limiter, "2026-06-01", 300)).json()).allowed).toBe(false);
+  });
+
+  it("reports quota usage without consuming a request", async () => {
+    const { limiter } = createQuota();
+    expect(await (await getUsage(limiter, "2026-06-01")).json()).toEqual({ count: 0, remaining: 100, limit: 100 });
+    await consume(limiter, "2026-06-01");
+    expect(await (await getUsage(limiter, "2026-06-01")).json()).toEqual({ count: 1, remaining: 99, limit: 100 });
   });
 
   describe("OpenRouter chat and attachments", () => {
@@ -265,6 +276,32 @@ describe("AI Worker access controls", () => {
     }), env);
     expect(preflight.status).toBe(204);
     expect(preflight.headers.get("Access-Control-Allow-Origin")).toBe(env.APP_ORIGIN);
+    expect(preflight.headers.get("Access-Control-Allow-Methods")).toContain("GET");
+  });
+
+  it("returns the effective per-IP/global remaining count without consuming quota", async () => {
+    const quotaCalls: Array<{ id: unknown; request: Request }> = [];
+    const env = {
+      APP_ORIGIN: "https://app.example.test",
+      USER_QUOTA: {
+        idFromName: (id: string) => id,
+        get: (id: unknown) => ({
+          fetch: async (input: RequestInfo | URL, init?: RequestInit) => {
+            const request = new Request(input, init);
+            quotaCalls.push({ id, request });
+            return new Response(JSON.stringify({ remaining: id === "global" ? 45 : 80 }));
+          },
+        }),
+      },
+    };
+    const result = await worker.fetch(new Request("https://worker.example.test/api/usage", {
+      headers: { Origin: env.APP_ORIGIN, "CF-Connecting-IP": "192.0.2.5" },
+    }), env);
+
+    expect(result.status).toBe(200);
+    expect(await result.json()).toEqual({ remaining: 45, limit: 100 });
+    expect(quotaCalls).toHaveLength(2);
+    expect(quotaCalls.every(({ request }) => request.method === "GET" && new URL(request.url).pathname === "/usage")).toBe(true);
   });
 
   it("tests OpenRouter with its dedicated server-side key and restricts it to free routing", async () => {

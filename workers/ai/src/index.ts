@@ -49,8 +49,8 @@ interface ChatRequest {
 const MAX_BODY_BYTES = 27 * 1024 * 1024;
 const MAX_MESSAGE_LENGTH = 8_000;
 const MAX_OUTPUT_TOKENS = 1_200;
-const MAX_REQUESTS_PER_DAY = 33;
-const MAX_GLOBAL_REQUESTS_PER_DAY = 100;
+const MAX_REQUESTS_PER_DAY = 100;
+const MAX_GLOBAL_REQUESTS_PER_DAY = 300;
 const MAX_PROVIDER_RESPONSE_BYTES = 1_000_000;
 const MAX_ATTACHMENTS = 5;
 const MAX_ATTACHMENT_BYTES = 10 * 1024 * 1024;
@@ -389,6 +389,18 @@ export class UserQuota {
   constructor(private readonly state: DurableObjectState) {}
 
   async fetch(request: Request): Promise<Response> {
+    const url = new URL(request.url);
+    if (request.method === "GET" && url.pathname === "/usage") {
+      const day = url.searchParams.get("day") ?? "";
+      const limit = Number(url.searchParams.get("limit"));
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(day) || ![MAX_REQUESTS_PER_DAY, MAX_GLOBAL_REQUESTS_PER_DAY].includes(limit)) {
+        return response({ error: "invalid_request" }, 400);
+      }
+      const current = await this.state.storage.get<{ day: string; count: number }>("daily");
+      const count = current?.day === day ? current.count : 0;
+      return response({ count, remaining: Math.max(0, limit - count), limit });
+    }
+    if (request.method !== "POST" || url.pathname !== "/consume") return response({ error: "not_found" }, 404);
     const payload = await request.json() as { day?: string; limit?: number };
     if (!payload.day || typeof payload.limit !== "number" ||
       ![MAX_REQUESTS_PER_DAY, MAX_GLOBAL_REQUESTS_PER_DAY].includes(payload.limit)) {
@@ -399,13 +411,26 @@ export class UserQuota {
     const result = await this.state.storage.transaction(async (storage) => {
       const current = await storage.get<{ day: string; count: number }>("daily");
       const count = current?.day === day ? current.count : 0;
-      if (count >= limit) return { allowed: false, count };
+      if (count >= limit) return { allowed: false, count, remaining: 0 };
       const next = count + 1;
       await storage.put("daily", { day, count: next });
-      return { allowed: true, count: next };
+      return { allowed: true, count: next, remaining: limit - next };
     });
     return response(result);
   }
+}
+
+async function getQuotaUsage(env: Environment, key: string, day: string, limit: number): Promise<number> {
+  const id = env.USER_QUOTA.idFromName(key);
+  const quota = await env.USER_QUOTA.get(id).fetch(
+    `https://quota.internal/usage?day=${encodeURIComponent(day)}&limit=${limit}`,
+  );
+  if (!quota.ok) throw new Error("Quota usage could not be read.");
+  const result = await quota.json() as { remaining?: number };
+  if (typeof result.remaining !== "number" || !Number.isInteger(result.remaining) || result.remaining < 0) {
+    throw new Error("Quota usage response was invalid.");
+  }
+  return result.remaining;
 }
 
 export default {
@@ -420,7 +445,7 @@ export default {
         status: 204,
         headers: {
           "Access-Control-Allow-Origin": allowedOrigin,
-          "Access-Control-Allow-Methods": "POST, OPTIONS",
+          "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
           "Access-Control-Allow-Headers": "Content-Type",
           "Access-Control-Max-Age": "600",
           "Vary": "Origin",
@@ -428,6 +453,25 @@ export default {
       });
     }
     const url = new URL(request.url);
+    const isUsage = url.pathname === "/api/usage";
+    if (isUsage) {
+      if (request.method !== "GET") return response({ error: "not_found" }, 404, allowedOrigin, { Allow: "GET, OPTIONS" });
+      const ipAddress = request.headers.get("CF-Connecting-IP");
+      if (!ipAddress) return response({ error: "rate_limit_unavailable" }, 503, allowedOrigin);
+      try {
+        const day = new Date().toISOString().slice(0, 10);
+        const [ipRemaining, globalRemaining] = await Promise.all([
+          getQuotaUsage(env, await subjectId(ipAddress), day, MAX_REQUESTS_PER_DAY),
+          getQuotaUsage(env, "global", day, MAX_GLOBAL_REQUESTS_PER_DAY),
+        ]);
+        return response({
+          remaining: Math.min(ipRemaining, globalRemaining),
+          limit: Math.min(MAX_REQUESTS_PER_DAY, MAX_GLOBAL_REQUESTS_PER_DAY),
+        }, 200, allowedOrigin);
+      } catch {
+        return response({ error: "service_unavailable" }, 503, allowedOrigin);
+      }
+    }
     const isChat = url.pathname === "/api/chat";
     const isTest = url.pathname === "/api/test";
     if (request.method !== "POST" || (!isChat && !isTest)) return response({ error: "not_found" }, 404, allowedOrigin, { Allow: "POST, OPTIONS" });

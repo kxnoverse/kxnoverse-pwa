@@ -8,11 +8,19 @@ import { i18n } from "./i18n";
 import { defaultAppearance, useUiStore } from "./stores/ui-store";
 import { assistantClient } from "./data/ai-client";
 
-vi.mock("./components/TurnstileChallenge", () => ({
-  TurnstileChallenge: ({ onToken }: { onToken: (token: string) => void }) => (
-    <button type="button" onClick={() => onToken("test-turnstile-token")}>Complete verification</button>
-  ),
-}));
+vi.mock("./components/TurnstileChallenge", async () => {
+  const React = await vi.importActual<typeof import("react")>("react");
+  return {
+    TurnstileChallenge: ({ requestId, onToken }: { requestId: number; onToken: (token: string) => void }) => {
+      const callback = React.useRef(onToken);
+      callback.current = onToken;
+      React.useEffect(() => {
+        if (requestId > 0) callback.current("test-turnstile-token");
+      }, [requestId]);
+      return null;
+    },
+  };
+});
 
 beforeEach(async () => {
   localStorage.clear();
@@ -670,13 +678,14 @@ describe("Kxno Desk shell", () => {
     await user.click(screen.getByRole("button", { name: "Save site key" }));
     expect(await screen.findByText("Site key saved on this device.")).toBeInTheDocument();
     await user.click(screen.getByRole("checkbox", { name: /Enable optional cloud AI/ }));
-    await user.click(await screen.findByRole("button", { name: "Complete verification" }));
+    await user.click(screen.getByRole("checkbox", { name: /Allow cloud sharing/ }));
     await user.click(screen.getByRole("button", { name: "Test AI connection" }));
 
     await waitFor(() => expect(testConnectionSpy).toHaveBeenCalledWith("https://worker.example.test", "test-turnstile-token"));
     expect((await db.settings.get("aiBackendUrl"))?.value).toBe("https://worker.example.test");
     expect((await db.settings.get("aiCloudEnabled"))?.value).toBe("true");
     expect((await db.settings.get("turnstileSiteKey"))?.value).toBe("0x4AAAAAAAtestsitekey");
+    expect((await db.settings.get("aiCloudConsentEndpoint"))?.value).toBe("https://worker.example.test");
   });
 
   it("saves a local profile, applies a theme, and enables a weekend school day", async () => {
@@ -721,8 +730,15 @@ describe("Kxno Desk shell", () => {
       { key: "aiBackendUrl", value: "https://worker.example.test" },
       { key: "aiCloudEnabled", value: "true" },
       { key: "turnstileSiteKey", value: "0x4AAAAAAAtestsitekey" },
+      { key: "aiCloudConsentEndpoint", value: "https://worker.example.test" },
     ]);
+    let consumedRequests = 0;
+    const usageSpy = vi.spyOn(assistantClient, "getUsage").mockImplementation(async () => ({
+      remaining: 100 - consumedRequests,
+      limit: 100,
+    }));
     const sendSpy = vi.spyOn(assistantClient, "send").mockImplementation(async (_request, options) => {
+      consumedRequests += 1;
       options.onToken("Cloud answer");
     });
     const user = userEvent.setup();
@@ -733,9 +749,8 @@ describe("Kxno Desk shell", () => {
     await user.keyboard("{Shift>}{Enter}{/Shift}");
     await user.type(composer, " please");
     expect(composer).toHaveValue("Explain fractions\n please");
-    await user.click(screen.getByRole("checkbox", { name: /Allow the AI provider/ }));
-    await user.click(screen.getByRole("button", { name: "Complete verification" }));
-    await waitFor(() => expect(screen.getByRole("button", { name: "Send" })).toBeEnabled());
+    expect(screen.queryByRole("checkbox", { name: /Allow cloud sharing/ })).not.toBeInTheDocument();
+    await screen.findByLabelText("100 requests remaining today");
     await user.click(composer);
     await user.keyboard("{Enter}");
 
@@ -749,20 +764,18 @@ describe("Kxno Desk shell", () => {
     expect(await screen.findByText("Cloud answer")).toBeInTheDocument();
     expect((await db.aiMessages.toArray()).find((message) => message.role === "user")).toMatchObject({ content: "Explain fractions\n please" });
     expect(await db.settings.get("aiCloudConsentEndpoint")).toMatchObject({ value: "https://worker.example.test" });
-    expect(screen.getByRole("checkbox", { name: /Allow the AI provider/ })).toBeChecked();
+    await waitFor(() => expect(screen.getByLabelText("99 requests remaining today")).toBeInTheDocument());
+    expect(usageSpy).toHaveBeenCalled();
 
     await user.type(composer, "A follow-up question");
-    await user.click(screen.getByRole("button", { name: "Complete verification" }));
-    await waitFor(() => expect(screen.getByRole("button", { name: "Send" })).toBeEnabled());
     await user.click(composer);
     await user.keyboard("{Enter}");
     await waitFor(() => expect(sendSpy).toHaveBeenCalledTimes(2));
-    expect(screen.getByRole("checkbox", { name: /Allow the AI provider/ })).toBeChecked();
 
     view.unmount();
     render(<App />);
-    await user.click(await screen.findByRole("link", { name: "Assistant" }));
-    expect(await screen.findByRole("checkbox", { name: /Allow the AI provider/ })).toBeChecked();
+    await user.click(await screen.findByRole("link", { name: "Settings" }));
+    expect(await screen.findByRole("checkbox", { name: /Allow cloud sharing/ })).toBeChecked();
   });
 
   it("preserves saved assistant presets while loading the assistant", async () => {

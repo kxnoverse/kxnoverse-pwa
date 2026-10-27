@@ -28,6 +28,7 @@ export function SettingsPage() {
   const selectedTheme = useLiveQuery(() => db.settings.get("selectedTheme"), [], undefined)?.value ?? "amethyst";
   const aiEndpointSetting = useLiveQuery(() => db.settings.get("aiBackendUrl"), [], undefined);
   const aiCloudEnabledSetting = useLiveQuery(() => db.settings.get("aiCloudEnabled"), [], undefined);
+  const aiCloudConsentSetting = useLiveQuery(() => db.settings.get("aiCloudConsentEndpoint"), [], undefined);
   const turnstileSiteKeySetting = useLiveQuery(() => db.settings.get("turnstileSiteKey"), [], undefined);
   const localRecordCount = useLiveQuery(async () => {
     const counts = await Promise.all([
@@ -44,8 +45,8 @@ export function SettingsPage() {
   const [backupNotice, setBackupNotice] = useState("");
   const [aiEndpointDraft, setAiEndpointDraft] = useState("");
   const [turnstileSiteKeyDraft, setTurnstileSiteKeyDraft] = useState("");
-  const [turnstileToken, setTurnstileToken] = useState("");
   const [turnstileVersion, setTurnstileVersion] = useState(0);
+  const pendingTurnstileToken = useRef<{ resolve: (token: string) => void; reject: (error: Error) => void } | undefined>(undefined);
   const [aiEndpointError, setAiEndpointError] = useState("");
   const [aiEndpointSaved, setAiEndpointSaved] = useState(false);
   const [turnstileSiteKeySaved, setTurnstileSiteKeySaved] = useState(false);
@@ -69,11 +70,18 @@ export function SettingsPage() {
     }
   }, [daysSetting?.value]);
   const aiCloudEnabled = aiCloudEnabledSetting?.value === "true";
+  const aiCloudConsent = Boolean(aiEndpointSetting?.value && aiCloudConsentSetting?.value === aiEndpointSetting.value);
   const [colorDrafts, setColorDrafts] = useState({
     accent: appearance.accent,
     background: appearance.background,
     surface: appearance.surface,
   });
+
+  useEffect(() => () => {
+    const pending = pendingTurnstileToken.current;
+    pendingTurnstileToken.current = undefined;
+    pending?.reject(new DOMException("Turnstile request cancelled.", "AbortError"));
+  }, []);
 
   useEffect(() => {
     setColorDrafts({
@@ -222,6 +230,38 @@ export function SettingsPage() {
     }
   }
 
+  async function setAiCloudConsent(approved: boolean) {
+    if (!aiEndpointSetting?.value) return;
+    try {
+      await db.settings.put({ key: "aiCloudConsentEndpoint", value: approved ? aiEndpointSetting.value : "" });
+      setAiEndpointError("");
+    } catch {
+      setAiEndpointError("saveError");
+    }
+  }
+
+  function requestTurnstileToken(): Promise<string> {
+    if (pendingTurnstileToken.current) return Promise.reject(new Error("A Turnstile request is already in progress."));
+    return new Promise((resolve, reject) => {
+      pendingTurnstileToken.current = { resolve, reject };
+      setTurnstileVersion((version) => version + 1);
+    });
+  }
+
+  function receiveTurnstileToken(token: string) {
+    const pending = pendingTurnstileToken.current;
+    if (!pending || !token) return;
+    pendingTurnstileToken.current = undefined;
+    pending.resolve(token);
+  }
+
+  function rejectTurnstileToken(error: Error) {
+    const pending = pendingTurnstileToken.current;
+    if (!pending) return;
+    pendingTurnstileToken.current = undefined;
+    pending.reject(error);
+  }
+
   async function saveTurnstileSiteKey() {
     const value = turnstileSiteKeyDraft.trim();
     setTurnstileSiteKeySaved(false);
@@ -233,7 +273,6 @@ export function SettingsPage() {
       await db.settings.put({ key: "turnstileSiteKey", value });
       setAiEndpointError("");
       setTurnstileSiteKeySaved(true);
-      setTurnstileToken("");
       setAiConnectionState("idle");
     } catch {
       setAiEndpointError("saveError");
@@ -241,18 +280,16 @@ export function SettingsPage() {
   }
 
   async function testAiConnection() {
-    if (!aiCloudEnabled || !aiEndpointSetting?.value || !turnstileToken) return;
+    if (!aiCloudEnabled || !aiCloudConsent || !aiEndpointSetting?.value || !turnstileSiteKeySetting?.value) return;
     setAiConnectionState("testing");
     try {
-      await assistantClient.testConnection(aiEndpointSetting.value, turnstileToken);
+      const token = await requestTurnstileToken();
+      await assistantClient.testConnection(aiEndpointSetting.value, token);
       setAiConnectionState("connected");
       setAiEndpointError("");
     } catch (cause) {
       setAiConnectionState("error");
       setAiEndpointError(cause instanceof AssistantServiceError ? `aiConnection.${cause.code}` : "aiConnection.requestFailed");
-    } finally {
-      setTurnstileToken("");
-      setTurnstileVersion((version) => version + 1);
     }
   }
 
@@ -498,9 +535,22 @@ export function SettingsPage() {
           <input checked={aiCloudEnabled} onChange={(event) => void setAiCloudEnabled(event.target.checked)} type="checkbox" />
           <span>{t("settings.enableCloudAi")}</span>
         </label>
-        {aiCloudEnabled && turnstileSiteKeySetting?.value && <TurnstileChallenge action="test" key={turnstileVersion} onToken={setTurnstileToken} siteKey={turnstileSiteKeySetting.value} />}
+        <label className="ai-cloud-toggle">
+          <input checked={aiCloudConsent} disabled={!aiEndpointSetting?.value} onChange={(event) => void setAiCloudConsent(event.target.checked)} type="checkbox" />
+          <span>{t("settings.aiCloudConsent")}</span>
+        </label>
+        <p className="settings-hint">{t("settings.aiCloudConsentHint")}</p>
+        {aiCloudEnabled && turnstileSiteKeySetting?.value && (
+          <TurnstileChallenge
+            action="test"
+            onError={rejectTurnstileToken}
+            onToken={receiveTurnstileToken}
+            requestId={turnstileVersion}
+            siteKey={turnstileSiteKeySetting.value}
+          />
+        )}
         <div className="ai-endpoint-actions">
-          <button className="button button--quiet" disabled={!aiCloudEnabled || !aiEndpointSetting?.value || !turnstileToken || aiConnectionState === "testing"} onClick={() => void testAiConnection()} type="button">
+          <button className="button button--quiet" disabled={!aiCloudEnabled || !aiCloudConsent || !aiEndpointSetting?.value || !turnstileSiteKeySetting?.value || aiConnectionState === "testing"} onClick={() => void testAiConnection()} type="button">
             {aiConnectionState === "testing" ? t("settings.testingAi") : t("settings.testAiConnection")}
           </button>
           <span>{t(aiConnectionState === "connected" ? "settings.aiConnection.connected" : aiConnectionState === "error" ? "settings.aiConnection.requestFailed" : "settings.aiConnectionHint")}</span>

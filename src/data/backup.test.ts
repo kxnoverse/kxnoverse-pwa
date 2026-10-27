@@ -109,13 +109,14 @@ describe("local data safety", () => {
     await db.arcadeData.add({ id: "calculator:history", value: '[{"id":"calc-1","expression":"2+2","result":4,"createdAt":105}]', updatedAt: 105 });
     await db.settings.bulkPut([
       { key: "aiCloudConsent", value: "true" },
+      { key: "aiCloudConsentEndpoint", value: "https://worker.example.test" },
       { key: "aiCloudEnabled", value: "true" },
       { key: "focusTimerState", value: "runtime-only" },
       { key: "regionalCalendar:NW:2026:de", value: "cached-data" },
     ]);
     const backup = await exportDataBackup();
     const snapshot = JSON.parse(await blobAsFile(backup).text()) as { data: { settings: Array<{ key: string }>; arcadeData: Array<{ id: string }> } };
-    expect(snapshot.data.settings.some((setting) => ["aiCloudConsent", "aiCloudEnabled", "focusTimerState", "regionalCalendar:NW:2026:de"].includes(setting.key))).toBe(false);
+    expect(snapshot.data.settings.some((setting) => ["aiCloudConsent", "aiCloudConsentEndpoint", "aiCloudEnabled", "focusTimerState", "regionalCalendar:NW:2026:de"].includes(setting.key))).toBe(false);
     expect(snapshot.data.arcadeData).toContainEqual(expect.objectContaining({ id: "favorites" }));
     expect(snapshot.data.arcadeData).toContainEqual(expect.objectContaining({ id: "calculator:history" }));
     await db.aiAttachments.delete("attachment-one");

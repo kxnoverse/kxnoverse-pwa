@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, type ChangeEvent, type ClipboardEvent, type DragEvent, type FormEvent, type KeyboardEvent } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ChangeEvent, type ClipboardEvent, type DragEvent, type FormEvent, type KeyboardEvent } from "react";
 import { useLiveQuery } from "dexie-react-hooks";
 import { Copy, FileText, ImagePlus, MessageSquarePlus, Pencil, Plus, Send, Settings2, Square, Trash2, X } from "lucide-react";
 import ReactMarkdown from "react-markdown";
@@ -109,8 +109,43 @@ export function AssistantPage() {
   const [streamingMessageId, setStreamingMessageId] = useState("");
   const [previewAttachment, setPreviewAttachment] = useState<AttachmentView>();
   const [copyStatus, setCopyStatus] = useState("");
-  const [turnstileToken, setTurnstileToken] = useState("");
   const [turnstileVersion, setTurnstileVersion] = useState(0);
+  const [remainingRequests, setRemainingRequests] = useState<number>();
+  const [usageUnavailable, setUsageUnavailable] = useState(false);
+  const pendingTurnstileToken = useRef<{ resolve: (token: string) => void; reject: (error: Error) => void } | undefined>(undefined);
+  const usageRequestId = useRef(0);
+
+  const refreshRemaining = useCallback(async () => {
+    const requestId = ++usageRequestId.current;
+    if (!endpoint || !cloudEnabled) {
+      setRemainingRequests(undefined);
+      setUsageUnavailable(false);
+      return;
+    }
+    try {
+      const usage = await assistantClient.getUsage(endpoint);
+      if (requestId !== usageRequestId.current) return;
+      setRemainingRequests(usage.remaining);
+      setUsageUnavailable(false);
+    } catch {
+      if (requestId !== usageRequestId.current) return;
+      setRemainingRequests(undefined);
+      setUsageUnavailable(true);
+    }
+  }, [cloudEnabled, endpoint]);
+
+  useEffect(() => {
+    void refreshRemaining();
+    return () => {
+      usageRequestId.current += 1;
+    };
+  }, [refreshRemaining]);
+
+  useEffect(() => () => {
+    const pending = pendingTurnstileToken.current;
+    pendingTurnstileToken.current = undefined;
+    pending?.reject(new DOMException("Turnstile request cancelled.", "AbortError"));
+  }, []);
 
   useEffect(() => {
     if (savedPresets === undefined || savedPresets.length) return;
@@ -137,15 +172,28 @@ export function AssistantPage() {
   );
 
   const canSend = Boolean(activePreset && (draft.trim() || draftFiles.length)) && !isSending &&
-    !(endpoint && (!cloudEnabled || !cloudConsent || !turnstileSiteKey || !turnstileToken));
+    !(endpoint && (!cloudEnabled || !cloudConsent || !turnstileSiteKey));
 
-  async function saveCloudConsent(approved: boolean) {
-    try {
-      await db.settings.put({ key: "aiCloudConsentEndpoint", value: approved ? endpoint : "" });
-      setError("");
-    } catch {
-      setError("saveError");
-    }
+  function requestTurnstileToken(): Promise<string> {
+    if (pendingTurnstileToken.current) return Promise.reject(new Error("A Turnstile request is already in progress."));
+    return new Promise((resolve, reject) => {
+      pendingTurnstileToken.current = { resolve, reject };
+      setTurnstileVersion((version) => version + 1);
+    });
+  }
+
+  function receiveTurnstileToken(token: string) {
+    const pending = pendingTurnstileToken.current;
+    if (!pending || !token) return;
+    pendingTurnstileToken.current = undefined;
+    pending.resolve(token);
+  }
+
+  function rejectTurnstileToken() {
+    const pending = pendingTurnstileToken.current;
+    if (!pending) return;
+    pendingTurnstileToken.current = undefined;
+    pending.reject(new AssistantServiceError("challengeUnavailable"));
   }
 
   async function createConversation(presetId = activePreset?.id ?? "study-assistant") {
@@ -214,7 +262,6 @@ export function AssistantPage() {
     conversation: AiConversation,
     userMessage: AiMessage,
     contextMessages: AiMessage[],
-    verificationToken: string,
   ) {
     const assistantMessageId = createId();
     if (!endpoint) {
@@ -223,10 +270,6 @@ export function AssistantPage() {
     }
     if (!cloudEnabled) {
       await saveAssistantError(conversation.id, t("assistant.cloudDisabled"), assistantMessageId);
-      return;
-    }
-    if (!verificationToken) {
-      setError("serviceErrors.challengeRequired");
       return;
     }
     setIsSending(true);
@@ -253,6 +296,7 @@ export function AssistantPage() {
     let answer = "";
     let saveTimer = 0;
     try {
+      const verificationToken = await requestTurnstileToken();
       const attachments = await db.aiAttachments.where("messageId").equals(userMessage.id).toArray();
       const requestAttachments: AssistantAttachmentInput[] = [];
       setPreparingAttachments(attachments.length > 0);
@@ -304,12 +348,11 @@ export function AssistantPage() {
       if (saveTimer) window.clearTimeout(saveTimer);
       abortController.current = undefined;
       setIsSending(false);
-      setTurnstileToken("");
-      setTurnstileVersion((version) => version + 1);
       setUploadProgress(undefined);
       setPreparingAttachments(false);
       setStreamingText("");
       setStreamingMessageId("");
+      void refreshRemaining();
     }
   }
 
@@ -360,7 +403,7 @@ export function AssistantPage() {
     setActiveConversationId(conversation.id);
     setDraft("");
     setDraftFiles([]);
-    await requestAssistantReply(conversation, userMessage, [...messages, userMessage], turnstileToken);
+    await requestAssistantReply(conversation, userMessage, [...messages, userMessage]);
   }
 
   function handleComposerKeyDown(event: KeyboardEvent<HTMLTextAreaElement>) {
@@ -370,13 +413,13 @@ export function AssistantPage() {
   }
 
   async function retryMessage(assistantMessage: AiMessage) {
-    if (isSending || !endpoint || !cloudEnabled || !cloudConsent || !turnstileSiteKey || !turnstileToken) return;
+    if (isSending || !endpoint || !cloudEnabled || !cloudConsent || !turnstileSiteKey) return;
     const priorMessages = await db.aiMessages.where("conversationId").equals(assistantMessage.conversationId).sortBy("createdAt");
     const currentIndex = priorMessages.findIndex((item) => item.id === assistantMessage.id);
     const userMessage = priorMessages.slice(0, currentIndex).reverse().find((item) => item.role === "user");
     const conversation = conversations.find((item) => item.id === assistantMessage.conversationId);
     if (currentIndex < 0 || !userMessage || !conversation) return;
-    await requestAssistantReply(conversation, userMessage, priorMessages.slice(0, currentIndex), turnstileToken);
+    await requestAssistantReply(conversation, userMessage, priorMessages.slice(0, currentIndex));
   }
 
   async function copyMessage(content: string) {
@@ -495,7 +538,13 @@ export function AssistantPage() {
           </div>
           {endpoint && cloudEnabled && turnstileSiteKey && (
             <div className="assistant-thread__verification">
-              <TurnstileChallenge action="chat" key={turnstileVersion} onToken={setTurnstileToken} siteKey={turnstileSiteKey} />
+              <TurnstileChallenge
+                action="chat"
+                onError={rejectTurnstileToken}
+                onToken={receiveTurnstileToken}
+                requestId={turnstileVersion}
+                siteKey={turnstileSiteKey}
+              />
             </div>
           )}
           {!endpoint && <p className="assistant-cloud-notice">{t("assistant.backendUnavailable")}</p>}
@@ -518,7 +567,7 @@ export function AssistantPage() {
                       <button aria-label={t("assistant.copy")} className="icon-button icon-button--small" onClick={() => void copyMessage(content)} type="button"><Copy size={12} /></button>
                     )}
                     {message.role === "assistant" && message.error && (
-                      <button className="button button--quiet assistant-message__retry" disabled={isSending || !endpoint || !cloudEnabled || !cloudConsent || !turnstileSiteKey || !turnstileToken} onClick={() => void retryMessage(message)} type="button">{t("assistant.retry")}</button>
+                      <button className="button button--quiet assistant-message__retry" disabled={isSending || !endpoint || !cloudEnabled || !cloudConsent || !turnstileSiteKey} onClick={() => void retryMessage(message)} type="button">{t("assistant.retry")}</button>
                     )}
                   </div>
                   {attachments.length > 0 && <div className="assistant-attachment-list">{attachments.map((attachment) => (
@@ -554,12 +603,16 @@ export function AssistantPage() {
               value={draft}
             />
             <input accept="image/png,image/jpeg,image/webp,application/pdf,.pdf" aria-label={t("assistant.attachFiles")} className="visually-hidden" hidden multiple onChange={onFileChange} ref={draftFilesInput} type="file" />
-            {endpoint && cloudEnabled && <label className="assistant-cloud-consent"><input checked={cloudConsent} onChange={(event) => void saveCloudConsent(event.target.checked)} type="checkbox" /><span>{t("assistant.cloudConsent")}</span></label>}
             <div className="assistant-composer__footer">
               <div className="assistant-composer__status">
                 <button aria-label={t("assistant.attachFiles")} className="icon-button icon-button--small" onClick={() => draftFilesInput.current?.click()} type="button"><ImagePlus size={14} /></button>
-                <span>{copyStatus ? t(`assistant.${copyStatus}`) : isSending ? preparingAttachments ? t("assistant.preparingAttachments") : uploadProgress === undefined ? t("assistant.working") : t("assistant.uploading", { progress: uploadProgress }) : endpoint && !cloudEnabled ? t("assistant.enableCloudInSettings") : endpoint && !turnstileSiteKey ? t("assistant.turnstileNotConfigured") : endpoint && !cloudConsent ? t("assistant.consentRequired") : endpoint && !turnstileToken ? t("assistant.turnstileRequired") : t("assistant.privacyHint")}</span>
+                <span>{copyStatus ? t(`assistant.${copyStatus}`) : isSending ? preparingAttachments ? t("assistant.preparingAttachments") : uploadProgress === undefined ? t("assistant.working") : t("assistant.uploading", { progress: uploadProgress }) : endpoint && !cloudEnabled ? t("assistant.enableCloudInSettings") : endpoint && !turnstileSiteKey ? t("assistant.turnstileNotConfigured") : endpoint && !cloudConsent ? t("assistant.consentRequired") : usageUnavailable ? t("assistant.usageUnavailable") : t("assistant.privacyHint")}</span>
               </div>
+              {endpoint && cloudEnabled && (
+                <span aria-label={t("assistant.requestsRemaining", { count: remainingRequests ?? "—" })} className="assistant-request-count" title={t("assistant.requestsRemaining", { count: remainingRequests ?? "—" })}>
+                  {remainingRequests ?? "—"}
+                </span>
+              )}
               {isSending
                 ? <button aria-label={t("assistant.stop")} className="button button--quiet" onClick={() => abortController.current?.abort()} type="button"><Square size={13} />{t("assistant.stop")}</button>
                 : <button aria-label={t("assistant.send")} className="button button--primary" disabled={!canSend} type="submit"><Send size={14} />{t("assistant.send")}</button>}

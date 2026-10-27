@@ -8,6 +8,22 @@ import {
 afterEach(() => vi.unstubAllGlobals());
 
 describe("assistant attachments and streaming client", () => {
+  it("reads a server-calculated remaining request count without sending credentials", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({ remaining: 72, limit: 100 })));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(assistantClient.getUsage("https://worker.example.test")).resolves.toEqual({ remaining: 72, limit: 100 });
+    expect(fetchMock).toHaveBeenCalledWith(
+      new URL("https://worker.example.test/api/usage"),
+      expect.objectContaining({ method: "GET", credentials: "omit", cache: "no-store" }),
+    );
+  });
+
+  it("rejects malformed usage responses rather than displaying a fabricated count", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response(JSON.stringify({ remaining: 101, limit: 100 }))));
+    await expect(assistantClient.getUsage("https://worker.example.test")).rejects.toMatchObject({ code: "requestFailed" });
+  });
+
   it("allows the supported image and PDF MIME types and rejects unsupported or excessive files", () => {
     const accepted = ["image/png", "image/jpeg", "image/webp", "application/pdf"]
       .map((type) => new File(["x"], `file.${type}`, { type }));
