@@ -491,8 +491,9 @@ describe("Kxno Desk shell", () => {
     expect(await db.timetable.toCollection().first()).toMatchObject({
       weekday: 0,
       subjectId: subject!.id,
-      start: "08:00",
-      end: "08:45",
+      period: 0,
+      start: "08:15",
+      end: "09:00",
       weekType: "all",
       inheritTeacher: true,
       inheritRoom: true,
@@ -501,17 +502,19 @@ describe("Kxno Desk shell", () => {
     expect(screen.getAllByText("Algebra").length).toBeGreaterThan(1);
 
     await user.click(screen.getByRole("button", { name: "Duplicate Algebra" }));
-    fireEvent.change(screen.getByLabelText("Starts"), { target: { value: "10:00" } });
-    fireEvent.change(screen.getByLabelText("Ends"), { target: { value: "10:45" } });
+    await user.selectOptions(screen.getByLabelText("Lesson"), "1");
     await user.click(screen.getByRole("button", { name: "Save" }));
     expect(await db.timetable.count()).toBe(2);
+    expect(await db.timetable.where("weekday").equals(0).toArray()).toEqual(
+      expect.arrayContaining([expect.objectContaining({ period: 1, start: "09:00", end: "09:45" })]),
+    );
 
     await user.click(screen.getByRole("button", { name: "Delete Ms Local" }));
     expect(screen.getByText("This teacher is assigned to a subject or lesson. Remove those assignments first.")).toBeInTheDocument();
     expect(await db.teachers.get(teacher!.id)).toBeDefined();
   });
 
-  it("creates a teacher from a lesson and snaps palette items to free timetable slots", async () => {
+  it("creates a teacher and drops subjects into numbered periods around configurable breaks", async () => {
     const user = userEvent.setup();
     render(<App />);
     await user.click(screen.getByRole("link", { name: "Timetable" }));
@@ -538,27 +541,26 @@ describe("Kxno Desk shell", () => {
 
     await user.click(screen.getByRole("button", { name: "Edit timetable" }));
     await user.click(screen.getByRole("button", { name: "Week A" }));
+    await user.selectOptions(screen.getByLabelText("Lesson 1 duration"), "30");
+    await user.selectOptions(screen.getByLabelText("Break after"), "1");
+    await user.selectOptions(screen.getByLabelText("Break length"), "20");
+    await user.click(screen.getByRole("button", { name: "Add break" }));
+    expect(await screen.findAllByText("Break after lesson 1 · 20 min")).toHaveLength(2);
+
     const paletteSubject = within(document.querySelector(".timetable-editor__palette") as HTMLElement).getByRole("button", { name: "Biology" });
-    const monday = document.querySelectorAll(".day-column")[0] as HTMLElement;
+    const secondPeriodMonday = document.querySelectorAll(".timetable-grid__row")[1].querySelector(".timetable-grid__slot") as HTMLElement;
     let payload = "";
     const dataTransfer = {
       setData: (_format: string, value: string) => { payload = value; },
       getData: () => payload,
     };
     fireEvent.dragStart(paletteSubject, { dataTransfer });
-    fireEvent.drop(monday, { dataTransfer });
+    fireEvent.drop(secondPeriodMonday, { dataTransfer });
     await waitFor(async () => expect(await db.timetable.count()).toBe(2));
     expect(await db.timetable.where("weekday").equals(0).toArray()).toEqual(
-      expect.arrayContaining([expect.objectContaining({ subjectId: subject!.id, start: "08:45", end: "09:30", weekType: "A" })]),
+      expect.arrayContaining([expect.objectContaining({ subjectId: subject!.id, period: 1, start: "09:05", end: "09:50", weekType: "A" })]),
     );
-
-    const pause = within(document.querySelector(".timetable-editor__palette") as HTMLElement).getByRole("button", { name: "Pause" });
-    fireEvent.dragStart(pause, { dataTransfer });
-    fireEvent.drop(monday, { dataTransfer });
-    await waitFor(async () => expect(await db.timetable.count()).toBe(3));
-    expect(await db.timetable.where("weekday").equals(0).toArray()).toEqual(
-      expect.arrayContaining([expect.objectContaining({ kind: "break", title: "Pause", start: "09:30", end: "10:15" })]),
-    );
+    expect(await db.timetable.get((await db.timetable.toCollection().first())!.id)).toMatchObject({ period: 0, start: "08:15", end: "08:45" });
   });
 
   it("creates a subject and lesson from the new lesson flow when the timetable is empty", async () => {
@@ -584,8 +586,9 @@ describe("Kxno Desk shell", () => {
       kind: "lesson",
       subjectId: (await db.subjects.toCollection().first())!.id,
       teacherId: teacher!.id,
-      start: "08:00",
-      end: "08:45",
+      period: 0,
+      start: "08:15",
+      end: "09:00",
     });
   });
 
@@ -699,8 +702,10 @@ describe("Kxno Desk shell", () => {
 
     await user.click(screen.getByRole("link", { name: "Timetable" }));
     await user.click((await screen.findAllByRole("button", { name: "Add lesson" }))[0]);
-    expect(screen.getByLabelText("Starts")).toHaveValue("07:30");
-    expect(screen.getByLabelText("Ends")).toHaveValue("08:15");
+    expect(screen.getByLabelText("Lesson")).toHaveValue("0");
+    expect(screen.queryByLabelText("Starts")).not.toBeInTheDocument();
+    expect(screen.queryByLabelText("Ends")).not.toBeInTheDocument();
+    expect(screen.getByRole("option", { name: "Lesson 1 · 07:30–08:15" })).toBeInTheDocument();
   });
 
   it("loads the selected state's school holidays into the calendar agenda", async () => {

@@ -23,6 +23,7 @@ export interface TimetableEntry {
   id: string;
   subjectId?: string;
   weekday: number;
+  period?: number;
   start: string;
   end: string;
   teacherId?: string;

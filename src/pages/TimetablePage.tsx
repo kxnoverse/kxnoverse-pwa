@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type FormEvent } from "react";
+import { Fragment, useEffect, useMemo, useState, type FormEvent } from "react";
 import { useLiveQuery } from "dexie-react-hooks";
 import {
   ArrowDownToLine,
@@ -22,6 +22,14 @@ import {
   type WeekType,
 } from "../data/db";
 import { getCycleWeek, minutesOfDay, resolveEntries } from "../data/schedule";
+import {
+  createLessonPeriods,
+  getEntryPeriod,
+  parseLessonGrid,
+  reflowTimetableEntries,
+  type LessonGridConfig,
+  type LessonPeriod,
+} from "../data/lesson-grid";
 
 type EditorValue = Omit<TimetableEntry, "id">;
 type SubjectDraft = Pick<Subject, "name" | "color"> & {
@@ -51,9 +59,10 @@ function addMinutes(time: string, minutes: number): string {
   return `${String(Math.floor(total / 60)).padStart(2, "0")}:${String(total % 60).padStart(2, "0")}`;
 }
 
-function initialEntry(weekday = 0, start = "08:00"): EditorValue {
+function initialEntry(weekday = 0, start = "08:15", period = 0): EditorValue {
   return {
     weekday,
+    period,
     start,
     end: addMinutes(start, 45),
     weekType: "all",
@@ -72,27 +81,19 @@ function timesOverlap(left: Pick<TimetableEntry, "start" | "end">, right: Pick<T
   return minutesOfDay(left.start) < minutesOfDay(right.end) && minutesOfDay(right.start) < minutesOfDay(left.end);
 }
 
-function formatTime(totalMinutes: number): string {
-  return `${String(Math.floor(totalMinutes / 60)).padStart(2, "0")}:${String(totalMinutes % 60).padStart(2, "0")}`;
-}
-
-function findAvailableSlot(entries: TimetableEntry[], weekday: number, weekType: WeekType, schoolStartTime: string) {
-  for (let start = minutesOfDay(schoolStartTime); start + 45 <= 23 * 60 + 45; start += 45) {
-    const candidate = { start: formatTime(start), end: formatTime(start + 45) };
-    const overlaps = entries.some((entry) =>
-      entry.weekday === weekday &&
-      weekTypesOverlap(entry.weekType, weekType) &&
-      timesOverlap(entry, candidate),
-    );
-    if (!overlaps) return candidate;
-  }
-  return undefined;
+function findAvailablePeriod(entries: TimetableEntry[], weekday: number, weekType: WeekType, periods: LessonPeriod[]) {
+  return periods.find((period) => !entries.some((entry) =>
+    entry.weekday === weekday &&
+    weekTypesOverlap(entry.weekType, weekType) &&
+    (getEntryPeriod(entry, periods) === period.index || timesOverlap(entry, period)),
+  ));
 }
 
 function LessonDialog({
   value,
   subjects,
   teachers,
+  periods,
   onCreateTeacher,
   onCreateSubject,
   onClose,
@@ -101,14 +102,17 @@ function LessonDialog({
   value: TimetableEntry | EditorValue;
   subjects: Subject[];
   teachers: Teacher[];
+  periods: LessonPeriod[];
   onCreateTeacher: (name: string, subjectId?: string) => Promise<string>;
   onCreateSubject: (name: string) => Promise<string>;
   onClose: () => void;
   onSave: (value: EditorValue) => Promise<void>;
 }) {
   const { t } = useTranslation();
+  const initialPeriod = value.period ?? periods.findIndex((period) => period.start === value.start);
   const [draft, setDraft] = useState<EditorValue>(() => ({
     weekday: value.weekday,
+    period: initialPeriod >= 0 ? initialPeriod : 0,
     subjectId: value.subjectId,
     start: value.start,
     end: value.end,
@@ -133,8 +137,9 @@ function LessonDialog({
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (minutesOfDay(draft.end) <= minutesOfDay(draft.start)) {
-      setError("endBeforeStart");
+    const period = periods[draft.period ?? -1];
+    if (!period) {
+      setError("selectPeriod");
       return;
     }
     if (draft.kind === "lesson" && !draft.subjectId) {
@@ -144,6 +149,8 @@ function LessonDialog({
     try {
       await onSave({
         ...draft,
+        start: period.start,
+        end: period.end,
         room: draft.inheritRoom ? undefined : draft.room?.trim() || undefined,
         notes: draft.notes?.trim() || undefined,
         colorOverride: draft.inheritColor ? undefined : draft.colorOverride || undefined,
@@ -286,13 +293,27 @@ function LessonDialog({
               <input maxLength={40} value={draft.title ?? ""} onChange={(event) => set("title", event.target.value)} />
             </label>
           )}
-          <label>
-            <span>{t("timetable.start")}</span>
-            <input required type="time" value={draft.start} onChange={(event) => set("start", event.target.value)} />
-          </label>
-          <label>
-            <span>{t("timetable.end")}</span>
-            <input required type="time" value={draft.end} onChange={(event) => set("end", event.target.value)} />
+          <label className="form-grid__wide">
+            <span>{t("timetable.period")}</span>
+            <select
+              required
+              value={draft.period ?? ""}
+              onChange={(event) => {
+                const index = Number(event.target.value);
+                const nextPeriod = periods[index];
+                setDraft((current) => ({
+                  ...current,
+                  period: index,
+                  ...(nextPeriod ? { start: nextPeriod.start, end: nextPeriod.end } : {}),
+                }));
+              }}
+            >
+              {periods.map((period) => (
+                <option key={period.index} value={period.index}>
+                  {t("timetable.periodNumber", { number: period.index + 1 })} · {period.start}–{period.end}
+                </option>
+              ))}
+            </select>
           </label>
           <label className="form-grid__wide">
             <span>{t("timetable.week")}</span>
@@ -335,10 +356,13 @@ export function TimetablePage() {
   const exceptions = useLiveQuery(() => db.exceptions.toArray(), [], []);
   const weekAnchor = useLiveQuery(() => db.settings.get("weekAnchor"), [], undefined);
   const schoolDaysSetting = useLiveQuery(() => db.settings.get("schoolDays"), [], undefined);
+  const lessonGridSetting = useLiveQuery(() => db.settings.get("lessonGrid"), [], undefined);
   const schoolStartSetting = useLiveQuery(() => db.settings.get("schoolStartTime"), [], undefined);
   const schoolStartTime = schoolStartSetting?.value && /^(?:[01]\d|2[0-3]):[0-5]\d$/.test(schoolStartSetting.value) && schoolStartSetting.value <= "23:00"
     ? schoolStartSetting.value
-    : "08:00";
+    : "08:15";
+  const lessonGrid = useMemo(() => parseLessonGrid(lessonGridSetting?.value), [lessonGridSetting?.value]);
+  const periods = useMemo(() => createLessonPeriods(schoolStartTime, lessonGrid), [lessonGrid, schoolStartTime]);
   const schoolDays = useMemo(() => {
     try {
       const value = schoolDaysSetting?.value ? JSON.parse(schoolDaysSetting.value) as boolean[] : undefined;
@@ -354,7 +378,7 @@ export function TimetablePage() {
   const [selectedWeek, setSelectedWeek] = useState<"A" | "B">(currentWeek);
   const [editor, setEditor] = useState<TimetableEntry | EditorValue>();
   const [editorMode, setEditorMode] = useState(false);
-  const [dropTargetDay, setDropTargetDay] = useState<number>();
+  const [dropTargetSlot, setDropTargetSlot] = useState("");
   const [manageOpen, setManageOpen] = useState(false);
   const [notice, setNotice] = useState("");
   const [subjectDraft, setSubjectDraft] = useState<SubjectDraft>({
@@ -367,6 +391,8 @@ export function TimetablePage() {
   const [exceptionType, setExceptionType] = useState<"holiday" | "cancelled" | "extra">("holiday");
   const [exceptionEntry, setExceptionEntry] = useState("");
   const [extraEditor, setExtraEditor] = useState<{ date: string; value: EditorValue }>();
+  const [breakAfterPeriod, setBreakAfterPeriod] = useState(2);
+  const [breakDuration, setBreakDuration] = useState(15);
 
   useEffect(() => {
     const interval = window.setInterval(() => setToday(new Date()), 60_000);
@@ -375,34 +401,101 @@ export function TimetablePage() {
 
   useEffect(() => setSelectedWeek(currentWeek), [currentWeek]);
 
+  const scheduledLessons = useMemo(() => lessons.map((entry) => {
+    const periodIndex = getEntryPeriod(entry, periods);
+    const period = periodIndex === undefined ? undefined : periods[periodIndex];
+    return period ? { ...entry, period: periodIndex, start: period.start, end: period.end } : entry;
+  }), [lessons, periods]);
+
   const days = useMemo(
     () =>
       weekdays.map((key, index) => ({
         key,
         index,
-        entries: lessons
+        entries: scheduledLessons
           .filter(
             (entry) =>
               entry.weekday === index &&
               (entry.weekType === "all" || entry.weekType === selectedWeek),
           )
-          .sort((a, b) => minutesOfDay(a.start) - minutesOfDay(b.start)),
+          .sort((a, b) => (a.period ?? periods.length) - (b.period ?? periods.length)),
       })).filter((day) => schoolDays[day.index]),
-    [lessons, schoolDays, selectedWeek],
+    [periods, scheduledLessons, schoolDays, selectedWeek],
   );
 
   async function saveEntry(value: EditorValue, existingId?: string) {
-    const overlap = lessons.some(
+    const period = periods[value.period ?? -1];
+    if (!period) throw new Error("invalid-period");
+    const scheduledValue = { ...value, start: period.start, end: period.end, period: period.index };
+    const overlap = scheduledLessons.some(
       (entry) =>
         entry.id !== existingId &&
         entry.weekday === value.weekday &&
         weekTypesOverlap(entry.weekType, value.weekType) &&
-        timesOverlap(entry, value),
+        (entry.period === period.index || timesOverlap(entry, period)),
     );
     if (overlap) throw new Error("overlap");
-    await db.timetable.put({ ...value, id: existingId ?? createId() });
+    await db.timetable.put({ ...scheduledValue, id: existingId ?? createId() });
     setEditor(undefined);
     setNotice("lessonSaved");
+  }
+
+  async function saveLessonGrid(next: LessonGridConfig) {
+    const nextPeriods = createLessonPeriods(schoolStartTime, next);
+    if (minutesOfDay(nextPeriods.at(-1)?.end ?? "00:00") > 23 * 60 + 59) {
+      setNotice("scheduleTooLong");
+      return;
+    }
+    try {
+      await db.transaction("rw", db.settings, db.timetable, db.exceptions, async () => {
+        const entries = await db.timetable.toArray();
+        await db.timetable.bulkPut(reflowTimetableEntries(entries, periods, nextPeriods));
+        const allExceptions = await db.exceptions.toArray();
+        await db.exceptions.bulkPut(allExceptions.map((exception) => exception.extra
+          ? { ...exception, extra: reflowTimetableEntries([exception.extra], periods, nextPeriods)[0] }
+          : exception));
+        await db.settings.put({ key: "lessonGrid", value: JSON.stringify(next) });
+      });
+      setNotice("");
+    } catch {
+      setNotice("storageError");
+    }
+  }
+
+  async function addPeriod() {
+    if (lessonGrid.durations.length >= 12) return;
+    await saveLessonGrid({ ...lessonGrid, durations: [...lessonGrid.durations, 45] });
+  }
+
+  async function removeLastPeriod() {
+    const lastPeriod = lessonGrid.durations.length - 1;
+    if (lessonGrid.durations.length <= 1 || scheduledLessons.some((entry) => entry.period === lastPeriod)) {
+      setNotice("periodInUse");
+      return;
+    }
+    await saveLessonGrid({
+      durations: lessonGrid.durations.slice(0, -1),
+      breaks: lessonGrid.breaks.filter((item) => item.afterPeriod < lastPeriod),
+    });
+  }
+
+  async function addBreak() {
+    if (breakAfterPeriod >= lessonGrid.durations.length || lessonGrid.breaks.some((item) => item.afterPeriod === breakAfterPeriod)) {
+      setNotice("breakAlreadyExists");
+      return;
+    }
+    await saveLessonGrid({
+      ...lessonGrid,
+      breaks: [...lessonGrid.breaks, { afterPeriod: breakAfterPeriod, duration: breakDuration }]
+        .sort((left, right) => left.afterPeriod - right.afterPeriod),
+    });
+  }
+
+  async function removeBreak(afterPeriod: number) {
+    await saveLessonGrid({
+      ...lessonGrid,
+      breaks: lessonGrid.breaks.filter((item) => item.afterPeriod !== afterPeriod),
+    });
   }
 
   async function createTeacherRecord(name: string, subjectIds: string[] = []): Promise<string> {
@@ -523,7 +616,14 @@ export function TimetablePage() {
   async function addException(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (exceptionType === "extra") {
-      setExtraEditor({ date: exceptionDate, value: initialEntry((new Date(`${exceptionDate}T12:00:00`).getDay() + 6) % 7) });
+      setExtraEditor({
+        date: exceptionDate,
+        value: initialEntry(
+          (new Date(`${exceptionDate}T12:00:00`).getDay() + 6) % 7,
+          periods[0]?.start ?? schoolStartTime,
+          0,
+        ),
+      });
       return;
     }
     const exception: ScheduleException = {
@@ -561,8 +661,11 @@ export function TimetablePage() {
     if (!currentExtra) return;
     const date = new Date(`${currentExtra.date}T12:00:00`);
     const weekday = (date.getDay() + 6) % 7;
+    const period = periods[value.period ?? -1];
+    if (!period) throw new Error("invalid-period");
+    const scheduledValue = { ...value, start: period.start, end: period.end, period: period.index };
     const existing = resolveEntries(
-      lessons,
+      scheduledLessons,
       subjects,
       teachers,
       weekday,
@@ -571,8 +674,8 @@ export function TimetablePage() {
       anchorDate,
       anchorType,
     );
-    if (existing.some((entry) => timesOverlap(entry, value))) throw new Error("overlap");
-    const entry: TimetableEntry = { ...value, id: createId() };
+    if (existing.some((entry) => entry.period === period.index || timesOverlap(entry, period))) throw new Error("overlap");
+    const entry: TimetableEntry = { ...scheduledValue, id: createId() };
     await db.exceptions.put({
       id: createId(),
       date: currentExtra.date,
@@ -582,29 +685,25 @@ export function TimetablePage() {
     setExtraEditor(undefined);
   }
 
-  async function dropOnDay(event: React.DragEvent, weekday: number) {
+  async function dropOnPeriod(event: React.DragEvent, weekday: number, periodIndex: number) {
     event.preventDefault();
-    setDropTargetDay(undefined);
+    setDropTargetSlot("");
     const payload = event.dataTransfer.getData("text/plain");
     const paletteSubjectId = payload.startsWith("palette:subject:") ? payload.slice("palette:subject:".length) : "";
-    const paletteBreak = payload === "palette:break";
-    if (editorMode && (paletteSubjectId || paletteBreak)) {
-      const subject = paletteSubjectId ? subjects.find((item) => item.id === paletteSubjectId) : undefined;
-      if (paletteSubjectId && !subject) return;
-      const weekType: WeekType = selectedWeek;
-      const slot = findAvailableSlot(lessons, weekday, weekType, schoolStartTime);
-      if (!slot) {
-        setNotice("noOpenSlot");
-        return;
-      }
+    const period = periods[periodIndex];
+    if (!period) return;
+    if (editorMode && paletteSubjectId) {
+      const subject = subjects.find((item) => item.id === paletteSubjectId);
+      if (!subject) return;
       try {
         await saveEntry({
           weekday,
-          start: slot.start,
-          end: slot.end,
-          weekType,
-          kind: paletteBreak ? "break" : "lesson",
-          ...(subject ? { subjectId: subject.id } : { title: t("timetable.pauseLabel") }),
+          period: periodIndex,
+          start: period.start,
+          end: period.end,
+          weekType: selectedWeek,
+          kind: "lesson",
+          subjectId: subject.id,
           inheritTeacher: true,
           inheritRoom: true,
           inheritColor: true,
@@ -615,13 +714,32 @@ export function TimetablePage() {
       return;
     }
     const id = payload;
-    const entry = lessons.find((item) => item.id === id);
-    if (!entry || entry.weekday === weekday) return;
+    const entry = scheduledLessons.find((item) => item.id === id);
+    if (!entry || (entry.weekday === weekday && entry.period === periodIndex)) return;
     try {
-      await saveEntry({ ...entry, weekday }, entry.id);
+      await saveEntry({ ...entry, weekday, period: periodIndex, start: period.start, end: period.end }, entry.id);
     } catch (reason) {
       setNotice(reason instanceof Error && reason.message === "overlap" ? "overlap" : "storageError");
     }
+  }
+
+  function openLessonEditor(weekday: number, preferredPeriod?: number) {
+    const period = preferredPeriod === undefined
+      ? findAvailablePeriod(scheduledLessons, weekday, selectedWeek, periods)
+      : periods[preferredPeriod];
+    if (!period) {
+      setNotice("noOpenPeriod");
+      return;
+    }
+    if (scheduledLessons.some((entry) =>
+      entry.weekday === weekday &&
+      weekTypesOverlap(entry.weekType, selectedWeek) &&
+      entry.period === period.index,
+    )) {
+      setNotice("periodInUse");
+      return;
+    }
+    setEditor(initialEntry(weekday, period.start, period.index));
   }
 
   const exceptionDateObject = new Date(`${exceptionDate}T12:00:00`);
@@ -665,11 +783,7 @@ export function TimetablePage() {
           >
             {t(editorMode ? "timetable.finishEditing" : "timetable.editMode")}
           </button>
-          <button
-            className="button button--primary"
-            onClick={() => setEditor(initialEntry(0, schoolStartTime))}
-            type="button"
-          >
+          <button className="button button--primary" onClick={() => openLessonEditor(0)} type="button">
             <Plus size={15} /> {t("timetable.add")}
           </button>
         </div>
@@ -693,15 +807,6 @@ export function TimetablePage() {
                 {subject.name}
               </button>
             ))}
-            <button
-              className="timetable-editor__item"
-              draggable
-              onDragStart={(event) => event.dataTransfer.setData("text/plain", "palette:break")}
-              type="button"
-            >
-              <span className="timetable-editor__swatch" style={{ backgroundColor: "#94ad9e" }} />
-              {t("timetable.pauseLabel")}
-            </button>
             <p className="timetable-editor__hint">{t("timetable.editorHint")}</p>
           </div>
         </section>
@@ -709,6 +814,88 @@ export function TimetablePage() {
 
       {manageOpen && (
         <section className="manage-panel">
+          <div className="lesson-grid-settings">
+            <div className="lesson-grid-settings__heading">
+              <div>
+                <h2>{t("timetable.lessonGrid")}</h2>
+                <p>{t("timetable.lessonGridHint")}</p>
+              </div>
+              <div className="lesson-grid-settings__actions">
+                <button className="button button--quiet" disabled={lessonGrid.durations.length >= 12} onClick={() => void addPeriod()} type="button">
+                  <Plus size={13} /> {t("timetable.addPeriod")}
+                </button>
+                <button className="button button--quiet" disabled={lessonGrid.durations.length <= 1} onClick={() => void removeLastPeriod()} type="button">
+                  <Trash2 size={13} /> {t("timetable.removePeriod")}
+                </button>
+              </div>
+            </div>
+            <div className="lesson-grid-settings__periods">
+              {lessonGrid.durations.map((duration, index) => (
+                <label key={index}>
+                  <span>{t("timetable.periodNumber", { number: index + 1 })}</span>
+                  <select
+                    aria-label={t("timetable.periodDuration", { number: index + 1 })}
+                    value={duration}
+                    onChange={(event) => {
+                      const durations = [...lessonGrid.durations];
+                      durations[index] = Number(event.target.value);
+                      void saveLessonGrid({ ...lessonGrid, durations });
+                    }}
+                  >
+                    {Array.from({ length: 21 }, (_, optionIndex) => 20 + optionIndex * 5).map((minutes) => (
+                      <option key={minutes} value={minutes}>{minutes} {t("timetable.minutesShort")}</option>
+                    ))}
+                  </select>
+                </label>
+              ))}
+            </div>
+            <form
+              className="lesson-grid-settings__break-form"
+              onSubmit={(event) => {
+                event.preventDefault();
+                void addBreak();
+              }}
+            >
+              <label>
+                <span>{t("timetable.breakAfter")}</span>
+                <select
+                  aria-label={t("timetable.breakAfter")}
+                  value={breakAfterPeriod}
+                  onChange={(event) => setBreakAfterPeriod(Number(event.target.value))}
+                >
+                  {lessonGrid.durations.slice(0, -1).map((_, index) => (
+                    <option key={index} value={index + 1}>{t("timetable.periodNumber", { number: index + 1 })}</option>
+                  ))}
+                </select>
+              </label>
+              <label>
+                <span>{t("timetable.breakDuration")}</span>
+                <select
+                  aria-label={t("timetable.breakDuration")}
+                  value={breakDuration}
+                  onChange={(event) => setBreakDuration(Number(event.target.value))}
+                >
+                  {Array.from({ length: 18 }, (_, optionIndex) => (optionIndex + 1) * 5).map((minutes) => (
+                    <option key={minutes} value={minutes}>{minutes} {t("timetable.minutesShort")}</option>
+                  ))}
+                </select>
+              </label>
+              <button className="button button--quiet" type="submit"><Plus size={13} />{t("timetable.addBreak")}</button>
+            </form>
+            <div className="lesson-grid-settings__breaks">
+              {lessonGrid.breaks.map((item) => (
+                <div className="lesson-grid-settings__break" key={item.afterPeriod}>
+                  <span>{t("timetable.breakAfterPeriod", { number: item.afterPeriod, duration: item.duration })}</span>
+                  <button
+                    aria-label={`${t("timetable.delete")} ${t("timetable.breakAfterPeriod", { number: item.afterPeriod, duration: item.duration })}`}
+                    className="icon-button icon-button--small"
+                    onClick={() => void removeBreak(item.afterPeriod)}
+                    type="button"
+                  ><X size={12} /></button>
+                </div>
+              ))}
+            </div>
+          </div>
           <div className="manage-columns">
             <div className="manage-section">
               <h2>{t("timetable.subjects")}</h2>
@@ -851,59 +1038,81 @@ export function TimetablePage() {
         </section>
       )}
 
-      <div className={`timetable-grid${editorMode ? " timetable-grid--editing" : ""}`} role="list" aria-label={t("timetable.title")}>
-        {days.map(({ key, index, entries }) => (
-          <section
-            className={`day-column${index === (new Date().getDay() + 6) % 7 ? " day-column--today" : ""}${dropTargetDay === index ? " day-column--drop-target" : ""}`}
-            key={key}
-            onDragOver={(event) => {
-              event.preventDefault();
-              if (editorMode) setDropTargetDay((current) => current === index ? current : index);
-            }}
-            onDragLeave={(event) => {
-              if (!(event.relatedTarget instanceof Node) || !event.currentTarget.contains(event.relatedTarget)) {
-                setDropTargetDay(undefined);
-              }
-            }}
-            onDrop={(event) => void dropOnDay(event, index)}
-            role="listitem"
-          >
-            <div className="day-column__header">
-              <span>{t(`weekdays.${key.slice(0, 3)}`)}</span>
-              {index === (new Date().getDay() + 6) % 7 && <span className="day-column__today" aria-label={t("home.current")} />}
+      <div
+        className={`timetable-grid${editorMode ? " timetable-grid--editing" : ""}`}
+        aria-label={t("timetable.title")}
+        style={{ "--day-count": days.length } as React.CSSProperties}
+      >
+        <div className="timetable-grid__corner">{t("timetable.period")}</div>
+        {days.map(({ key, index }) => (
+          <div className={`timetable-grid__day${index === (new Date().getDay() + 6) % 7 ? " is-today" : ""}`} key={key}>
+            <span>{t(`weekdays.${key.slice(0, 3)}`)}</span>
+            {index === (new Date().getDay() + 6) % 7 && <span className="day-column__today" aria-label={t("home.current")} />}
+          </div>
+        ))}
+        {periods.map((period) => (
+          <Fragment key={period.index}>
+          <div className="timetable-grid__row" key={period.index}>
+            <div className="timetable-grid__period">
+              <strong>{period.index + 1}</strong>
+              <span>{period.start}–{period.end}</span>
             </div>
-            <div className="day-column__entries">
-              {entries.map((entry) => {
-                const subject = subjects.find((item) => item.id === entry.subjectId);
-                const teacher = teachers.find((item) => item.id === (entry.inheritTeacher ? subject?.defaultTeacherId : entry.teacherId));
-                const color = entry.inheritColor ? subject?.color ?? "#81909c" : entry.colorOverride ?? subject?.color ?? "#81909c";
-                const room = entry.inheritRoom ? subject?.defaultRoom : entry.room;
-                return (
-                  <article
-                    className={`lesson-item lesson-item--${entry.kind}`}
-                    draggable
-                    key={entry.id}
-                    onDragStart={(event) => event.dataTransfer.setData("text/plain", entry.id)}
-                    style={{ "--lesson-color": color, "--lesson-length": Math.max(40, minutesOfDay(entry.end) - minutesOfDay(entry.start)) } as React.CSSProperties}
-                    title={entry.notes ?? ""}
-                  >
-                    <div className="lesson-item__time">{entry.start}<span>–</span>{entry.end}</div>
-                    <div className="lesson-item__subject">{subject?.shortName || subject?.name || entry.title || t(`timetable.${entry.kind}`)}</div>
-                    <div className="lesson-item__meta">
-                      <span>{teacher?.name ?? room ?? t(`timetable.week${entry.weekType === "all" ? "All" : entry.weekType}`)}</span>
-                      {room && teacher && <span>{room}</span>}
-                    </div>
-                    <div className="lesson-item__actions">
-                      <button className="icon-button icon-button--small" aria-label={`${t("timetable.edit")} ${subject?.name ?? ""}`} onClick={() => setEditor(entry)} type="button"><Pencil size={12} /></button>
-                      <button className="icon-button icon-button--small" aria-label={`${t("timetable.duplicate")} ${subject?.name ?? ""}`} onClick={() => { const { id: _id, ...copy } = entry; setEditor(copy); }} type="button"><Copy size={12} /></button>
-                      <button className="icon-button icon-button--small" aria-label={`${t("timetable.delete")} ${subject?.name ?? ""}`} onClick={() => void deleteEntry(entry.id)} type="button"><Trash2 size={12} /></button>
-                    </div>
-                  </article>
-                );
+            {days.map(({ index, entries }) => {
+              const entry = entries.find((item) => item.period === period.index);
+              const subject = entry ? subjects.find((item) => item.id === entry.subjectId) : undefined;
+              const teacher = entry ? teachers.find((item) => item.id === (entry.inheritTeacher ? subject?.defaultTeacherId : entry.teacherId)) : undefined;
+              const color = entry ? (entry.inheritColor ? subject?.color ?? "#81909c" : entry.colorOverride ?? subject?.color ?? "#81909c") : undefined;
+              const room = entry ? (entry.inheritRoom ? subject?.defaultRoom : entry.room) : undefined;
+              const targetKey = `${index}-${period.index}`;
+              return (
+                <div
+                  className={`timetable-grid__slot${dropTargetSlot === targetKey ? " is-drop-target" : ""}`}
+                  key={targetKey}
+                  onDragOver={(event) => {
+                    if (!editorMode) return;
+                    event.preventDefault();
+                    setDropTargetSlot((current) => current === targetKey ? current : targetKey);
+                  }}
+                  onDragLeave={() => setDropTargetSlot((current) => current === targetKey ? "" : current)}
+                  onDrop={(event) => void dropOnPeriod(event, index, period.index)}
+                >
+                  {entry ? (
+                    <article
+                      className={`lesson-item lesson-item--${entry.kind}`}
+                      draggable
+                      onDragStart={(event) => event.dataTransfer.setData("text/plain", entry.id)}
+                      style={{ "--lesson-color": color } as React.CSSProperties}
+                      title={entry.notes ?? ""}
+                    >
+                      <div className="lesson-item__subject">{subject?.shortName || subject?.name || entry.title || t(`timetable.${entry.kind}`)}</div>
+                      <div className="lesson-item__meta">
+                        <span>{teacher?.name ?? room ?? t(`timetable.week${entry.weekType === "all" ? "All" : entry.weekType}`)}</span>
+                        {room && teacher && <span>{room}</span>}
+                      </div>
+                      <div className="lesson-item__actions">
+                        <button className="icon-button icon-button--small" aria-label={`${t("timetable.edit")} ${subject?.name ?? ""}`} onClick={() => setEditor(entry)} type="button"><Pencil size={12} /></button>
+                        <button className="icon-button icon-button--small" aria-label={`${t("timetable.duplicate")} ${subject?.name ?? ""}`} onClick={() => { const { id: _id, ...copy } = entry; setEditor(copy); }} type="button"><Copy size={12} /></button>
+                        <button className="icon-button icon-button--small" aria-label={`${t("timetable.delete")} ${subject?.name ?? ""}`} onClick={() => void deleteEntry(entry.id)} type="button"><Trash2 size={12} /></button>
+                      </div>
+                    </article>
+                  ) : editorMode ? (
+                    <button className="timetable-grid__empty-slot" onClick={() => openLessonEditor(index, period.index)} type="button">
+                      <Plus size={13} /><span>{t("timetable.add")}</span>
+                    </button>
+                  ) : null}
+                </div>
+              );
+            })}
+          </div>
+          {lessonGrid.breaks.find((item) => item.afterPeriod === period.index + 1) && (
+            <div className="timetable-grid__break" style={{ gridColumn: "1 / -1" }}>
+              {t("timetable.breakAfterPeriod", {
+                number: period.index + 1,
+                duration: lessonGrid.breaks.find((item) => item.afterPeriod === period.index + 1)!.duration,
               })}
-              {entries.length === 0 && <button className="day-column__empty" onClick={() => setEditor(initialEntry(index, schoolStartTime))} type="button"><Plus size={13} /><span>{t("timetable.add")}</span></button>}
             </div>
-          </section>
+          )}
+          </Fragment>
         ))}
       </div>
       <p className="timetable-hint"><ArrowDownToLine size={13} /> {t("timetable.dragHint")}</p>
@@ -915,6 +1124,7 @@ export function TimetablePage() {
           onCreateTeacher={createTeacherForSubject}
           onCreateSubject={createSubjectForLesson}
           onSave={(value) => saveEntry(value, "id" in editor ? editor.id : undefined)}
+          periods={periods}
           subjects={subjects}
           teachers={teachers}
           value={editor}
@@ -927,6 +1137,7 @@ export function TimetablePage() {
           onCreateTeacher={createTeacherForSubject}
           onCreateSubject={createSubjectForLesson}
           onSave={saveExtra}
+          periods={periods}
           subjects={subjects}
           teachers={teachers}
           value={extraEditor.value}

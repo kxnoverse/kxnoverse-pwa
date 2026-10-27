@@ -11,6 +11,7 @@ import { createId } from "../data/db";
 import { Link } from "react-router-dom";
 import { exportDataBackup, importDataBackup } from "../data/backup";
 import { germanStates } from "../data/regional-calendar";
+import { createLessonPeriods, minutesOfDay, parseLessonGrid, reflowTimetableEntries } from "../data/lesson-grid";
 import { assistantClient, AssistantServiceError } from "../data/ai-client";
 import { TurnstileChallenge } from "../components/TurnstileChallenge";
 
@@ -76,6 +77,7 @@ export function SettingsPage() {
   const profile = useLiveQuery(() => db.settings.get("profileName"), [], undefined);
   const daysSetting = useLiveQuery(() => db.settings.get("schoolDays"), [], undefined);
   const schoolStartSetting = useLiveQuery(() => db.settings.get("schoolStartTime"), [], undefined);
+  const lessonGridSetting = useLiveQuery(() => db.settings.get("lessonGrid"), [], undefined);
   const schoolStateSetting = useLiveQuery(() => db.settings.get("schoolState"), [], undefined);
   const customThemesSetting = useLiveQuery(() => db.settings.get("customThemes"), [], undefined);
   const selectedTheme = useLiveQuery(() => db.settings.get("selectedTheme"), [], undefined)?.value ?? "arctic";
@@ -240,7 +242,23 @@ export function SettingsPage() {
       return;
     }
     try {
-      await db.settings.put({ key: "schoolStartTime", value });
+      const previousStart = schoolStartSetting?.value ?? "08:15";
+      const lessonGrid = parseLessonGrid(lessonGridSetting?.value);
+      const previousPeriods = createLessonPeriods(previousStart, lessonGrid);
+      const nextPeriods = createLessonPeriods(value, lessonGrid);
+      if (minutesOfDay(nextPeriods[nextPeriods.length - 1]?.end ?? "00:00") > 23 * 60 + 59) {
+        setError("saveError");
+        return;
+      }
+      await db.transaction("rw", db.settings, db.timetable, db.exceptions, async () => {
+        const entries = await db.timetable.toArray();
+        await db.timetable.bulkPut(reflowTimetableEntries(entries, previousPeriods, nextPeriods));
+        const exceptions = await db.exceptions.toArray();
+        await db.exceptions.bulkPut(exceptions.map((exception) => exception.extra
+          ? { ...exception, extra: reflowTimetableEntries([exception.extra], previousPeriods, nextPeriods)[0] }
+          : exception));
+        await db.settings.put({ key: "schoolStartTime", value });
+      });
       setError("");
     } catch {
       setError("saveError");
@@ -594,9 +612,9 @@ export function SettingsPage() {
             min="00:00"
             onChange={(event) => void updateSchoolStartTime(event.target.value)}
             type="time"
-            value={schoolStartSetting?.value && /^(?:[01]\d|2[0-3]):[0-5]\d$/.test(schoolStartSetting.value) && schoolStartSetting.value <= "23:00" ? schoolStartSetting.value : "08:00"}
+            value={schoolStartSetting?.value && /^(?:[01]\d|2[0-3]):[0-5]\d$/.test(schoolStartSetting.value) && schoolStartSetting.value <= "23:00" ? schoolStartSetting.value : "08:15"}
           />
-          <output>{schoolStartSetting?.value ?? "08:00"}</output>
+          <output>{schoolStartSetting?.value ?? "08:15"}</output>
         </label>
         <div className="school-days">
           {(["monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"] as const).map((day, index) => (
