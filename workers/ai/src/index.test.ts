@@ -124,6 +124,9 @@ describe("AI Worker access controls", () => {
         model: env.AI_MODEL,
         stream: false,
       });
+      expect(JSON.parse(String(fetchMock.mock.calls[0][1].body)).messages[0].content).toContain(
+        "You are Tutor, the user's assistant.",
+      );
     });
 
     it("sends OpenRouter image and PDF attachments as multimodal data and uses the free PDF parser", async () => {

@@ -23,6 +23,8 @@ const starters: AiPreset[] = [
   { id: "study-assistant", name: "Study Assistant", assistantName: "Kxno", description: "Homework explanations", style: "Clear and educational", length: "medium", depth: "guided", language: "auto", instructions: "", model: "openrouter/free", isDefault: true },
   { id: "quick-answers", name: "Quick Answers", assistantName: "Quick", description: "Concise answers", style: "Direct", length: "short", depth: "basic", language: "auto", instructions: "", model: "openrouter/free", isDefault: false },
   { id: "tutor", name: "Tutor", assistantName: "Tutor", description: "Step by step understanding", style: "Step by step", length: "detailed", depth: "advanced", language: "auto", instructions: "", model: "openrouter/free", isDefault: false },
+  { id: "kxno-school-helper", name: "Kxno's School Helper", assistantName: "Kxno", description: "Short, clear school help", style: "Casual and clear", length: "short", depth: "basic", language: "auto", instructions: "Keep every answer short, direct, and accurate. Reply in the language the user uses. For school questions, explain things in a relaxed, natural way like a classmate around grades 9–11. Use everyday wording, not formal AI-sounding phrases. Skip long introductions, repeated summaries, and unnecessary dash-heavy lists. Give only the useful explanation and answer. Ask one brief question if key information is missing. Never make up facts.", model: "openrouter/free", isDefault: false },
+  { id: "kxno-personal-helper", name: "Kxno's Personal Helper", assistantName: "Kxno", description: "Casual everyday help", style: "Warm and informal", length: "short", depth: "basic", language: "auto", instructions: "Keep replies very short, accurate, and natural. Reply in the language the user uses, with relaxed everyday wording and no stiff AI-style introductions or repetitive summaries. Focus on non-school topics like everyday questions, ideas, planning, and hobbies. Be friendly and a little kawaii; use an emoji or :3 occasionally when it fits, but don't force them into every reply. Give only the useful answer and ask briefly if something important is unclear. Never make up facts.", model: "openrouter/free", isDefault: false },
 ];
 
 type AttachmentView = Pick<AiAttachment, "name" | "mimeType" | "size" | "blob">;
@@ -140,7 +142,7 @@ export function AssistantPage() {
   }, []);
 
   useEffect(() => {
-    if (savedPresets === undefined || savedPresets.length) return;
+    if (savedPresets === undefined) return;
     void db.transaction("rw", db.aiPresets, async () => {
       for (const preset of starters) {
         if (!(await db.aiPresets.get(preset.id))) await db.aiPresets.add(preset);

@@ -54,6 +54,7 @@ export function AppShell() {
     <div
       className="app-frame"
       data-theme={appearance.mode}
+      data-performance-mode={appearance.performanceMode}
       style={
         {
           "--accent": appearance.accent,

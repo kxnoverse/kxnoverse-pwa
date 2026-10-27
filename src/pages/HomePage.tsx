@@ -18,7 +18,7 @@ export function HomePage() {
   const calendarEvents = useLiveQuery(() => db.calendarEvents.toArray(), [], []);
   const noteCount = useLiveQuery(() => db.notes.count(), [], 0);
   const anchor = useLiveQuery(() => db.settings.get("weekAnchor"), [], undefined);
-  const profileName = useLiveQuery(() => db.settings.get("profileName"), [], undefined)?.value.trim();
+  const profileName = useLiveQuery(() => db.settings.get("profileName"), [], undefined)?.value.trim() || "User";
   const appearance = useUiStore((state) => state.appearance);
 
   useEffect(() => {

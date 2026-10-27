@@ -543,7 +543,7 @@ h1 { color: var(--text); }
 .setting-row output { color: var(--text-muted); font-size: 9px; text-align: right; }
 .setting-row--toggle { grid-template-columns: 1fr auto; }
 .setting-row--toggle input { width: 14px; height: 14px; accent-color: var(--accent); }
-.setting-row--color { grid-template-columns: minmax(95px, 1fr) 20px minmax(100px, 190px) 76px; gap: 10px; }
+.setting-row--color { grid-template-columns: minmax(95px, .7fr) 20px minmax(180px, 2fr) 76px; gap: 10px; }
 .setting-color-swatch { width: 18px; height: 18px; border: 1px solid var(--line); border-radius: 50%; }
 .setting-row--color .setting-color-slider {
   width: 100%;
@@ -584,7 +584,7 @@ h1 { color: var(--text); }
   background: var(--accent);
   box-shadow: 0 0 0 1px rgb(0 0 0 / 35%);
 }
-.setting-row--color input:not([type="color"]) { width: 76px; height: 25px; padding: 0 5px; border: 1px solid var(--line); border-radius: var(--radius); background: var(--surface-1); color: var(--text-muted); font-size: 9px; }
+.setting-row--color .setting-color-hex { width: 76px; height: 25px; padding: 0 5px; border: 1px solid var(--line); border-radius: var(--radius); background: var(--surface-1); color: var(--text-muted); font-size: 9px; }
 .setting-row--file { grid-template-columns: 1fr auto; }
 .setting-row--file .button { min-height: 27px; font-size: 9px; }
 .appearance-preview { position: sticky; top: 70px; }
@@ -801,6 +801,8 @@ h1 { color: var(--text); }
   .school-overview__side { padding: 14px 0 0; border-top: 1px solid var(--line); border-left: 0; }
   .day-progress__countdown { margin-top: 10px; }
   .appearance-layout { grid-template-columns: 1fr; gap: 18px; }
+  .setting-row--color { grid-template-columns: minmax(65px, .7fr) 18px minmax(80px, 2fr) 68px; gap: 7px; }
+  .setting-row--color .setting-color-hex { width: 68px; }
   .appearance-preview { position: static; }
   .page-heading--compact { flex-direction: column; gap: 12px; margin-bottom: 13px; }
   .page-controls { width: 100%; flex-wrap: wrap; }

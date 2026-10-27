@@ -66,7 +66,7 @@ export function SettingsPage() {
   const daysSetting = useLiveQuery(() => db.settings.get("schoolDays"), [], undefined);
   const schoolStateSetting = useLiveQuery(() => db.settings.get("schoolState"), [], undefined);
   const customThemesSetting = useLiveQuery(() => db.settings.get("customThemes"), [], undefined);
-  const selectedTheme = useLiveQuery(() => db.settings.get("selectedTheme"), [], undefined)?.value ?? "amethyst";
+  const selectedTheme = useLiveQuery(() => db.settings.get("selectedTheme"), [], undefined)?.value ?? "arctic";
   const aiEndpointSetting = useLiveQuery(() => db.settings.get("aiBackendUrl"), [], undefined);
   const aiCloudEnabledSetting = useLiveQuery(() => db.settings.get("aiCloudEnabled"), [], undefined);
   const aiCloudConsentSetting = useLiveQuery(() => db.settings.get("aiCloudConsentEndpoint"), [], undefined);
@@ -132,7 +132,7 @@ export function SettingsPage() {
     });
   }, [appearance.accent, appearance.background, appearance.surface]);
 
-  useEffect(() => setNameDraft(profile?.value ?? ""), [profile?.value]);
+  useEffect(() => setNameDraft(profile?.value ?? "User"), [profile?.value]);
   useEffect(() => setAiEndpointDraft(aiEndpointSetting?.value ?? ""), [aiEndpointSetting?.value]);
   useEffect(() => setTurnstileSiteKeyDraft(turnstileSiteKeySetting?.value ?? ""), [turnstileSiteKeySetting?.value]);
   useEffect(() => {
@@ -455,6 +455,7 @@ export function SettingsPage() {
         />
         <input
           aria-label={`${label} HEX`}
+          className="setting-color-hex"
           maxLength={7}
           pattern="#[0-9a-fA-F]{6}"
           value={colorDrafts[key]}

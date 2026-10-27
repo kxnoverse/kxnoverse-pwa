@@ -2,16 +2,16 @@ import { create } from "zustand";
 import { persist } from "zustand/middleware";
 
 export const defaultAppearance = {
-  accent: "#a58bd4",
-  background: "#101214",
-  surface: "#181b1e",
+  accent: "#8dbfd0",
+  background: "#10161b",
+  surface: "#192229",
   mode: "dark" as "dark" | "light",
   textContrast: 1,
   borderIntensity: 0.72,
   cornerRadius: 5,
-  backgroundStyle: "solid" as "solid" | "grid" | "glow" | "chrome" | "custom",
-  intensity: 0.8,
-  opacity: 0.45,
+  backgroundStyle: "chrome" as "solid" | "grid" | "glow" | "chrome" | "custom",
+  intensity: 0.26,
+  opacity: 0.22,
   gridSpacing: 32,
   highlights: true,
   cursorReactive: false,

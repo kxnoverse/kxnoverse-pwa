@@ -44,6 +44,7 @@ beforeEach(async () => {
     db.arcadeData.clear(),
   ]);
   useUiStore.getState().updateAppearance(defaultAppearance);
+  vi.spyOn(HTMLCanvasElement.prototype, "getContext").mockReturnValue(null);
 });
 
 afterEach(() => {
@@ -58,7 +59,13 @@ describe("Kxno Desk shell", () => {
     render(<App />);
 
     expect(screen.getByRole("link", { name: "Kxno Desk" })).toBeInTheDocument();
-    expect(await screen.findByRole("heading", { name: /^(Good (morning|afternoon|evening)|Working late)$/ })).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: /^(Good (morning|afternoon|evening), User|Working late, User)$/ })).toBeInTheDocument();
+    expect(useUiStore.getState().appearance).toMatchObject({
+      accent: "#8dbfd0",
+      background: "#10161b",
+      backgroundStyle: "chrome",
+    });
+    expect(document.querySelector(".background-layer--chrome")).toBeInTheDocument();
     expect(screen.getByRole("time")).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "Today’s schedule" })).toBeInTheDocument();
 
@@ -534,20 +541,47 @@ describe("Kxno Desk shell", () => {
 
     fireEvent.change(slider, { target: { value: "120" } });
     expect(useUiStore.getState().appearance.accent).toBe(defaultAppearance.accent);
-    expect(document.querySelector(".setting-color-swatch")).toHaveStyle({ backgroundColor: "#8bd48b" });
+    const previewColor = (screen.getByRole("textbox", { name: "Accent HEX" }) as HTMLInputElement).value;
+    expect(previewColor).not.toBe(defaultAppearance.accent);
 
     fireEvent.pointerUp(slider);
-    expect(useUiStore.getState().appearance.accent).toBe("#8bd48b");
+    expect(useUiStore.getState().appearance.accent).toBe(previewColor);
   });
 
   it("always exposes the local assistant without enabling cloud settings", async () => {
     const user = userEvent.setup();
+    await db.aiPresets.add({
+      id: "existing-custom",
+      name: "My preset",
+      assistantName: "Local",
+      description: "",
+      style: "",
+      length: "short",
+      depth: "basic",
+      language: "auto",
+      instructions: "",
+      model: "openrouter/free",
+      isDefault: true,
+    });
     render(<App />);
 
     const link = await screen.findByRole("link", { name: "Assistant" });
     await user.click(link);
     expect(await screen.findByRole("heading", { name: "Assistant" }, { timeout: 5000 })).toBeInTheDocument();
     expect(await db.settings.get("aiCloudEnabled")).toBeUndefined();
+    await waitFor(async () => {
+      expect(await db.aiPresets.get("kxno-school-helper")).toMatchObject({
+        name: "Kxno's School Helper",
+        length: "short",
+        isDefault: false,
+      });
+      expect(await db.aiPresets.get("kxno-personal-helper")).toMatchObject({
+        name: "Kxno's Personal Helper",
+        length: "short",
+        isDefault: false,
+      });
+    });
+    expect(await db.aiPresets.get("existing-custom")).toBeDefined();
   });
 
   it("saves the interface scale and selected federal state", async () => {
@@ -712,7 +746,10 @@ describe("Kxno Desk shell", () => {
     const user = userEvent.setup();
     render(<App />);
     await user.click(screen.getByRole("link", { name: "Settings" }));
-    await user.type(screen.getByRole("textbox", { name: "Display name" }), "Ari");
+    const displayName = screen.getByRole("textbox", { name: "Display name" });
+    expect(displayName).toHaveValue("User");
+    await user.clear(displayName);
+    await user.type(displayName, "Ari");
     await user.click(screen.getByRole("button", { name: /Arctic/ }));
     await user.click(screen.getByRole("checkbox", { name: "Saturday" }));
     expect((await db.settings.get("profileName"))?.value).toBe("Ari");
@@ -841,7 +878,9 @@ describe("Kxno Desk shell", () => {
     await screen.findByRole("combobox", { name: "Preset" });
 
     await waitFor(async () => expect(await db.aiPresets.get(savedPreset.id)).toEqual({ ...savedPreset, model: "openrouter/free" }));
-    expect(await db.aiPresets.count()).toBe(1);
+    expect(await db.aiPresets.count()).toBe(5);
+    expect(await db.aiPresets.get("kxno-school-helper")).toBeDefined();
+    expect(await db.aiPresets.get("kxno-personal-helper")).toBeDefined();
   });
 
   it("keeps old assistant messages and attachments available with OpenRouter-only chat", async () => {

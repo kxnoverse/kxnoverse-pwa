@@ -150,7 +150,8 @@ export function BackgroundLayer({
   const [reducedMotion, setReducedMotion] = useState(
     () => typeof window !== "undefined" && window.matchMedia?.("(prefers-reduced-motion: reduce)").matches === true,
   );
-  const drawEnabled = animate && !performanceMode && !reducedMotion && animationSpeed > 0;
+  const drawEnabled = animate && !reducedMotion && animationSpeed > 0;
+  const targetFrameRate = performanceMode ? 24 : 60;
 
   useEffect(() => {
     if (typeof window.matchMedia !== "function") return;
@@ -217,9 +218,9 @@ export function BackgroundLayer({
 
       const render = (now: number) => {
         if (disposed || !visible) return;
-        const interval = drawEnabled ? 1000 / 60 : Number.POSITIVE_INFINITY;
+        const interval = drawEnabled ? 1000 / targetFrameRate : Number.POSITIVE_INFINITY;
         if (!nextFrame || now >= nextFrame) {
-          const scale = Math.min(window.devicePixelRatio || 1, performanceMode ? 0.8 : 1.25);
+          const scale = Math.min(window.devicePixelRatio || 1, performanceMode ? 0.65 : 1.25);
           const width = Math.max(1, Math.floor(canvas.clientWidth * scale));
           const height = Math.max(1, Math.floor(canvas.clientHeight * scale));
           if (canvas.width !== width || canvas.height !== height) {
@@ -266,7 +267,7 @@ export function BackgroundLayer({
       if (program) gl.deleteProgram(program);
       setCanvasSupported(false);
     }
-  }, [accent, accentInfluence, animationSpeed, drawEnabled, intensity, performanceMode, reflectionStrength, style]);
+  }, [accent, accentInfluence, animationSpeed, drawEnabled, intensity, performanceMode, reflectionStrength, style, targetFrameRate]);
 
   useEffect(() => {
     if (!cursorReactive || performanceMode || reducedMotion || style === "solid" || style === "custom") return;
