@@ -817,7 +817,7 @@ export function SettingsPage() {
 
       <section className="settings-section settings-section--data">
         <h2>{t("settings.data")}</h2>
-        <div className="ai-settings-row"><span>{t("settings.localData")}</span><span className="status-pill">{t("settings.recordCount", { count: localRecordCount })}</span><span>{t("settings.localOnly")}</span></div>
+        <div className="ai-settings-row"><span>{t("settings.dataRecords")}</span><span className="status-pill">{t("settings.recordCount", { count: localRecordCount })}</span></div>
         <p className="backup-hint">{t("settings.backupHint")}</p>
         <div className="backup-actions">
           <button className="button button--quiet" onClick={() => void exportBackup()} type="button">{t("settings.exportBackup")}</button>

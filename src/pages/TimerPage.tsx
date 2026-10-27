@@ -82,7 +82,7 @@ export function TimerPage() {
   const timerSetting = useLiveQuery(() => db.settings.get(TIMER_SETTING), [], null);
   const stopwatchSetting = useLiveQuery(() => db.settings.get(STOPWATCH_SETTING), [], null);
   const [now, setNow] = useState(Date.now());
-  const [minutes, setMinutes] = useState(25);
+  const [minutes, setMinutes] = useState(45);
   const [mode, setMode] = useState<"countdown" | "stopwatch">("countdown");
   const [error, setError] = useState("");
   const [completed, setCompleted] = useState(false);
@@ -287,7 +287,6 @@ export function TimerPage() {
           </>
         )}
         {error && <p className="form-error" role="alert">{error}</p>}
-        <p className="simple-timer__note">{t("timer.localNote")}</p>
       </section>
     </section>
   );

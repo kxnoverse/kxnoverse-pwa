@@ -569,6 +569,11 @@ describe("Kxno Desk shell", () => {
     expect(addLesson).toBeEnabled();
     await user.click(addLesson);
     const dialog = within(screen.getByRole("dialog", { name: "Add lesson" }));
+    await user.click(dialog.getByRole("button", { name: "Create teacher" }));
+    await user.type(dialog.getByRole("textbox", { name: "Teacher name" }), "Ms First");
+    await user.click(dialog.getByRole("button", { name: "Add teacher" }));
+    const teacher = await db.teachers.toCollection().first();
+    expect(teacher).toMatchObject({ name: "Ms First", subjectIds: [] });
     await user.type(dialog.getByRole("textbox", { name: "Subject name" }), "Chemistry");
     await user.click(dialog.getByRole("button", { name: "Add subject" }));
     await waitFor(async () => expect(await db.subjects.count()).toBe(1));
@@ -578,6 +583,7 @@ describe("Kxno Desk shell", () => {
     expect(await db.timetable.toCollection().first()).toMatchObject({
       kind: "lesson",
       subjectId: (await db.subjects.toCollection().first())!.id,
+      teacherId: teacher!.id,
       start: "08:00",
       end: "08:45",
     });
@@ -827,10 +833,10 @@ describe("Kxno Desk shell", () => {
     await user.click(await screen.findByRole("link", { name: "Settings" }));
     await user.type(screen.getByRole("textbox", { name: "Worker endpoint" }), "https://worker.example.test");
     await user.click(screen.getByRole("button", { name: "Save endpoint" }));
-    expect(await screen.findByText("Endpoint saved on this device.")).toBeInTheDocument();
+    expect(await screen.findByText("Endpoint saved.")).toBeInTheDocument();
     await user.type(screen.getByRole("textbox", { name: "Turnstile site key (public)" }), "0x4AAAAAAAtestsitekey");
     await user.click(screen.getByRole("button", { name: "Save site key" }));
-    expect(await screen.findByText("Site key saved on this device.")).toBeInTheDocument();
+    expect(await screen.findByText("Site key saved.")).toBeInTheDocument();
     await user.click(screen.getByRole("checkbox", { name: /Enable optional cloud AI/ }));
     await user.click(screen.getByRole("checkbox", { name: /Allow cloud sharing/ }));
     await user.click(screen.getByRole("button", { name: "Test AI connection" }));
@@ -1087,8 +1093,9 @@ describe("Kxno Desk shell", () => {
     vi.spyOn(URL, "createObjectURL").mockReturnValue("blob:test-preview");
     render(<App />);
     await user.click(within(screen.getByRole("navigation", { name: "Main navigation" })).getByRole("link", { name: "Timer" }));
+    expect(await screen.findByRole("spinbutton", { name: "Duration" })).toHaveValue(45);
     await user.click(await screen.findByRole("button", { name: "Start timer" }));
-    await waitFor(async () => expect((await db.settings.get("focusTimerState"))?.value).toContain('"plannedSeconds":1500'));
+    await waitFor(async () => expect((await db.settings.get("focusTimerState"))?.value).toContain('"plannedSeconds":2700'));
     expect(screen.getByRole("button", { name: "Pause" })).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "Reset" }));
     expect(await db.settings.get("focusTimerState")).toBeUndefined();

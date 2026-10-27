@@ -101,7 +101,7 @@ function LessonDialog({
   value: TimetableEntry | EditorValue;
   subjects: Subject[];
   teachers: Teacher[];
-  onCreateTeacher: (name: string, subjectId: string) => Promise<string>;
+  onCreateTeacher: (name: string, subjectId?: string) => Promise<string>;
   onCreateSubject: (name: string) => Promise<string>;
   onClose: () => void;
   onSave: (value: EditorValue) => Promise<void>;
@@ -157,7 +157,7 @@ function LessonDialog({
   }
 
   async function createTeacher() {
-    if (!draft.subjectId || !teacherDraft.trim()) return;
+    if (!teacherDraft.trim()) return;
     try {
       const teacherId = await onCreateTeacher(teacherDraft, draft.subjectId);
       setDraft((current) => ({ ...current, teacherId, inheritTeacher: false }));
@@ -258,7 +258,7 @@ function LessonDialog({
               </label>
               <div className="teacher-inline-control">
                 {!showTeacherDraft ? (
-                  <button className="inline-button" disabled={!draft.subjectId} onClick={() => setShowTeacherDraft(true)} type="button">
+                  <button className="inline-button" onClick={() => setShowTeacherDraft(true)} type="button">
                     <Plus size={12} /> {t("timetable.createTeacher")}
                   </button>
                 ) : (
@@ -405,14 +405,18 @@ export function TimetablePage() {
     setNotice("lessonSaved");
   }
 
-  async function createTeacherForSubject(name: string, subjectId: string): Promise<string> {
+  async function createTeacherRecord(name: string, subjectIds: string[] = []): Promise<string> {
     const trimmedName = name.trim();
-    if (!trimmedName || !subjects.some((subject) => subject.id === subjectId)) {
+    if (!trimmedName || subjectIds.some((subjectId) => !subjects.some((subject) => subject.id === subjectId))) {
       throw new Error("invalid-teacher");
     }
     const id = createId();
-    await db.teachers.add({ id, name: trimmedName, subjectIds: [subjectId] });
+    await db.teachers.add({ id, name: trimmedName, subjectIds });
     return id;
+  }
+
+  async function createTeacherForSubject(name: string, subjectId?: string): Promise<string> {
+    return createTeacherRecord(name, subjectId ? [subjectId] : []);
   }
 
   async function createSubjectForLesson(name: string): Promise<string> {
@@ -491,13 +495,12 @@ export function TimetablePage() {
       setNotice("teacherNameRequired");
       return;
     }
-    const id = editingTeacher ?? createId();
     try {
-      await db.teachers.put({
-        id,
-        name,
-        subjectIds: teacherDraft.subjectIds,
-      });
+      if (editingTeacher) {
+        await db.teachers.put({ id: editingTeacher, name, subjectIds: teacherDraft.subjectIds });
+      } else {
+        await createTeacherRecord(name, teacherDraft.subjectIds);
+      }
       setTeacherDraft({ name: "", subjectIds: [] });
       setEditingTeacher(undefined);
     } catch {
@@ -761,7 +764,7 @@ export function TimetablePage() {
               <h2>{t("timetable.teachers")}</h2>
               <form className="inline-form teacher-create" onSubmit={submitTeacher}>
                 <input aria-label={t("timetable.name")} maxLength={60} placeholder={t("timetable.name")} required value={teacherDraft.name} onChange={(event) => setTeacherDraft({ ...teacherDraft, name: event.target.value })} />
-                <button className="icon-button" title={t("timetable.addTeacher")} type="submit" aria-label={t("timetable.addTeacher")}><Plus size={16} /></button>
+                <button className="button button--quiet teacher-create__submit" type="submit"><Plus size={14} />{t("timetable.addTeacher")}</button>
                 <div className="teacher-subjects">
                   {subjects.map((subject) => (
                     <label key={subject.id}>

@@ -135,7 +135,6 @@ export function FilesPage() {
         </section>
       </div>
       {error && <p className="form-error" role="alert">{error}</p>}
-      <p className="files-privacy">{t("files.localOnly")}</p>
     </section>
   );
 }
