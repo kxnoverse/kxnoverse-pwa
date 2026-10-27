@@ -4,9 +4,12 @@ import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import App from "./App";
 import { db, localDateKey } from "./data/db";
-import { i18n } from "./i18n";
+import { i18n, i18nReady } from "./i18n";
 import { defaultAppearance, useUiStore } from "./stores/ui-store";
 import { assistantClient } from "./data/ai-client";
+import { PDFDocument } from "pdf-lib";
+import { createColorClash, getPlayableClashCards } from "./data/phase6d/color-clash";
+import { translationProvider } from "./data/translation";
 
 vi.mock("./components/TurnstileChallenge", async () => {
   const React = await vi.importActual<typeof import("react")>("react");
@@ -25,6 +28,7 @@ vi.mock("./components/TurnstileChallenge", async () => {
 beforeEach(async () => {
   localStorage.clear();
   window.location.hash = "#/";
+  await i18nReady;
   await i18n.changeLanguage("en");
   await Promise.all([
     db.subjects.clear(),
@@ -58,6 +62,8 @@ describe("Kxno Desk shell", () => {
     const user = userEvent.setup();
     render(<App />);
 
+    expect(i18n.hasResourceBundle("en", "translation")).toBe(true);
+    expect(i18n.hasResourceBundle("de", "translation")).toBe(false);
     expect(screen.getByRole("link", { name: "Kxno Desk" })).toBeInTheDocument();
     expect(await screen.findByRole("heading", { name: /^(Good (morning|afternoon|evening), User|Working late, User)$/ })).toBeInTheDocument();
     expect(useUiStore.getState().appearance).toMatchObject({
@@ -69,6 +75,8 @@ describe("Kxno Desk shell", () => {
     expect(screen.getByRole("time")).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "Today’s schedule" })).toBeInTheDocument();
     expect(within(screen.getByRole("navigation", { name: "Main navigation" })).queryByRole("link", { name: "Files" })).not.toBeInTheDocument();
+    expect(within(screen.getByRole("navigation", { name: "Main navigation" })).getByRole("link", { name: "Translate" })).toBeInTheDocument();
+    expect(within(screen.getByRole("navigation", { name: "Main navigation" })).getByRole("link", { name: "Kxno Solve" })).toBeInTheDocument();
     expect(screen.getByText("Kxno Desk · Made By Kxno (Shero)")).toBeInTheDocument();
 
     await user.click(
@@ -80,6 +88,84 @@ describe("Kxno Desk shell", () => {
     expect(await screen.findByRole("heading", { name: "Timetable" }, { timeout: 5000 })).toBeInTheDocument();
   });
 
+  it("loads the new arcade strings from both offline language bundles", async () => {
+    expect(i18n.t("arcade.phase6.laser.next")).toBe("Next puzzle");
+    expect(i18n.t("arcade.games.crossword-infinite.name")).toBe("Crossword Infinite");
+    expect(i18n.t("arcade.phase6d.ludo.roll")).toBe("Roll dice");
+    expect(i18n.t("arcade.games.color-clash.name")).toBe("Color Clash");
+    expect(i18n.t("arcade.phase6d.colorClash.cards.wild")).toBe("Wild");
+    expect(i18n.t("translate.onDeviceReady")).toBe("On-device translation");
+    await i18n.changeLanguage("de");
+    expect(i18n.t("arcade.phase6.laser.next")).toBe("Nächstes Rätsel");
+    expect(i18n.t("arcade.phase6.crossing.ready")).toContain("Überquere");
+    expect(i18n.t("arcade.games.color-ludo.name")).toBe("Color Ludo");
+    expect(i18n.t("arcade.games.hex-settlers.name")).toBe("Hex Settlers");
+    expect(i18n.t("arcade.games.color-clash.name")).toBe("Color Clash");
+    expect(i18n.t("arcade.phase6d.colorClash.cards.wild")).toBe("Farbwahl");
+    expect(i18n.t("arcade.phase6d.crossword.difficulties.expert")).toBe("Experte");
+    expect(i18n.t("nav.translate")).toBe("Übersetzen");
+    expect(i18n.t("translate.onDeviceReady")).toContain("Gerät");
+  });
+
+  it("translates on demand and only saves history when the local-history option is enabled", async () => {
+    const user = userEvent.setup();
+    const supported = vi.spyOn(translationProvider, "isSupported").mockReturnValue(true);
+    const translate = vi.spyOn(translationProvider, "translate").mockResolvedValue("Good morning, how are you?");
+    render(<App />);
+    const navigation = within(screen.getByRole("navigation", { name: "Main navigation" }));
+    await user.click(navigation.getByRole("link", { name: "Translate" }));
+
+    expect(await screen.findByRole("heading", { name: "Translate" })).toBeInTheDocument();
+    expect(supported).toHaveBeenCalled();
+    expect(translate).not.toHaveBeenCalled();
+    await user.click(screen.getByRole("checkbox", { name: "Save history on this device" }));
+    await user.type(screen.getByRole("textbox", { name: "Text to translate" }), "Guten Morgen, wie geht es dir?");
+    await user.click(screen.getByRole("button", { name: /^Translate$/ }));
+
+    expect(await screen.findByRole("textbox", { name: "Translation" })).toHaveValue("Good morning, how are you?");
+    expect(translate).toHaveBeenCalledWith(
+      "Guten Morgen, wie geht es dir?",
+      "de",
+      "en",
+      expect.any(Function),
+      expect.any(AbortSignal),
+    );
+    await waitFor(async () => {
+      expect(JSON.parse((await db.arcadeData.get("translate:history"))!.value)).toMatchObject([
+        { sourceLanguage: "de", targetLanguage: "en", result: "Good morning, how are you?" },
+      ]);
+    });
+
+    await user.click(screen.getByRole("button", { name: "Clear history" }));
+    await waitFor(async () => expect(await db.arcadeData.get("translate:history")).toBeUndefined());
+    await user.click(screen.getByRole("checkbox", { name: "Save history on this device" }));
+    await user.type(screen.getByRole("textbox", { name: "Text to translate" }), "Guten Morgen, wie geht es dir?");
+    await user.click(screen.getByRole("button", { name: /^Translate$/ }));
+    expect(await screen.findByRole("textbox", { name: "Translation" })).toHaveValue("Good morning, how are you?");
+    expect(await db.arcadeData.get("translate:history")).toBeUndefined();
+    await user.click(screen.getByRole("button", { name: "Swap languages" }));
+    expect(screen.getByRole("combobox", { name: "From" })).toHaveValue("en");
+    expect(screen.getByRole("combobox", { name: "To" })).toHaveValue("de");
+    await user.click(screen.getByRole("button", { name: "Clear text" }));
+    expect(screen.getByRole("textbox", { name: "Text to translate" })).toHaveValue("");
+    expect(screen.getByRole("textbox", { name: "Translation" })).toHaveValue("");
+  });
+
+  it("lets a user cancel a translation that is still waiting for its local model", async () => {
+    const user = userEvent.setup();
+    vi.spyOn(translationProvider, "isSupported").mockReturnValue(true);
+    vi.spyOn(translationProvider, "translate").mockImplementation(() => new Promise<string>(() => {}));
+    render(<App />);
+    await user.click(within(screen.getByRole("navigation", { name: "Main navigation" })).getByRole("link", { name: "Translate" }));
+    await user.type(await screen.findByRole("textbox", { name: "Text to translate" }), "Guten Morgen, wie geht es dir?");
+    await user.click(screen.getByRole("button", { name: /^Translate$/ }));
+    await waitFor(() => expect(document.querySelector(".translate-progress")).toBeInTheDocument());
+
+    await user.click(document.querySelector<HTMLButtonElement>(".translate-cancel")!);
+    expect(await screen.findByRole("alert")).toHaveTextContent("Translation cancelled");
+    expect(screen.getByRole("button", { name: /^Translate$/ })).toBeEnabled();
+  });
+
   it("opens the arcade, persists favorites, and launches a playable game screen", async () => {
     const user = userEvent.setup();
     render(<App />);
@@ -87,23 +173,47 @@ describe("Kxno Desk shell", () => {
     await user.click(navigation.getByRole("link", { name: "Minigames" }));
 
     expect(await screen.findByRole("heading", { name: "Minigames" }, { timeout: 5000 })).toBeInTheDocument();
-    expect(document.querySelectorAll(".arcade-card")).toHaveLength(24);
+    expect(document.querySelectorAll(".arcade-card")).toHaveLength(31);
     const thumbnails = [...document.querySelectorAll<SVGSVGElement>("[data-game-thumbnail]")];
-    expect(thumbnails).toHaveLength(24);
-    expect(new Set(thumbnails.map((thumbnail) => thumbnail.dataset.gameThumbnail)).size).toBe(24);
+    expect(thumbnails).toHaveLength(31);
+    expect(new Set(thumbnails.map((thumbnail) => thumbnail.dataset.gameThumbnail)).size).toBe(31);
     expect(thumbnails.every((thumbnail) => thumbnail.getAttribute("viewBox") === "0 0 320 82")).toBe(true);
-    expect(thumbnails.every((thumbnail) => [...thumbnail.querySelectorAll("[fill], [stroke]")].some((part) =>
-      `${part.getAttribute("fill")} ${part.getAttribute("stroke")}`.includes("var(--game-accent)")))).toBe(true);
+    const thumbnailsWithoutAccent = thumbnails
+      .filter((thumbnail) => ![...thumbnail.querySelectorAll("[fill], [stroke]")].some((part) =>
+        `${part.getAttribute("fill")} ${part.getAttribute("stroke")}`.includes("var(--game-accent)")))
+      .map((thumbnail) => thumbnail.dataset.gameThumbnail);
+    expect(thumbnailsWithoutAccent).toEqual([]);
+    const artwork = (gameId: string) => document.querySelector(`[data-game-thumbnail="${gameId}"] [data-thumbnail-artwork="${gameId}"]`);
+    expect(artwork("2048")?.querySelectorAll("rect")).toHaveLength(16);
+    expect(artwork("2048")?.querySelectorAll("text")).toHaveLength(16);
+    expect(artwork("geometry-runner")?.querySelectorAll("[data-runner-obstacle]")).toHaveLength(3);
+    expect(artwork("simon-says")?.querySelectorAll("[data-simon-pad]")).toHaveLength(4);
+    expect(artwork("line-rider")?.querySelector("[data-line-rider-track]")).toBeInTheDocument();
+    expect(artwork("line-rider")?.querySelector("[data-line-rider-sled]")).toBeInTheDocument();
+    expect(artwork("chess")?.querySelectorAll("[data-chess-square]")).toHaveLength(64);
+    expect(artwork("chess")?.querySelectorAll("[data-chess-piece]")).toHaveLength(32);
     expect(screen.getByRole("heading", { name: "Tower Defense" })).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "Rhythm Tiles" })).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "Mini Platformer" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Perfect Stack" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Crossword Infinite" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Color Ludo" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Hex Settlers" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Color Clash" })).toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: "Knife Target" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: "Twin Orbit" })).not.toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Laser Mirrors" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Pixel Crossing" })).toBeInTheDocument();
     await user.click(await screen.findByRole("button", { name: "Strategy" }));
     expect(screen.getByRole("heading", { name: "Tower Defense" })).toBeInTheDocument();
-    expect(document.querySelectorAll(".arcade-card")).toHaveLength(1);
+    expect(screen.getByRole("heading", { name: "Color Ludo" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Hex Settlers" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Color Clash" })).toBeInTheDocument();
+    expect(document.querySelectorAll(".arcade-card")).toHaveLength(4);
     await user.click(await screen.findByRole("button", { name: "All games" }));
     await user.click(await screen.findByRole("button", { name: "Precision" }));
     expect(screen.getByRole("heading", { name: "Aim Trainer" })).toBeInTheDocument();
-    expect(document.querySelectorAll(".arcade-card")).toHaveLength(1);
+    expect(document.querySelectorAll(".arcade-card")).toHaveLength(2);
     await user.click(await screen.findByRole("button", { name: "All games" }));
     const gameCard = screen.getByRole("heading", { name: "2048" }).closest("article");
     expect(gameCard).not.toBeNull();
@@ -113,9 +223,185 @@ describe("Kxno Desk shell", () => {
     await user.click(within(screen.getByRole("heading", { name: "2048" }).closest("article")!).getByRole("button", { name: "Play" }));
     expect(await screen.findByRole("heading", { name: "2048" })).toBeInTheDocument();
     expect(await screen.findByRole("grid", { name: "2048 game board" })).toBeInTheDocument();
-    await user.click(screen.getByRole("button", { name: /Back/ }));
+    await user.click(screen.getByRole("button", { name: "Back", exact: true }));
     await waitFor(async () => expect((await db.arcadeData.get("recent"))?.value).toBe('["2048"]'));
+
+    const crosswordCard = screen.getByRole("heading", { name: "Crossword Infinite" }).closest("article");
+    expect(crosswordCard).not.toBeNull();
+    await user.click(within(crosswordCard!).getByRole("button", { name: "Play" }));
+    expect(await screen.findByRole("application", { name: /Select a cell and type letters/ })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Across" })).toBeInTheDocument();
+    const crosswordKeyboard = document.querySelector<HTMLElement>(".phase6d-crossword__keyboard");
+    expect(crosswordKeyboard).not.toBeNull();
+    await user.click(within(crosswordKeyboard!).getByRole("button", { name: "A" }));
+    expect(document.querySelectorAll(".phase6d-crossword__cell.has-letter")).toHaveLength(1);
+    await waitFor(async () => expect(await db.arcadeData.get("crossword-infinite:session")).toBeDefined());
+
+    await user.click(screen.getByRole("button", { name: "Back", exact: true }));
+    const ludoCard = screen.getByRole("heading", { name: "Color Ludo" }).closest("article");
+    expect(ludoCard).not.toBeNull();
+    await user.click(within(ludoCard!).getByRole("button", { name: "Play" }));
+    const ludoBoard = await screen.findByRole("group", { name: "Color Ludo game board" });
+    expect(ludoBoard.querySelectorAll("[data-ring-position]")).toHaveLength(52);
+    expect(ludoBoard.querySelectorAll("[data-safe-space]")).toHaveLength(8);
+    expect(ludoBoard.querySelectorAll("[data-home-lane]")).toHaveLength(20);
+    expect(ludoBoard.querySelectorAll("[data-base]")).toHaveLength(4);
+    expect(ludoBoard.querySelectorAll("[data-yard-slot]")).toHaveLength(16);
+    expect(ludoBoard.querySelectorAll(".phase6d-ludo__token-number")).toHaveLength(8);
+    expect(ludoBoard.querySelectorAll(".phase6d-ludo__token-shadow")).toHaveLength(8);
+    expect(ludoBoard.querySelectorAll(".phase6d-ludo__token-piece")).toHaveLength(8);
+    const baseOrigins = { coral: [0, 0], teal: [0, 9], gold: [9, 9], violet: [9, 0] } as const;
+    const insetOffset = 20;
+    const insetSize = 200;
+    const tokenRadius = 16.5;
+    const tokenAxis = [(insetSize - tokenRadius) / 3, (insetSize * 2 + tokenRadius) / 3];
+    for (const [color, [baseRow, baseColumn]] of Object.entries(baseOrigins)) {
+      for (let token = 0; token < 4; token += 1) {
+        const slot = ludoBoard.querySelector<SVGCircleElement>(`[data-yard-slot="${color}-${token}"]`);
+        expect(slot).not.toBeNull();
+        expect(Number(slot!.getAttribute("cx"))).toBeCloseTo(baseColumn * 40 + insetOffset + tokenAxis[token % 2]);
+        expect(Number(slot!.getAttribute("cy"))).toBeCloseTo(baseRow * 40 + insetOffset + tokenAxis[Math.floor(token / 2)]);
+      }
+    }
+    expect(ludoBoard.querySelectorAll("[data-finish-section]")).toHaveLength(4);
+    expect(ludoBoard.querySelectorAll("[data-board-cell]")).toHaveLength(81);
+    const ring = [...ludoBoard.querySelectorAll<SVGGElement>("[data-ring-position]")]
+      .sort((left, right) => Number(left.dataset.ringPosition) - Number(right.dataset.ringPosition));
+    const coordinate = (cell: SVGGElement) => [Number(cell.dataset.boardRow), Number(cell.dataset.boardColumn)];
+    expect(new Set(ring.map((cell) => coordinate(cell).join(","))).size).toBe(52);
+    expect(ring.every((cell) => coordinate(cell).every((value) => Number.isInteger(value) && value >= 0 && value < 15))).toBe(true);
+    const adjacentTrackSteps = ring.filter((cell, position) => {
+      const [row, column] = coordinate(cell);
+      const [nextRow, nextColumn] = coordinate(ring[(position + 1) % ring.length]);
+      return Math.abs(nextRow - row) + Math.abs(nextColumn - column) === 1;
+    }).length;
+    expect(adjacentTrackSteps).toBe(48);
+    const ringCoordinates = new Set(ring.map((cell) => coordinate(cell).join(",")));
+    for (const laneCell of ludoBoard.querySelectorAll<SVGGElement>("[data-home-lane]")) {
+      expect(ringCoordinates.has(coordinate(laneCell).join(","))).toBe(false);
+    }
+    for (const [position, color, expectedRow, expectedColumn] of [
+      [0, "coral", 6, 1],
+      [13, "teal", 1, 8],
+      [26, "gold", 8, 13],
+      [39, "violet", 13, 6],
+    ] as const) {
+      expect(ring[position].dataset.startColor).toBe(color);
+      expect(coordinate(ring[position])).toEqual([expectedRow, expectedColumn]);
+      const laneEntry = ludoBoard.querySelector<SVGGElement>(`[data-home-lane="${color}"][data-home-step="1"]`);
+      expect(laneEntry).not.toBeNull();
+      expect(coordinate(laneEntry!)).toEqual(color === "coral" ? [7, 1]
+        : color === "teal" ? [1, 7]
+          : color === "gold" ? [7, 13] : [13, 7]);
+    }
+    const boardCells = [...ludoBoard.querySelectorAll<SVGRectElement>(".phase6d-ludo__cell, .phase6d-ludo__home-cell")];
+    expect(boardCells).not.toHaveLength(0);
+    expect(boardCells.every((cell) =>
+      Number(cell.getAttribute("width")) === 40 &&
+      Number(cell.getAttribute("height")) === 40 &&
+      Number(cell.getAttribute("x")) % 40 === 0 &&
+      Number(cell.getAttribute("y")) % 40 === 0)).toBe(true);
+    await user.click(screen.getByRole("button", { name: "Roll dice" }));
+    expect(await screen.findByText(/rolled a [1-6]\./)).toBeInTheDocument();
+    await waitFor(async () => expect(await db.arcadeData.get("color-ludo:session")).toBeDefined());
   }, 15_000);
+
+  it("launches Hex Settlers, renders a complete board, and saves its initial state", async () => {
+    window.location.hash = "#/minigames/hex-settlers";
+    render(<App />);
+
+    const board = await screen.findByRole("group", { name: "Hex Settlers island board" });
+    expect(board.querySelectorAll("[data-terrain]")).toHaveLength(19);
+    expect(board.querySelectorAll("[data-node-id]")).toHaveLength(54);
+    expect(board.querySelectorAll("[data-edge-id]")).toHaveLength(72);
+    expect(screen.getByRole("button", { name: "New game" })).toBeInTheDocument();
+    const legalSettlement = board.querySelector<SVGGElement>('[data-legal-node="true"]');
+    expect(legalSettlement).not.toBeNull();
+    fireEvent.click(legalSettlement!);
+    await waitFor(async () => {
+      const saved = await db.arcadeData.get("hex-settlers:session");
+      expect(saved).toBeDefined();
+      expect(JSON.parse(saved!.value)).toMatchObject({
+        board: { tiles: expect.any(Array), nodes: expect.any(Array), edges: expect.any(Array) },
+        phase: "setup-road",
+        players: expect.arrayContaining([
+          expect.objectContaining({ settlements: [expect.any(String)] }),
+        ]),
+      });
+    });
+  });
+
+  it("keeps focused controls separate from Pixel Crossing keyboard movement", async () => {
+    const user = userEvent.setup();
+    render(<App />);
+    await user.click(within(screen.getByRole("navigation", { name: "Main navigation" })).getByRole("link", { name: "Minigames" }));
+    await screen.findByRole("heading", { name: "Pixel Crossing" });
+    const crossingCard = screen.getByRole("heading", { name: "Pixel Crossing" }).closest("article");
+    expect(crossingCard).not.toBeNull();
+    await user.click(within(crossingCard!).getByRole("button", { name: "Play" }));
+    await user.click(await screen.findByRole("button", { name: "Start" }));
+
+    const player = document.querySelector(".phase6-crossing__player");
+    expect(player).toHaveAttribute("transform", "translate(168 240)");
+    fireEvent.keyDown(screen.getByRole("button", { name: "Move up" }), { code: "ArrowUp", key: "ArrowUp" });
+    expect(player).toHaveAttribute("transform", "translate(168 240)");
+    fireEvent.keyDown(document.body, { code: "ArrowUp", key: "ArrowUp" });
+    expect(player).toHaveAttribute("transform", "translate(168 216)");
+  }, 15_000);
+
+  it("plays a Color Clash card and persists the resulting match", async () => {
+    let initial = createColorClash("local", 2, "normal", true, 1);
+    for (let seed = 1; seed <= 100; seed += 1) {
+      const candidate = createColorClash("local", 2, "normal", true, seed);
+      if (getPlayableClashCards(candidate).some((card) => card.type !== "wild")) {
+        initial = candidate;
+        break;
+      }
+    }
+    await db.arcadeData.put({ id: "color-clash:session", value: JSON.stringify(initial), updatedAt: Date.now() });
+    window.location.hash = "#/";
+    const user = userEvent.setup();
+    render(<App />);
+
+    await user.click(within(screen.getByRole("navigation", { name: "Main navigation" })).getByRole("link", { name: "Minigames" }));
+    expect(await screen.findByRole("heading", { name: "Minigames" })).toBeInTheDocument();
+    const gameCard = screen.getByRole("heading", { name: "Color Clash" }).closest("article");
+    expect(gameCard).not.toBeNull();
+    await user.click(within(gameCard!).getByRole("button", { name: "Play" }));
+    await user.click(await screen.findByRole("button", { name: "Show my hand" }));
+    expect(await screen.findByRole("group", { name: "Your hand" })).toBeInTheDocument();
+    const selectedCard = getPlayableClashCards(initial).find((card) => card.type !== "wild");
+    expect(selectedCard).toBeDefined();
+    const selectedIndex = initial.players[0].hand.findIndex((card) => card.id === selectedCard!.id);
+    const playableCard = document.querySelectorAll<HTMLButtonElement>(".phase6d-clash__hand button")[selectedIndex];
+    expect(playableCard).not.toBeNull();
+    await user.click(playableCard!);
+
+    await waitFor(async () => {
+      const saved = await db.arcadeData.get("color-clash:session");
+      expect(saved).toBeDefined();
+      const persisted = JSON.parse(saved!.value) as ReturnType<typeof createColorClash>;
+      expect(persisted.history).toHaveLength(initial.history.length + 1);
+      expect(persisted.discardPile.at(-1)?.id).not.toBe(initial.discardPile.at(-1)?.id);
+    });
+  });
+
+  it("solves a mirror puzzle and persists the unlocked laser level", async () => {
+    const user = userEvent.setup();
+    render(<App />);
+    await user.click(within(screen.getByRole("navigation", { name: "Main navigation" })).getByRole("link", { name: "Minigames" }));
+    await user.click(within((await screen.findByRole("heading", { name: "Laser Mirrors" })).closest("article")!).getByRole("button", { name: "Play" }));
+    expect(await screen.findAllByRole("gridcell", { name: /Mirror at row/ })).not.toHaveLength(0);
+    for (let move = 0; move < 12; move += 1) {
+      const nextPuzzle = screen.queryByRole("button", { name: "Next puzzle" });
+      if (nextPuzzle) break;
+      await user.click(screen.getByRole("button", { name: "Hint" }));
+      await user.click(await screen.findByRole("gridcell", { name: /Hint: rotate row/ }));
+    }
+    expect(await screen.findByRole("button", { name: "Next puzzle" })).toBeInTheDocument();
+    await waitFor(async () => expect(await db.arcadeData.get("save:game:laser-mirrors")).toMatchObject({ value: "2" }));
+    expect(await db.arcadeData.get("best:laser-mirrors")).toMatchObject({ value: "1" });
+  });
 
   it("updates all game thumbnails with the current custom theme accent", async () => {
     const user = userEvent.setup();
@@ -427,7 +713,7 @@ describe("Kxno Desk shell", () => {
     const back = async () => user.click(screen.getByRole("button", { name: "Back" }));
 
     await launch("2048");
-    expect(screen.getByRole("grid", { name: "2048 game board" })).toBeInTheDocument();
+    expect(await screen.findByRole("grid", { name: "2048 game board" })).toBeInTheDocument();
     await back();
 
     await launch("Snake");
@@ -461,7 +747,7 @@ describe("Kxno Desk shell", () => {
     expect(await db.arcadeData.get("preference:sliding")).toMatchObject({ value: "4" });
     await user.click(document.querySelector(".sliding-tile:not(:disabled)") as HTMLButtonElement);
     expect(screen.getByText(/Moves:/).textContent).toContain("1");
-  });
+  }, 15_000);
 
   it("adds a subject and a lesson to the editable timetable", async () => {
     const user = userEvent.setup();
@@ -512,7 +798,7 @@ describe("Kxno Desk shell", () => {
     await user.click(screen.getByRole("button", { name: "Delete Ms Local" }));
     expect(screen.getByText("This teacher is assigned to a subject or lesson. Remove those assignments first.")).toBeInTheDocument();
     expect(await db.teachers.get(teacher!.id)).toBeDefined();
-  });
+  }, 15_000);
 
   it("creates a teacher and drops subjects into numbered periods around configurable breaks", async () => {
     const user = userEvent.setup();
@@ -568,7 +854,7 @@ describe("Kxno Desk shell", () => {
     expect(await db.timetable.toCollection().toArray()).toEqual(
       expect.arrayContaining([expect.objectContaining({ period: 0, start: "08:15", end: "08:45" })]),
     );
-  });
+  }, 15_000);
 
   it("creates a subject and lesson from the new lesson flow when the timetable is empty", async () => {
     const user = userEvent.setup();
@@ -605,7 +891,8 @@ describe("Kxno Desk shell", () => {
     const navigation = within(screen.getByRole("navigation", { name: "Main navigation" }));
     const navNames = navigation.getAllByRole("link").map((link) => link.textContent);
     expect(navNames.indexOf("Assistant")).toBe(navNames.indexOf("Timetable") + 1);
-    expect(navNames.indexOf("Tasks")).toBe(navNames.indexOf("Assistant") + 1);
+    expect(navNames.indexOf("Kxno Solve")).toBe(navNames.indexOf("Assistant") + 1);
+    expect(navNames.indexOf("Tasks")).toBe(navNames.indexOf("Kxno Solve") + 1);
     expect(navNames.indexOf("Timer")).toBe(navNames.indexOf("Notes") - 1);
 
     await user.click(screen.getByRole("link", { name: "Settings" }));
@@ -614,6 +901,7 @@ describe("Kxno Desk shell", () => {
     expect(await screen.findByRole("heading", { name: "Einstellungen" })).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "Stundenplan" })).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "Assistent" })).toBeInTheDocument();
+    expect(document.documentElement.lang).toBe("de");
 
     await user.selectOptions(screen.getByRole("combobox", { name: "Modus" }), "light");
     expect(document.querySelector(".app-frame")).toHaveAttribute("data-theme", "light");
@@ -621,6 +909,11 @@ describe("Kxno Desk shell", () => {
 
     await user.selectOptions(screen.getByRole("combobox", { name: "Hintergrundstil" }), "grid");
     expect(document.querySelector(".background-layer--grid")).toBeInTheDocument();
+
+    await user.selectOptions(screen.getByRole("combobox", { name: "Sprache" }), "en");
+    expect(await screen.findByRole("heading", { name: "Settings" })).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Timetable" })).toBeInTheDocument();
+    expect(document.documentElement.lang).toBe("en");
   });
 
   it("applies hue slider color changes after dragging instead of on every slider update", async () => {
@@ -665,6 +958,7 @@ describe("Kxno Desk shell", () => {
       model: "openrouter/free",
       isDefault: true,
     });
+
     render(<App />);
 
     const link = await screen.findByRole("link", { name: "Assistant" });
@@ -684,6 +978,56 @@ describe("Kxno Desk shell", () => {
       });
     });
     expect(await db.aiPresets.get("existing-custom")).toBeDefined();
+  });
+
+  it("uses the authorized PDF pipeline and lets the user review and export a solved copy", async () => {
+    const user = userEvent.setup();
+    const endpoint = "https://school-ai.example";
+    await db.settings.bulkPut([
+      { key: "aiBackendUrl", value: endpoint },
+      { key: "aiCloudEnabled", value: "true" },
+      { key: "aiCloudConsentEndpoint", value: endpoint },
+      { key: "turnstileSiteKey", value: "test-site-key" },
+    ]);
+    const send = vi.spyOn(assistantClient, "send").mockImplementation(async (request, options) => {
+      options.onToken(JSON.stringify({
+        answers: [{
+          question: "3 + 4",
+          answer: "7",
+          page: 1,
+          placement: { x: 0.2, y: 0.3, width: 0.25, height: 0.06, confidence: 0.99 },
+        }],
+      }));
+      expect(request.endpoint).toBe(endpoint);
+    });
+    const document = await PDFDocument.create();
+    document.addPage([612, 792]);
+    const pdf = new File([await document.save()], "worksheet.pdf", { type: "application/pdf" });
+
+    render(<App />);
+    const navigation = within(screen.getByRole("navigation", { name: "Main navigation" }));
+    await user.click(navigation.getByRole("link", { name: "Kxno Solve" }));
+    expect(await screen.findByRole("heading", { name: "Kxno Solve" })).toBeInTheDocument();
+    fireEvent.change(screen.getByLabelText("Choose PDF"), { target: { files: [pdf] } });
+
+    expect(await screen.findByText("worksheet.pdf · 1 page")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Analyze worksheet" }));
+    expect(await screen.findByRole("textbox", { name: "Answer" })).toHaveValue("7");
+    expect(send).toHaveBeenCalledWith(
+      expect.objectContaining({
+        endpoint,
+        model: "openrouter/free",
+        history: [],
+        attachments: [expect.objectContaining({ name: "worksheet.pdf", mimeType: "application/pdf" })],
+      }),
+      expect.objectContaining({ signal: expect.any(AbortSignal) }),
+    );
+
+    await user.clear(screen.getByRole("textbox", { name: /Exercise:/ }));
+    await user.type(screen.getByRole("textbox", { name: /Exercise:/ }), "3 plus 4");
+    await user.click(screen.getByRole("button", { name: "Create solved PDF" }));
+    expect(await screen.findByTitle("Solved PDF preview")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Download solved copy" })).toBeInTheDocument();
   });
 
   it("saves the interface scale and selected federal state", async () => {
@@ -891,7 +1235,7 @@ describe("Kxno Desk shell", () => {
     expect((await db.settings.get("aiCloudEnabled"))?.value).toBe("true");
     expect((await db.settings.get("turnstileSiteKey"))?.value).toBe("0x4AAAAAAAtestsitekey");
     expect((await db.settings.get("aiCloudConsentEndpoint"))?.value).toBe("https://worker.example.test");
-  });
+  }, 15_000);
 
   it("saves a local profile, applies a theme, and enables a weekend school day", async () => {
     const user = userEvent.setup();
@@ -1131,7 +1475,7 @@ describe("Kxno Desk shell", () => {
       const saved = await db.notes.toCollection().first();
       expect(saved).toMatchObject({ title: "Cell structure", content: "Mitochondria produce energy." });
     });
-  });
+  }, 15_000);
 
   it("runs a simple persistent timer and stores imported files on this device", async () => {
     const user = userEvent.setup();

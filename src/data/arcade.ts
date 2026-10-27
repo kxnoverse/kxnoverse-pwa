@@ -1,4 +1,4 @@
-export type GameId = "2048" | "snake" | "memory" | "reaction" | "sliding" | "word-guess" | "brick-breaker" | "geometry-runner" | "air-hockey" | "aim-trainer" | "simon-says" | "line-rider" | "idle-clicker" | "chess" | "block-stack" | "minesweeper" | "pong" | "sudoku" | "flappy-cube" | "connect-four" | "maze-escape" | "tower-defense" | "rhythm-tiles" | "mini-platformer";
+export type GameId = "2048" | "snake" | "memory" | "reaction" | "sliding" | "word-guess" | "brick-breaker" | "geometry-runner" | "air-hockey" | "aim-trainer" | "simon-says" | "line-rider" | "idle-clicker" | "chess" | "block-stack" | "minesweeper" | "pong" | "sudoku" | "flappy-cube" | "connect-four" | "maze-escape" | "tower-defense" | "rhythm-tiles" | "mini-platformer" | "perfect-stack" | "laser-mirrors" | "pixel-crossing" | "crossword-infinite" | "color-ludo" | "hex-settlers" | "color-clash";
 export type GameCategory = "puzzle" | "arcade" | "reaction" | "precision" | "strategy";
 
 export interface GameDefinition {
@@ -33,6 +33,13 @@ export const games: GameDefinition[] = [
   { id: "tower-defense", category: "strategy", name: "Tower Defense", description: "Build and upgrade towers to defend the route." },
   { id: "rhythm-tiles", category: "reaction", name: "Rhythm Tiles", description: "Hit four lanes in time with original synthesized tracks." },
   { id: "mini-platformer", category: "arcade", name: "Mini Platformer", description: "Jump through eight handcrafted platform levels." },
+  { id: "perfect-stack", category: "precision", name: "Perfect Stack", description: "Drop moving blocks and keep your tower perfectly aligned." },
+  { id: "laser-mirrors", category: "puzzle", name: "Laser Mirrors", description: "Rotate mirrors to guide each beam into its receiver." },
+  { id: "pixel-crossing", category: "arcade", name: "Pixel Crossing", description: "Cross moving roads and rivers without getting caught." },
+  { id: "crossword-infinite", category: "puzzle", name: "Crossword Infinite", description: "Solve connected German crosswords with clues at four difficulty levels." },
+  { id: "color-ludo", category: "strategy", name: "Color Ludo", description: "Race four tokens home in a tactical local board game." },
+  { id: "hex-settlers", category: "strategy", name: "Hex Settlers", description: "Build a settlement network, trade resources, and outscore local rivals." },
+  { id: "color-clash", category: "strategy", name: "Color Clash", description: "Play color and number cards, outthink rivals, and empty your hand first." },
 ];
 
 export interface Move2048Result {

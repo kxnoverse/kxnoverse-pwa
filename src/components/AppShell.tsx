@@ -11,6 +11,8 @@ import {
   NotebookPen,
   Settings,
   Timer,
+  Languages,
+  FileCheck2,
 } from "lucide-react";
 import { useLiveQuery } from "dexie-react-hooks";
 import { useTranslation } from "react-i18next";
@@ -24,12 +26,14 @@ const navigation = [
   { key: "home", path: "/", icon: House },
   { key: "timetable", path: "/timetable", icon: CalendarRange },
   { key: "assistant", path: "/assistant", icon: MessageSquareText },
+  { key: "solve", path: "/solve", icon: FileCheck2 },
   { key: "tasks", path: "/tasks", icon: ListTodo },
   { key: "calendar", path: "/calendar", icon: CalendarDays },
   { key: "timer", path: "/timer", icon: Timer },
   { key: "notes", path: "/notes", icon: NotebookPen },
   { key: "minigames", path: "/minigames", icon: Gamepad2 },
   { key: "calculator", path: "/calculator", icon: Calculator },
+  { key: "translate", path: "/translate", icon: Languages },
 ] as const;
 
 export function AppShell() {

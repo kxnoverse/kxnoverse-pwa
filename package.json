@@ -17,6 +17,7 @@
     "dexie-react-hooks": "^1.1.7",
     "i18next": "^25.0.0",
     "lucide-react": "^0.468.0",
+    "pdf-lib": "^1.17.1",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
     "react-i18next": "^15.4.1",

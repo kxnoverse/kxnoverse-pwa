@@ -10,16 +10,17 @@ const frame = (children: ReactNode) => (
 );
 
 function NumberTiles() {
-  const values = [2, 4, 8, 16, 32, 64, 128, 256, 512, 1024, 2048, 0, 4, 8, 0, 2];
+  const values = [2, 4, 8, 16, 4, 8, 16, 32, 8, 16, 32, 64, 16, 32, 64, 2048];
   return (
-    <g transform="translate(128 7)">
+    <g data-thumbnail-artwork="2048" transform="translate(127 7)">
       {values.map((value, index) => {
-        const x = (index % 4) * 17;
-        const y = Math.floor(index / 4) * 17;
+        const x = (index % 4) * 16.5;
+        const y = Math.floor(index / 4) * 16.5;
+        const tint = value <= 4 ? 12 : value <= 16 ? 22 : value <= 64 ? 34 : value <= 256 ? 46 : value <= 1024 ? 58 : 70;
         return (
           <g key={index}>
-            <rect x={x} y={y} width="15" height="15" rx="3" fill={value ? "color-mix(in srgb, var(--game-accent) 26%, var(--surface-1))" : "var(--surface-1)"} stroke="var(--line)" />
-            {value > 0 && <text x={x + 7.5} y={y + 10.5} textAnchor="middle" fill="var(--text)" fontSize={value > 99 ? 5 : 7} fontWeight="700">{value}</text>}
+            <rect x={x} y={y} width="15" height="15" rx="2.5" fill={`color-mix(in srgb, var(--game-accent) ${tint}%, var(--surface-1))`} stroke="var(--line)" strokeWidth=".6" />
+            <text x={x + 7.5} y={y + 10.2} textAnchor="middle" fill="var(--text)" fontSize={value > 999 ? 4.6 : value > 99 ? 5.4 : 7} fontWeight="700">{value}</text>
           </g>
         );
       })}
@@ -30,7 +31,7 @@ function NumberTiles() {
 function ThumbnailArtwork({ gameId }: { gameId: GameId }) {
   switch (gameId) {
     case "2048":
-      return frame(<><rect x="118" y="2" width="76" height="76" rx="9" fill="var(--surface-1)" stroke="var(--line)" /><NumberTiles /></>);
+      return frame(<><rect x="125" y="5" width="68" height="68" rx="4" fill="var(--surface-1)" stroke="var(--line)" /><NumberTiles /></>);
     case "snake":
       return frame(
         <g transform="translate(92 8)">
@@ -82,14 +83,15 @@ function ThumbnailArtwork({ gameId }: { gameId: GameId }) {
       );
     case "geometry-runner":
       return frame(
-        <g>
-          <path d="M48 73h226" stroke="var(--line)" strokeWidth="2" />
-          <path d="M76 72l28-28 28 28zM194 72l17-20 17 20zM237 72l12-14 12 14z" fill="color-mix(in srgb, var(--game-accent) 62%, var(--surface-1))" stroke="var(--game-accent)" strokeWidth="1.5" />
-          <g transform="translate(136 36) rotate(-12 12 12)">
-            <rect width="24" height="24" rx="4" fill="var(--game-accent)" />
-            <circle cx="8" cy="10" r="2" fill="var(--surface-0)" /><circle cx="17" cy="10" r="2" fill="var(--surface-0)" />
-            <path d="M8 17h9" stroke="var(--surface-0)" strokeWidth="1.6" strokeLinecap="round" />
+        <g data-thumbnail-artwork="geometry-runner">
+          <path d="M77 64h166" stroke="var(--line)" strokeWidth="2" />
+          <path d="M168 63l8-13 8 13z" fill="color-mix(in srgb, var(--game-accent) 54%, var(--surface-1))" stroke="var(--game-accent)" strokeWidth="1" data-runner-obstacle="" />
+          <path d="M200 63l11-18 11 18z" fill="color-mix(in srgb, var(--game-accent) 54%, var(--surface-1))" stroke="var(--game-accent)" strokeWidth="1" data-runner-obstacle="" />
+          <path d="M230 63l7-11 7 11z" fill="color-mix(in srgb, var(--game-accent) 54%, var(--surface-1))" stroke="var(--game-accent)" strokeWidth="1" data-runner-obstacle="" />
+          <g transform="translate(132 43) rotate(-8 9 9)">
+            <rect width="18" height="18" fill="var(--game-accent)" stroke="var(--surface-0)" strokeWidth="1.2" />
           </g>
+          <path d="M86 69h148" stroke="var(--line)" strokeWidth=".7" strokeDasharray="2 4" opacity=".8" />
         </g>,
       );
     case "air-hockey":
@@ -127,27 +129,32 @@ function ThumbnailArtwork({ gameId }: { gameId: GameId }) {
       );
     case "simon-says":
       return frame(
-        <g transform="translate(132 8)">
-          <circle cx="28" cy="28" r="31" fill="var(--surface-1)" stroke="var(--line)" strokeWidth="2" />
-          <path d="M1 28A27 27 0 0 1 28 1v25H2z" fill="#5f9d78" />
-          <path d="M28 1a27 27 0 0 1 27 27H29z" fill="#bd6e68" />
-          <path d="M55 28a27 27 0 0 1-27 27V29h26z" fill="#668db4" />
-          <path d="M28 55A27 27 0 0 1 1 28h27z" fill="#c19b55" />
-          <path d="M28 2v52M2 28h52" stroke="var(--surface-0)" strokeWidth="3" />
-          <circle cx="28" cy="28" r="8" fill="var(--surface-0)" stroke="var(--game-accent)" strokeWidth="2" />
-          <circle cx="13" cy="13" r="7" fill="white" opacity=".25" />
+        <g data-thumbnail-artwork="simon-says" transform="translate(126 9)">
+          {[
+            { color: "#a94d50", x: 0, y: 0, number: "1" },
+            { color: "#446f9b", x: 35, y: 0, number: "2" },
+            { color: "#a27d38", x: 0, y: 35, number: "3" },
+            { color: "#4d8065", x: 35, y: 35, number: "4" },
+          ].map(({ color, x, y, number }) => (
+            <g key={number} data-simon-pad="">
+              <rect x={x} y={y} width="32" height="32" rx="4" fill={color} stroke="var(--surface-0)" strokeWidth="1.5" />
+              <text x={x + 16} y={y + 21} textAnchor="middle" fill="#fff" fontSize="11" fontWeight="700">{number}</text>
+            </g>
+          ))}
+          <rect x="31" y="31" width="5" height="5" fill="var(--surface-0)" stroke="var(--game-accent)" strokeWidth="1" />
         </g>,
       );
     case "line-rider":
       return frame(
-        <g>
-          <path d="M40 74C75 73 77 45 111 48s36 31 66 22 30-34 56-33 31 18 51 16" fill="none" stroke="var(--line)" strokeWidth="8" strokeLinecap="round" />
-          <path d="M40 72C75 71 77 43 111 46s36 31 66 22 30-34 56-33 31 18 51 16" fill="none" stroke="var(--game-accent)" strokeWidth="3" strokeLinecap="round" />
-          <g transform="translate(148 39) rotate(17)">
-            <circle cx="2" cy="15" r="5" fill="var(--surface-0)" stroke="var(--text)" strokeWidth="2" />
-            <circle cx="24" cy="15" r="5" fill="var(--surface-0)" stroke="var(--text)" strokeWidth="2" />
-            <path d="M2 15l8-10 7 10 7-10M10 5l9 1" fill="none" stroke="var(--text)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
-            <circle cx="13" cy="0" r="3" fill="var(--game-accent)" />
+        <g data-thumbnail-artwork="line-rider" transform="translate(78 8)">
+          <rect x="0" y="0" width="164" height="66" rx="3" fill="var(--surface-1)" stroke="var(--line)" />
+          {[1, 2, 3, 4, 5, 6, 7, 8, 9].map((index) => <path key={`v${index}`} d={`M${index * 16} 1v64`} stroke="var(--line)" strokeWidth=".45" opacity=".65" />)}
+          {[1, 2, 3].map((index) => <path key={`h${index}`} d={`M1 ${index * 16}h162`} stroke="var(--line)" strokeWidth=".45" opacity=".65" />)}
+          <path d="M5 51h24q10 0 17-6l18-13q8-6 17-6h16q10 0 17 8l13 13q6 6 14 6h18" fill="none" stroke="#a9d0cc" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" data-line-rider-track="" />
+          <g data-line-rider-sled="">
+            <path d="M20 46h24m-20 3h20" fill="none" stroke="#d0a76e" strokeWidth="1.5" strokeLinecap="round" />
+            <path d="M27 43l7-8 7 8" fill="none" stroke="var(--game-accent)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+            <circle cx="26" cy="34" r="4" fill="var(--game-accent)" stroke="var(--surface-0)" strokeWidth=".8" />
           </g>
         </g>,
       );
@@ -296,16 +303,160 @@ function ThumbnailArtwork({ gameId }: { gameId: GameId }) {
           <path d="M278 20v39m-9 0h18" stroke="#85b994" strokeWidth="2" strokeLinecap="round" />
         </g>,
       );
+    case "perfect-stack":
+      return frame(
+        <g transform="translate(104 8)">
+          <path d="M22 66h104" stroke="var(--line)" strokeWidth="2" />
+          <rect x="44" y="54" width="60" height="9" rx="2" fill="color-mix(in srgb, var(--game-accent) 38%, var(--surface-1))" />
+          <rect x="50" y="43" width="48" height="9" rx="2" fill="color-mix(in srgb, var(--game-accent) 54%, var(--surface-1))" />
+          <rect x="55" y="32" width="38" height="9" rx="2" fill="var(--game-accent)" />
+          <rect x="78" y="18" width="38" height="9" rx="2" fill="var(--game-accent-strong)" opacity=".82" />
+          <path d="M34 22h30m-5-4 5 4-5 4" fill="none" stroke="var(--text-muted)" strokeDasharray="3 3" strokeLinecap="round" strokeLinejoin="round" />
+        </g>,
+      );
+    case "laser-mirrors":
+      return frame(
+        <g>
+          <rect x="96" y="8" width="128" height="66" rx="6" fill="var(--surface-1)" stroke="var(--line)" />
+          <path d="M103 24h36l13 13h31V23h28" fill="none" stroke="var(--game-accent)" strokeWidth="2" />
+          <path d="M103 57h22l14-14h44" fill="none" stroke="#d4aa71" strokeWidth="1.5" />
+          <path d="M136 19l10 10m34-11 10 10M135 40l10 10" stroke="var(--text)" strokeWidth="2.5" strokeLinecap="round" />
+          <rect x="99" y="19" width="7" height="10" rx="2" fill="var(--game-accent-strong)" />
+          <rect x="99" y="52" width="7" height="10" rx="2" fill="#d4aa71" />
+          <circle cx="219" cy="23" r="4" fill="none" stroke="#86bc96" strokeWidth="1.5" />
+          <circle cx="183" cy="57" r="4" fill="none" stroke="#86bc96" strokeWidth="1.5" />
+          <rect x="161" y="47" width="7" height="7" rx="1" fill="var(--text-muted)" opacity=".55" />
+        </g>,
+      );
+    case "pixel-crossing":
+      return frame(
+        <g transform="translate(97 8)">
+          <rect width="126" height="66" rx="6" fill="#293d34" stroke="var(--line)" />
+          <path d="M1 21h124v21H1z" fill="#30373b" />
+          <path d="M1 21h124M1 42h124" stroke="#d4b777" strokeOpacity=".55" />
+          <path d="M1 50q12-4 24 0t24 0 24 0 24 0 24 0" fill="none" stroke="#a9d0cc" strokeOpacity=".65" />
+          <rect x="14" y="26" width="28" height="10" rx="3" fill="#c9776a" />
+          <rect x="77" y="26" width="34" height="10" rx="3" fill="#d0a76e" />
+          <rect x="6" y="46" width="35" height="11" rx="5" fill="#806247" />
+          <path d="M12 50h23" stroke="#b89971" strokeOpacity=".7" />
+          <ellipse cx="63" cy="58" rx="7" ry="3" fill="#101614" opacity=".55" />
+          <circle cx="63" cy="51" r="7" fill="#92b39a" stroke="var(--game-accent)" strokeWidth="1.5" />
+          <circle cx="61" cy="50" r="1.2" fill="#f0ead6" /><circle cx="65" cy="50" r="1.2" fill="#f0ead6" />
+        </g>,
+      );
+    case "crossword-infinite":
+      return frame(
+        <g transform="translate(130 7)">
+          {Array.from({ length: 25 }, (_, index) => {
+            const row = Math.floor(index / 5);
+            const column = index % 5;
+            const open = [[0, 0], [0, 1], [0, 3], [0, 4], [1, 0], [1, 2], [1, 3], [2, 0], [2, 1], [2, 2], [2, 3], [2, 4], [3, 1], [3, 2], [3, 4], [4, 0], [4, 2], [4, 3], [4, 4]];
+            const active = open.some(([r, c]) => r === row && c === column);
+            return <g key={index}><rect x={column * 13} y={row * 13} width="12" height="12" fill={active ? "var(--surface-1)" : "var(--game-accent-strong)"} stroke="var(--line)" strokeWidth=".7" />{active && <text x={column * 13 + 6} y={row * 13 + 8.5} textAnchor="middle" fill="var(--game-accent)" fontSize="6" fontWeight="700">{["K", "R", "E", "U", "Z"][row]}</text>}</g>;
+          })}
+          <path d="M75 11h30M75 25h23M75 39h35M75 53h25" stroke="var(--line)" strokeWidth="3" strokeLinecap="round" />
+          <path d="M75 11h19M75 25h13M75 39h25M75 53h17" stroke="var(--game-accent)" strokeWidth="1.4" strokeLinecap="round" />
+        </g>,
+      );
+    case "color-ludo":
+      return frame(
+        <g transform="translate(126 6)">
+          <rect x="3" y="2" width="64" height="64" rx="8" fill="var(--surface-1)" stroke="var(--line)" />
+          <path d="M27 4h16v16h8v8h16v16H51v8h-8v16H27V52h-8v-8H3V28h16v-8h8z" fill="var(--surface-0)" stroke="var(--line)" strokeWidth=".8" />
+          <path d="M28 5h14v14H28zM5 28h14v14H5zM51 28h14v14H51zM28 51h14v14H28z" fill="var(--game-accent)" opacity=".38" />
+          <path d="M35 21v29M21 35h29" stroke="var(--line)" strokeWidth=".8" />
+          <path d="M35 30l5 5-5 5-5-5z" fill="var(--game-accent)" opacity=".8" />
+          <circle cx="35" cy="24" r="3" fill="#da8471" /><circle cx="46" cy="35" r="3" fill="#75a99e" />
+          <circle cx="35" cy="46" r="3" fill="#d6b568" /><circle cx="24" cy="35" r="3" fill="#aa8db9" />
+          <circle cx="8" cy="12" r="3" fill="#da8471" /><circle cx="62" cy="12" r="3" fill="#75a99e" />
+          <circle cx="8" cy="58" r="3" fill="#d6b568" /><circle cx="62" cy="58" r="3" fill="#aa8db9" />
+        </g>,
+      );
+    case "color-clash":
+      return frame(
+        <g transform="translate(104 7)">
+          <rect x="7" y="12" width="31" height="48" rx="5" transform="rotate(-12 22.5 36)" fill="#cf665f" stroke="#fff" strokeWidth="1.2" />
+          <rect x="31" y="8" width="31" height="48" rx="5" transform="rotate(7 46.5 32)" fill="#4e83bc" stroke="#fff" strokeWidth="1.2" />
+          <rect x="55" y="14" width="31" height="48" rx="5" transform="rotate(15 70.5 38)" fill="#51946e" stroke="#fff" strokeWidth="1.2" />
+          <text x="22" y="43" textAnchor="middle" fill="#fff" fontSize="18" fontWeight="800">7</text>
+          <text x="47" y="38" textAnchor="middle" fill="#fff" fontSize="18" fontWeight="800">↻</text>
+          <text x="71" y="45" textAnchor="middle" fill="#fff" fontSize="18" fontWeight="800">+2</text>
+          <rect x="86" y="11" width="31" height="48" rx="5" transform="rotate(5 101.5 35)" fill="#f3efe3" stroke="var(--game-accent)" strokeWidth="1.2" />
+          <path d="M92 20h10v13H92z" fill="#cf665f" /><path d="M102 20h10v13h-10z" fill="#4e83bc" />
+          <path d="M92 33h10v13H92z" fill="#51946e" /><path d="M102 33h10v13h-10z" fill="#d2a83c" />
+          <text x="102" y="55" textAnchor="middle" fill="#252525" fontSize="6" fontWeight="700">WILD</text>
+        </g>,
+      );
+    case "hex-settlers": {
+      const coordinates = Array.from({ length: 25 }, (_, index) => {
+        const q = Math.floor(index / 5) - 2;
+        const r = (index % 5) - 2;
+        return { q, r };
+      }).filter(({ q, r }) => Math.max(Math.abs(q), Math.abs(r), Math.abs(q + r)) <= 2);
+      const terrains = ["#6d9477", "#778f6c", "#c69b76", "#b2a46d", "#8d7868", "#72a080", "#8c9c72", "#b18d72", "#98a878", "#657f70", "#c4a174", "#7d9879", "#82966b", "#9d806e", "#8ba17c", "#997e69", "#769377", "#a9a071", "#c6b67d"];
+      const highlighted = [2, 5, 9, 13, 16];
+      return frame(
+        <g transform="translate(104 4)">
+          {coordinates.map(({ q, r }, index) => {
+            const cx = 56 + q * 17;
+            const cy = 38 + (r + q / 2) * 19;
+            const points = Array.from({ length: 6 }, (_, corner) => {
+              const angle = corner * Math.PI / 3;
+              return `${cx + Math.cos(angle) * 10},${cy + Math.sin(angle) * 11}`;
+            }).join(" ");
+            return (
+              <g key={`${q},${r}`}>
+                <polygon points={points} fill={terrains[index]} stroke="var(--surface-0)" strokeWidth="1" />
+                {index !== 18 && <><circle cx={cx} cy={cy} r="4.3" fill="#f3ead8" stroke="#766954" strokeWidth=".6" /><text x={cx} y={cy + 1.8} textAnchor="middle" fill="#31302b" fontSize="4.8" fontWeight="700">{[5, 9, 4, 10, 6, 3, 11, 8, 4, 10, 9, 12, 5, 6, 3, 11, 8, 2][index]}</text></>}
+              </g>
+            );
+          })}
+          {highlighted.map((index) => {
+            const { q, r } = coordinates[index];
+            const cx = 56 + q * 17;
+            const cy = 38 + (r + q / 2) * 19;
+            return <path key={index} d={`M${cx} ${cy}l8 5`} stroke="#e9ddc9" strokeWidth="2.2" strokeLinecap="round" />;
+          })}
+          <path d="M56 38l8 5m-8 0l-5 8m5-8l-8-4" stroke="#e9ddc9" strokeWidth="2.2" strokeLinecap="round" />
+          <path d="M52 27l4-4 4 4v5h-8zM67 45l4-4 4 4v5h-8zM42 54l4-4 4 4v5h-8z" fill="var(--game-accent)" stroke="var(--surface-0)" strokeWidth="1" />
+        </g>,
+      );
+    }
     case "chess":
       return frame(
-        <g transform="translate(128 7)">
-          {[0, 1, 2, 3, 4, 5, 6, 7].map((i) => [0, 1, 2, 3, 4, 5, 6, 7].map((j) => <rect key={`${i}-${j}`} x={i * 9} y={j * 9} width="9" height="9" fill={(i + j) % 2 ? "color-mix(in srgb, var(--game-accent) 23%, var(--surface-1))" : "var(--surface-1)"} />))}
-          <text x="4" y="15" textAnchor="middle" fill="var(--text)" fontSize="12">♜</text>
-          <text x="13" y="15" textAnchor="middle" fill="var(--text)" fontSize="12">♞</text>
-          <text x="40" y="24" textAnchor="middle" fill="var(--text-muted)" fontSize="12">♟</text>
-          <text x="49" y="24" textAnchor="middle" fill="var(--text-muted)" fontSize="12">♟</text>
-          <circle cx="31.5" cy="40.5" r="5" fill="none" stroke="var(--game-accent)" strokeWidth="1.5" />
-          <circle cx="40.5" cy="49.5" r="4" fill="var(--game-accent)" opacity=".75" />
+        <g data-thumbnail-artwork="chess" transform="translate(124 5)">
+          {[0, 1, 2, 3, 4, 5, 6, 7].map((row) => [0, 1, 2, 3, 4, 5, 6, 7].map((column) => (
+            <rect
+              key={`${row}-${column}`}
+              x={column * 9}
+              y={row * 9}
+              width="9"
+              height="9"
+              fill={(row + column) % 2 ? "#83918b" : "#eee8d8"}
+              data-chess-square=""
+            />
+          )))}
+          <rect x="-.5" y="-.5" width="73" height="73" fill="none" stroke="var(--game-accent)" strokeWidth=".8" />
+          {[
+            { row: 0, pieces: ["♜", "♞", "♝", "♛", "♚", "♝", "♞", "♜"], fill: "#263038" },
+            { row: 1, pieces: Array(8).fill("♟"), fill: "#263038" },
+            { row: 6, pieces: Array(8).fill("♟"), fill: "#fffdf5" },
+            { row: 7, pieces: ["♖", "♘", "♗", "♕", "♔", "♗", "♘", "♖"], fill: "#fffdf5" },
+          ].flatMap(({ row, pieces, fill }) => pieces.map((piece, column) => (
+            <text
+              key={`${row}-${column}`}
+              x={column * 9 + 4.5}
+              y={row * 9 + 7.4}
+              textAnchor="middle"
+              fill={fill}
+              stroke={fill === "#fffdf5" ? "#263038" : "none"}
+              strokeWidth=".25"
+              paintOrder="stroke"
+              fontFamily='"Segoe UI Symbol", "Apple Symbols", serif'
+              fontSize="8.5"
+              data-chess-piece=""
+            >{piece}</text>
+          )))}
         </g>,
       );
   }

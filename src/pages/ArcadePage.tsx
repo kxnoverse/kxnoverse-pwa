@@ -16,6 +16,13 @@ const ChessGame = lazy(() => import("./ChessGame").then((module) => ({ default: 
 const Phase5GameScreen = lazy(() => import("./Phase5Games").then((module) => ({ default: module.Phase5GameScreen })));
 const Phase5BGameScreen = lazy(() => import("./Phase5BGames").then((module) => ({ default: module.Phase5BGameScreen })));
 const Phase5CGameScreen = lazy(() => import("./Phase5CGames").then((module) => ({ default: module.Phase5CGameScreen })));
+const PerfectStackGame = lazy(() => import("./Phase6PerfectStack").then((module) => ({ default: module.Phase6PerfectStack })));
+const LaserMirrorsGame = lazy(() => import("./Phase6LaserMirrors").then((module) => ({ default: module.Phase6LaserMirrors })));
+const PixelCrossingGame = lazy(() => import("./Phase6PixelCrossing").then((module) => ({ default: module.Phase6PixelCrossing })));
+const CrosswordInfiniteGame = lazy(() => import("./CrosswordInfinite").then((module) => ({ default: module.CrosswordInfinite })));
+const ColorLudoGame = lazy(() => import("./ColorLudo").then((module) => ({ default: module.ColorLudo })));
+const HexSettlersGame = lazy(() => import("./HexSettlers").then((module) => ({ default: module.HexSettlers })));
+const ColorClashGame = lazy(() => import("./ColorClash").then((module) => ({ default: module.ColorClash })));
 const favoriteKey = "favorites";
 const recentKey = "recent";
 const recordKey = (id: string) => `best:${id}`;
@@ -181,6 +188,10 @@ export function ArcadePage() {
   }
 
   if (selectedGame) {
+    const phase6Props = {
+      best: parseNumber(recordMap.get(recordKey(selectedGame.id))),
+      onBest: (value: number) => void saveBest(selectedGame.id, value),
+    };
     return (
       <section className="feature-page arcade-page" onClickCapture={handleUiClick}>
         <header className="page-heading--compact feature-heading arcade-game-heading">
@@ -194,7 +205,35 @@ export function ArcadePage() {
             <Link className="button button--quiet arcade-return" to="/minigames"><Gamepad2 size={14} />{t("arcade.arcade")}</Link>
           </div>
         </header>
-        {["word-guess", "brick-breaker", "geometry-runner", "air-hockey", "aim-trainer"].includes(selectedGame.id) ? (
+        {selectedGame.id === "perfect-stack" ? (
+          <Suspense fallback={<p className="arcade-loading">{t("arcade.loading")}</p>}>
+            <PerfectStackGame {...phase6Props} />
+          </Suspense>
+        ) : selectedGame.id === "laser-mirrors" ? (
+          <Suspense fallback={<p className="arcade-loading">{t("arcade.loading")}</p>}>
+            <LaserMirrorsGame {...phase6Props} />
+          </Suspense>
+        ) : selectedGame.id === "pixel-crossing" ? (
+          <Suspense fallback={<p className="arcade-loading">{t("arcade.loading")}</p>}>
+            <PixelCrossingGame {...phase6Props} />
+          </Suspense>
+        ) : selectedGame.id === "crossword-infinite" ? (
+          <Suspense fallback={<p className="arcade-loading">{t("arcade.loading")}</p>}>
+            <CrosswordInfiniteGame />
+          </Suspense>
+        ) : selectedGame.id === "color-ludo" ? (
+          <Suspense fallback={<p className="arcade-loading">{t("arcade.loading")}</p>}>
+            <ColorLudoGame />
+          </Suspense>
+        ) : selectedGame.id === "hex-settlers" ? (
+          <Suspense fallback={<p className="arcade-loading">{t("arcade.loading")}</p>}>
+            <HexSettlersGame />
+          </Suspense>
+        ) : selectedGame.id === "color-clash" ? (
+          <Suspense fallback={<p className="arcade-loading">{t("arcade.loading")}</p>}>
+            <ColorClashGame />
+          </Suspense>
+        ) : ["word-guess", "brick-breaker", "geometry-runner", "air-hockey", "aim-trainer"].includes(selectedGame.id) ? (
           <Suspense fallback={<p className="arcade-loading">{t("arcade.loading")}</p>}>
             <Phase2GameScreen
               best={parseNumber(recordMap.get(recordKey(selectedGame.id)))}

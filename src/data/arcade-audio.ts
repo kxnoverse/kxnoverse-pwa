@@ -15,7 +15,7 @@ export type ArcadeSound =
 export interface ArcadeAudioPreferences {
   muted: boolean;
   volume: number;
-  mutedGames: GameId[];
+  mutedGames: string[];
 }
 
 export const audioPreferencesKey = "preference:audio";
@@ -38,12 +38,13 @@ export function parseAudioPreferences(value: string | undefined): ArcadeAudioPre
         ? Math.max(0, Math.min(1, saved.volume))
         : defaultAudioPreferences.volume,
       mutedGames: Array.isArray(saved.mutedGames)
-        ? [...new Set(saved.mutedGames.filter((game): game is GameId => typeof game === "string" && [
+        ? [...new Set(saved.mutedGames.filter((game): game is string => typeof game === "string" && [
           "2048", "snake", "memory", "reaction", "sliding", "word-guess",
           "brick-breaker", "geometry-runner", "air-hockey", "aim-trainer",
           "simon-says", "line-rider", "idle-clicker", "chess",
           "block-stack", "minesweeper", "pong", "sudoku", "flappy-cube", "connect-four", "maze-escape",
           "tower-defense", "rhythm-tiles", "mini-platformer",
+          "perfect-stack", "knife-target", "twin-orbit", "laser-mirrors", "pixel-crossing",
         ].includes(game)))]
         : [],
     };
