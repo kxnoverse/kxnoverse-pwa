@@ -71,7 +71,7 @@ export function TurnstileChallenge({
   const lastExecutedRequestId = useRef(0);
   const loadErrorRef = useRef<Error | undefined>(undefined);
   const executeRequestRef = useRef<() => void>(() => undefined);
-  const [status, setStatus] = useState<"ready" | "load-error" | "widget-error" | "timeout-error">("ready");
+  const [status, setStatus] = useState<"ready" | "verified" | "load-error" | "widget-error" | "timeout-error">("ready");
   const [errorCode, setErrorCode] = useState("");
 
   useEffect(() => {
@@ -89,6 +89,7 @@ export function TurnstileChallenge({
       return;
     }
     lastExecutedRequestId.current = currentRequestId;
+    setStatus("ready");
     try {
       widget.api.reset(widget.id);
       widget.api.execute(widget.id);
@@ -115,7 +116,7 @@ export function TurnstileChallenge({
         appearance: "interaction-only",
         execution: "execute",
         callback: (token) => {
-          setStatus("ready");
+          setStatus("verified");
           setErrorCode("");
           onTokenRef.current(token);
         },
@@ -160,7 +161,7 @@ export function TurnstileChallenge({
   }, [requestId]);
 
   return (
-    <div className="turnstile-challenge">
+    <div className={`turnstile-challenge${status === "verified" ? " turnstile-challenge--verified" : ""}`}>
       <div ref={container} />
       {status === "load-error" && <span className="form-error" role="alert">{t("assistant.turnstileLoadError")}</span>}
       {status === "widget-error" && (

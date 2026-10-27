@@ -500,7 +500,6 @@ export function AssistantPage() {
     <section className="assistant-page">
       <header className="assistant-heading">
         <div><h1>{t("assistant.title")}</h1><p>{t("assistant.subtitle")}</p></div>
-        <button className="button button--quiet" onClick={() => setPresetModalOpen(true)} type="button"><Settings2 size={14} />{t("assistant.presets")}</button>
       </header>
       <div className="assistant-workspace">
         <aside className="assistant-history">
@@ -526,6 +525,7 @@ export function AssistantPage() {
                 {presets.map((preset) => <option key={preset.id} value={preset.id}>{preset.name}</option>)}
               </select>
             </label>
+            <button className="button button--quiet assistant-preset-manage" onClick={() => setPresetModalOpen(true)} type="button"><Settings2 size={13} />{t("assistant.presets")}</button>
             <span className="status-pill">{endpoint && cloudEnabled ? "OpenRouter · Free" : t("assistant.cloudDisabledStatus")}</span>
           </div>
           {endpoint && cloudEnabled && turnstileSiteKey && (

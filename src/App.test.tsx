@@ -509,6 +509,7 @@ describe("Kxno Desk shell", () => {
     const navNames = navigation.getAllByRole("link").map((link) => link.textContent);
     expect(navNames.indexOf("Assistant")).toBe(navNames.indexOf("Timetable") + 1);
     expect(navNames.indexOf("Tasks")).toBe(navNames.indexOf("Assistant") + 1);
+    expect(navNames.indexOf("Timer")).toBe(navNames.indexOf("Notes") - 1);
 
     await user.click(screen.getByRole("link", { name: "Settings" }));
 

@@ -45,9 +45,11 @@ describe("TurnstileChallenge", () => {
     expect(resetWidget).toHaveBeenCalledWith("widget-id");
     act(() => callbacks?.callback("fresh-turnstile-token"));
     expect(onToken).toHaveBeenCalledWith("fresh-turnstile-token");
+    expect(view.container.querySelector(".turnstile-challenge")).toHaveClass("turnstile-challenge--verified");
 
     view.rerender(component(2));
     await waitFor(() => expect(executeWidget).toHaveBeenCalledTimes(2));
+    expect(view.container.querySelector(".turnstile-challenge")).not.toHaveClass("turnstile-challenge--verified");
     expect(removeWidget).not.toHaveBeenCalled();
   });
 });
