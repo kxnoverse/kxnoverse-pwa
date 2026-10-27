@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ChangeEvent, type ClipboardEvent, type DragEvent, type FormEvent, type KeyboardEvent } from "react";
 import { useLiveQuery } from "dexie-react-hooks";
-import { Copy, FileText, ImagePlus, MessageSquarePlus, Pencil, Plus, Send, Settings2, Square, Trash2, X } from "lucide-react";
+import { ArrowUp, Copy, FileText, Paperclip, MessageSquarePlus, Pencil, Plus, Settings2, Square, Trash2, X } from "lucide-react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { useTranslation } from "react-i18next";
@@ -26,10 +26,6 @@ const starters: AiPreset[] = [
 ];
 
 type AttachmentView = Pick<AiAttachment, "name" | "mimeType" | "size" | "blob">;
-
-function formatFileSize(size: number): string {
-  return size < 1024 * 1024 ? `${Math.max(1, Math.round(size / 1024))} KB` : `${(size / (1024 * 1024)).toFixed(1)} MB`;
-}
 
 function renderError(cause: unknown, t: (key: string) => string): string {
   if (cause instanceof AssistantBackendUnavailableError) return t("assistant.backendUnavailable");
@@ -61,11 +57,11 @@ function AttachmentTile({ attachment, onPreview, onRemove }: {
       ) : (
         <button className="assistant-attachment__document" onClick={() => onPreview(attachment)} type="button">
           <FileText size={15} />
-          <span><strong>{attachment.name}</strong><small>{formatFileSize(attachment.size)}</small></span>
+          <span><strong>{attachment.name}</strong></span>
         </button>
       )}
       {onRemove && <button aria-label={`Remove ${attachment.name}`} className="assistant-attachment__remove" onClick={onRemove} type="button"><X size={12} /></button>}
-      {isImage && <span className="assistant-attachment__name">{attachment.name} · {formatFileSize(attachment.size)}</span>}
+      {isImage && <span className="assistant-attachment__name">{attachment.name}</span>}
     </div>
   );
 }
@@ -111,7 +107,6 @@ export function AssistantPage() {
   const [copyStatus, setCopyStatus] = useState("");
   const [turnstileVersion, setTurnstileVersion] = useState(0);
   const [remainingRequests, setRemainingRequests] = useState<number>();
-  const [usageUnavailable, setUsageUnavailable] = useState(false);
   const pendingTurnstileToken = useRef<{ resolve: (token: string) => void; reject: (error: Error) => void } | undefined>(undefined);
   const usageRequestId = useRef(0);
 
@@ -119,18 +114,15 @@ export function AssistantPage() {
     const requestId = ++usageRequestId.current;
     if (!endpoint || !cloudEnabled) {
       setRemainingRequests(undefined);
-      setUsageUnavailable(false);
       return;
     }
     try {
       const usage = await assistantClient.getUsage(endpoint);
       if (requestId !== usageRequestId.current) return;
       setRemainingRequests(usage.remaining);
-      setUsageUnavailable(false);
     } catch {
       if (requestId !== usageRequestId.current) return;
       setRemainingRequests(undefined);
-      setUsageUnavailable(true);
     }
   }, [cloudEnabled, endpoint]);
 
@@ -172,7 +164,7 @@ export function AssistantPage() {
   );
 
   const canSend = Boolean(activePreset && (draft.trim() || draftFiles.length)) && !isSending &&
-    !(endpoint && (!cloudEnabled || !cloudConsent || !turnstileSiteKey));
+    !(endpoint && (!cloudEnabled || !cloudConsent || !turnstileSiteKey || remainingRequests === 0));
 
   function requestTurnstileToken(): Promise<string> {
     if (pendingTurnstileToken.current) return Promise.reject(new Error("A Turnstile request is already in progress."));
@@ -413,7 +405,7 @@ export function AssistantPage() {
   }
 
   async function retryMessage(assistantMessage: AiMessage) {
-    if (isSending || !endpoint || !cloudEnabled || !cloudConsent || !turnstileSiteKey) return;
+    if (isSending || !endpoint || !cloudEnabled || !cloudConsent || !turnstileSiteKey || remainingRequests === 0) return;
     const priorMessages = await db.aiMessages.where("conversationId").equals(assistantMessage.conversationId).sortBy("createdAt");
     const currentIndex = priorMessages.findIndex((item) => item.id === assistantMessage.id);
     const userMessage = priorMessages.slice(0, currentIndex).reverse().find((item) => item.role === "user");
@@ -599,15 +591,15 @@ export function AssistantPage() {
               onKeyDown={handleComposerKeyDown}
               onPaste={onPaste}
               placeholder={t("assistant.composerPlaceholder")}
-              rows={2}
+              rows={1}
               value={draft}
             />
             <input accept="image/png,image/jpeg,image/webp,application/pdf,.pdf" aria-label={t("assistant.attachFiles")} className="visually-hidden" hidden multiple onChange={onFileChange} ref={draftFilesInput} type="file" />
             <div className="assistant-composer__footer">
-              <div className="assistant-composer__status">
-                <button aria-label={t("assistant.attachFiles")} className="icon-button icon-button--small" onClick={() => draftFilesInput.current?.click()} type="button"><ImagePlus size={14} /></button>
-                <span>{copyStatus ? t(`assistant.${copyStatus}`) : isSending ? preparingAttachments ? t("assistant.preparingAttachments") : uploadProgress === undefined ? t("assistant.working") : t("assistant.uploading", { progress: uploadProgress }) : endpoint && !cloudEnabled ? t("assistant.enableCloudInSettings") : endpoint && !turnstileSiteKey ? t("assistant.turnstileNotConfigured") : endpoint && !cloudConsent ? t("assistant.consentRequired") : usageUnavailable ? t("assistant.usageUnavailable") : t("assistant.privacyHint")}</span>
-              </div>
+              <button aria-label={t("assistant.attachFiles")} className="icon-button assistant-composer__attach" onClick={() => draftFilesInput.current?.click()} type="button"><Paperclip size={17} /></button>
+              <span aria-live="polite" className="assistant-composer__status">
+                {copyStatus ? t(`assistant.${copyStatus}`) : isSending ? preparingAttachments ? t("assistant.preparingAttachments") : uploadProgress === undefined ? t("assistant.working") : t("assistant.uploading", { progress: uploadProgress }) : ""}
+              </span>
               {endpoint && cloudEnabled && (
                 <span aria-label={t("assistant.requestsRemaining", { count: remainingRequests ?? "—" })} className="assistant-request-count" title={t("assistant.requestsRemaining", { count: remainingRequests ?? "—" })}>
                   {remainingRequests ?? "—"}
@@ -615,7 +607,7 @@ export function AssistantPage() {
               )}
               {isSending
                 ? <button aria-label={t("assistant.stop")} className="button button--quiet" onClick={() => abortController.current?.abort()} type="button"><Square size={13} />{t("assistant.stop")}</button>
-                : <button aria-label={t("assistant.send")} className="button button--primary" disabled={!canSend} type="submit"><Send size={14} />{t("assistant.send")}</button>}
+                : <button aria-label={t("assistant.send")} className="button button--primary assistant-composer__send" disabled={!canSend} type="submit"><ArrowUp size={17} /></button>}
             </div>
           </form>
           {error && <p className="form-error" role="alert">{t(`assistant.${error}`)}</p>}

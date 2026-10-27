@@ -720,8 +720,29 @@ describe("Kxno Desk shell", () => {
     const worksheet = new File(["%PDF-1.4 worksheet"], "worksheet.pdf", { type: "application/pdf" });
     fireEvent.change(screen.getByLabelText("Attach images or PDF", { selector: "input" }), { target: { files: [worksheet] } });
     expect(await screen.findByText("worksheet.pdf")).toBeInTheDocument();
+    expect(screen.queryByText("1 KB")).not.toBeInTheDocument();
+    expect(screen.getByRole("textbox", { name: "Message" })).toHaveAttribute("placeholder", "Ask a question…");
+    expect(document.querySelector(".assistant-composer__status")).toBeEmptyDOMElement();
     expect(screen.getByRole("button", { name: "Send" })).toBeDisabled();
     expect(sendSpy).not.toHaveBeenCalled();
+    expect(await db.aiMessages.count()).toBe(0);
+  });
+
+  it("disables sending when the Worker reports that today's quota is exhausted", async () => {
+    await db.settings.bulkPut([
+      { key: "aiBackendUrl", value: "https://worker.example.test" },
+      { key: "aiCloudEnabled", value: "true" },
+      { key: "aiCloudConsentEndpoint", value: "https://worker.example.test" },
+      { key: "turnstileSiteKey", value: "0x4AAAAAAAtestsitekey" },
+    ]);
+    vi.spyOn(assistantClient, "getUsage").mockResolvedValue({ remaining: 0, limit: 50 });
+    const user = userEvent.setup();
+    render(<App />);
+    await user.click(await screen.findByRole("link", { name: "Assistant" }));
+    await user.type(await screen.findByRole("textbox", { name: "Message" }), "One more question");
+    await screen.findByLabelText("0 requests remaining today");
+
+    expect(screen.getByRole("button", { name: "Send" })).toBeDisabled();
     expect(await db.aiMessages.count()).toBe(0);
   });
 
@@ -734,8 +755,8 @@ describe("Kxno Desk shell", () => {
     ]);
     let consumedRequests = 0;
     const usageSpy = vi.spyOn(assistantClient, "getUsage").mockImplementation(async () => ({
-      remaining: 100 - consumedRequests,
-      limit: 100,
+      remaining: 50 - consumedRequests,
+      limit: 50,
     }));
     const sendSpy = vi.spyOn(assistantClient, "send").mockImplementation(async (_request, options) => {
       consumedRequests += 1;
@@ -750,7 +771,7 @@ describe("Kxno Desk shell", () => {
     await user.type(composer, " please");
     expect(composer).toHaveValue("Explain fractions\n please");
     expect(screen.queryByRole("checkbox", { name: /Allow cloud sharing/ })).not.toBeInTheDocument();
-    await screen.findByLabelText("100 requests remaining today");
+    await screen.findByLabelText("50 requests remaining today");
     await user.click(composer);
     await user.keyboard("{Enter}");
 
@@ -764,7 +785,7 @@ describe("Kxno Desk shell", () => {
     expect(await screen.findByText("Cloud answer")).toBeInTheDocument();
     expect((await db.aiMessages.toArray()).find((message) => message.role === "user")).toMatchObject({ content: "Explain fractions\n please" });
     expect(await db.settings.get("aiCloudConsentEndpoint")).toMatchObject({ value: "https://worker.example.test" });
-    await waitFor(() => expect(screen.getByLabelText("99 requests remaining today")).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByLabelText("49 requests remaining today")).toBeInTheDocument());
     expect(usageSpy).toHaveBeenCalled();
 
     await user.type(composer, "A follow-up question");
