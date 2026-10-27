@@ -11,7 +11,7 @@ import { createId } from "../data/db";
 import { Link } from "react-router-dom";
 import { exportDataBackup, importDataBackup } from "../data/backup";
 import { germanStates } from "../data/regional-calendar";
-import { createLessonPeriods, minutesOfDay, parseLessonGrid, reflowTimetableEntries } from "../data/lesson-grid";
+import { createLessonPeriods, getEntryPeriod, minutesOfDay, parseLessonGrid, reflowTimetableEntries } from "../data/lesson-grid";
 import { assistantClient, AssistantServiceError } from "../data/ai-client";
 import { TurnstileChallenge } from "../components/TurnstileChallenge";
 
@@ -78,6 +78,7 @@ export function SettingsPage() {
   const daysSetting = useLiveQuery(() => db.settings.get("schoolDays"), [], undefined);
   const schoolStartSetting = useLiveQuery(() => db.settings.get("schoolStartTime"), [], undefined);
   const lessonGridSetting = useLiveQuery(() => db.settings.get("lessonGrid"), [], undefined);
+  const lessonGrid = useMemo(() => parseLessonGrid(lessonGridSetting?.value), [lessonGridSetting?.value]);
   const schoolStateSetting = useLiveQuery(() => db.settings.get("schoolState"), [], undefined);
   const customThemesSetting = useLiveQuery(() => db.settings.get("customThemes"), [], undefined);
   const selectedTheme = useLiveQuery(() => db.settings.get("selectedTheme"), [], undefined)?.value ?? "arctic";
@@ -233,6 +234,34 @@ export function SettingsPage() {
       await db.settings.put({ key: "schoolDays", value: JSON.stringify(next) });
     } catch {
       setError("saveError");
+    }
+  }
+
+  async function updateLessonPeriod(index: number, enabled: boolean) {
+    if (lessonGrid.enabledPeriods[index] === enabled) return;
+    try {
+      await db.transaction("rw", db.settings, db.timetable, db.exceptions, async () => {
+        if (!enabled) {
+          const schoolStart = schoolStartSetting?.value ?? "08:15";
+          const periods = createLessonPeriods(schoolStart, lessonGrid);
+          const entries = await db.timetable.toArray();
+          const hasScheduledLesson = entries.some((entry) => getEntryPeriod(entry, periods) === index);
+          const exceptions = await db.exceptions.toArray();
+          const hasExtraLesson = exceptions.some((exception) =>
+            exception.extra && getEntryPeriod(exception.extra, periods) === index,
+          );
+          if (hasScheduledLesson || hasExtraLesson) throw new Error("period-in-use");
+        }
+        const enabledPeriods = [...lessonGrid.enabledPeriods];
+        enabledPeriods[index] = enabled;
+        await db.settings.put({
+          key: "lessonGrid",
+          value: JSON.stringify({ ...lessonGrid, enabledPeriods }),
+        });
+      });
+      setError("");
+    } catch (reason) {
+      setError(reason instanceof Error && reason.message === "period-in-use" ? "periodInUse" : "saveError");
     }
   }
 
@@ -624,6 +653,21 @@ export function SettingsPage() {
             </label>
           ))}
         </div>
+        <p className="setting-hint">{t("settings.lessonPeriodAvailability")}</p>
+        <div className="school-days">
+          {[7, 8].filter((index) => index < lessonGrid.durations.length).map((index) => (
+            <label key={index}>
+              <input
+                aria-label={t("settings.lessonPeriodEnabled", { number: index })}
+                checked={lessonGrid.enabledPeriods[index] !== false}
+                onChange={(event) => void updateLessonPeriod(index, event.target.checked)}
+                type="checkbox"
+              />
+              {t("settings.lessonPeriodEnabled", { number: index })}
+            </label>
+          ))}
+        </div>
+        {error === "periodInUse" && <p className="form-error" role="alert">{t("settings.periodInUse")}</p>}
       </section>
 
       <section className="settings-section settings-section--region">

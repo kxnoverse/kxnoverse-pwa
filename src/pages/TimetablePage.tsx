@@ -64,7 +64,7 @@ function initialEntry(weekday = 0, start = "08:15", period = 0): EditorValue {
     weekday,
     period,
     start,
-    end: addMinutes(start, 45),
+    end: addMinutes(start, 30),
     weekType: "all",
     kind: "lesson",
     inheritTeacher: true,
@@ -85,7 +85,7 @@ function findAvailablePeriod(entries: TimetableEntry[], weekday: number, weekTyp
   return periods.find((period) => !entries.some((entry) =>
     entry.weekday === weekday &&
     weekTypesOverlap(entry.weekType, weekType) &&
-    (getEntryPeriod(entry, periods) === period.index || timesOverlap(entry, period)),
+    (entry.period === period.index || timesOverlap(entry, period)),
   ));
 }
 
@@ -109,10 +109,10 @@ function LessonDialog({
   onSave: (value: EditorValue) => Promise<void>;
 }) {
   const { t } = useTranslation();
-  const initialPeriod = value.period ?? periods.findIndex((period) => period.start === value.start);
+  const initialPeriod = value.period ?? periods.find((period) => period.start === value.start)?.index;
   const [draft, setDraft] = useState<EditorValue>(() => ({
     weekday: value.weekday,
-    period: initialPeriod >= 0 ? initialPeriod : 0,
+    period: initialPeriod !== undefined && initialPeriod >= 0 ? initialPeriod : periods[0]?.index ?? 0,
     subjectId: value.subjectId,
     start: value.start,
     end: value.end,
@@ -137,7 +137,7 @@ function LessonDialog({
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    const period = periods[draft.period ?? -1];
+    const period = periods.find((item) => item.index === draft.period);
     if (!period) {
       setError("selectPeriod");
       return;
@@ -300,7 +300,7 @@ function LessonDialog({
               value={draft.period ?? ""}
               onChange={(event) => {
                 const index = Number(event.target.value);
-                const nextPeriod = periods[index];
+                const nextPeriod = periods.find((period) => period.index === index);
                 setDraft((current) => ({
                   ...current,
                   period: index,
@@ -310,7 +310,7 @@ function LessonDialog({
             >
               {periods.map((period) => (
                 <option key={period.index} value={period.index}>
-                  {t("timetable.periodNumber", { number: period.index + 1 })} · {period.start}–{period.end}
+                  {t("timetable.periodNumber", { number: period.index })} · {period.start}–{period.end}
                 </option>
               ))}
             </select>
@@ -363,6 +363,10 @@ export function TimetablePage() {
     : "08:15";
   const lessonGrid = useMemo(() => parseLessonGrid(lessonGridSetting?.value), [lessonGridSetting?.value]);
   const periods = useMemo(() => createLessonPeriods(schoolStartTime, lessonGrid), [lessonGrid, schoolStartTime]);
+  const enabledPeriods = useMemo(
+    () => periods.filter((period) => lessonGrid.enabledPeriods[period.index] !== false),
+    [lessonGrid.enabledPeriods, periods],
+  );
   const schoolDays = useMemo(() => {
     try {
       const value = schoolDaysSetting?.value ? JSON.parse(schoolDaysSetting.value) as boolean[] : undefined;
@@ -391,8 +395,8 @@ export function TimetablePage() {
   const [exceptionType, setExceptionType] = useState<"holiday" | "cancelled" | "extra">("holiday");
   const [exceptionEntry, setExceptionEntry] = useState("");
   const [extraEditor, setExtraEditor] = useState<{ date: string; value: EditorValue }>();
-  const [breakAfterPeriod, setBreakAfterPeriod] = useState(2);
-  const [breakDuration, setBreakDuration] = useState(15);
+  const [breakAfterPeriod, setBreakAfterPeriod] = useState(1);
+  const [breakDuration, setBreakDuration] = useState(20);
 
   useEffect(() => {
     const interval = window.setInterval(() => setToday(new Date()), 60_000);
@@ -425,7 +429,7 @@ export function TimetablePage() {
 
   async function saveEntry(value: EditorValue, existingId?: string) {
     const period = periods[value.period ?? -1];
-    if (!period) throw new Error("invalid-period");
+    if (!period || lessonGrid.enabledPeriods[period.index] === false) throw new Error("invalid-period");
     const scheduledValue = { ...value, start: period.start, end: period.end, period: period.index };
     const overlap = scheduledLessons.some(
       (entry) =>
@@ -464,7 +468,11 @@ export function TimetablePage() {
 
   async function addPeriod() {
     if (lessonGrid.durations.length >= 12) return;
-    await saveLessonGrid({ ...lessonGrid, durations: [...lessonGrid.durations, 45] });
+    await saveLessonGrid({
+      ...lessonGrid,
+      durations: [...lessonGrid.durations, 45],
+      enabledPeriods: [...lessonGrid.enabledPeriods, true],
+    });
   }
 
   async function removeLastPeriod() {
@@ -476,6 +484,7 @@ export function TimetablePage() {
     await saveLessonGrid({
       durations: lessonGrid.durations.slice(0, -1),
       breaks: lessonGrid.breaks.filter((item) => item.afterPeriod < lastPeriod),
+      enabledPeriods: lessonGrid.enabledPeriods.slice(0, -1),
     });
   }
 
@@ -620,8 +629,8 @@ export function TimetablePage() {
         date: exceptionDate,
         value: initialEntry(
           (new Date(`${exceptionDate}T12:00:00`).getDay() + 6) % 7,
-          periods[0]?.start ?? schoolStartTime,
-          0,
+          enabledPeriods[0]?.start ?? schoolStartTime,
+          enabledPeriods[0]?.index ?? 0,
         ),
       });
       return;
@@ -662,7 +671,7 @@ export function TimetablePage() {
     const date = new Date(`${currentExtra.date}T12:00:00`);
     const weekday = (date.getDay() + 6) % 7;
     const period = periods[value.period ?? -1];
-    if (!period) throw new Error("invalid-period");
+    if (!period || lessonGrid.enabledPeriods[period.index] === false) throw new Error("invalid-period");
     const scheduledValue = { ...value, start: period.start, end: period.end, period: period.index };
     const existing = resolveEntries(
       scheduledLessons,
@@ -690,7 +699,7 @@ export function TimetablePage() {
     setDropTargetSlot("");
     const payload = event.dataTransfer.getData("text/plain");
     const paletteSubjectId = payload.startsWith("palette:subject:") ? payload.slice("palette:subject:".length) : "";
-    const period = periods[periodIndex];
+    const period = enabledPeriods.find((item) => item.index === periodIndex);
     if (!period) return;
     if (editorMode && paletteSubjectId) {
       const subject = subjects.find((item) => item.id === paletteSubjectId);
@@ -725,8 +734,8 @@ export function TimetablePage() {
 
   function openLessonEditor(weekday: number, preferredPeriod?: number) {
     const period = preferredPeriod === undefined
-      ? findAvailablePeriod(scheduledLessons, weekday, selectedWeek, periods)
-      : periods[preferredPeriod];
+      ? findAvailablePeriod(scheduledLessons, weekday, selectedWeek, enabledPeriods)
+      : enabledPeriods.find((item) => item.index === preferredPeriod);
     if (!period) {
       setNotice("noOpenPeriod");
       return;
@@ -832,9 +841,9 @@ export function TimetablePage() {
             <div className="lesson-grid-settings__periods">
               {lessonGrid.durations.map((duration, index) => (
                 <label key={index}>
-                  <span>{t("timetable.periodNumber", { number: index + 1 })}</span>
+                  <span>{t("timetable.periodNumber", { number: index })}</span>
                   <select
-                    aria-label={t("timetable.periodDuration", { number: index + 1 })}
+                    aria-label={t("timetable.periodDuration", { number: index })}
                     value={duration}
                     onChange={(event) => {
                       const durations = [...lessonGrid.durations];
@@ -864,7 +873,7 @@ export function TimetablePage() {
                   onChange={(event) => setBreakAfterPeriod(Number(event.target.value))}
                 >
                   {lessonGrid.durations.slice(0, -1).map((_, index) => (
-                    <option key={index} value={index + 1}>{t("timetable.periodNumber", { number: index + 1 })}</option>
+                    <option key={index} value={index + 1}>{t("timetable.periodNumber", { number: index })}</option>
                   ))}
                 </select>
               </label>
@@ -885,9 +894,9 @@ export function TimetablePage() {
             <div className="lesson-grid-settings__breaks">
               {lessonGrid.breaks.map((item) => (
                 <div className="lesson-grid-settings__break" key={item.afterPeriod}>
-                  <span>{t("timetable.breakAfterPeriod", { number: item.afterPeriod, duration: item.duration })}</span>
+                  <span>{t("timetable.breakAfterPeriod", { number: item.afterPeriod - 1, duration: item.duration })}</span>
                   <button
-                    aria-label={`${t("timetable.delete")} ${t("timetable.breakAfterPeriod", { number: item.afterPeriod, duration: item.duration })}`}
+                    aria-label={`${t("timetable.delete")} ${t("timetable.breakAfterPeriod", { number: item.afterPeriod - 1, duration: item.duration })}`}
                     className="icon-button icon-button--small"
                     onClick={() => void removeBreak(item.afterPeriod)}
                     type="button"
@@ -1050,11 +1059,11 @@ export function TimetablePage() {
             {index === (new Date().getDay() + 6) % 7 && <span className="day-column__today" aria-label={t("home.current")} />}
           </div>
         ))}
-        {periods.map((period) => (
+        {enabledPeriods.map((period) => (
           <Fragment key={period.index}>
           <div className="timetable-grid__row" key={period.index}>
             <div className="timetable-grid__period">
-              <strong>{period.index + 1}</strong>
+              <strong>{period.index}</strong>
               <span>{period.start}–{period.end}</span>
             </div>
             {days.map(({ index, entries }) => {
@@ -1107,7 +1116,7 @@ export function TimetablePage() {
           {lessonGrid.breaks.find((item) => item.afterPeriod === period.index + 1) && (
             <div className="timetable-grid__break" style={{ gridColumn: "1 / -1" }}>
               {t("timetable.breakAfterPeriod", {
-                number: period.index + 1,
+                number: period.index,
                 duration: lessonGrid.breaks.find((item) => item.afterPeriod === period.index + 1)!.duration,
               })}
             </div>
@@ -1124,7 +1133,7 @@ export function TimetablePage() {
           onCreateTeacher={createTeacherForSubject}
           onCreateSubject={createSubjectForLesson}
           onSave={(value) => saveEntry(value, "id" in editor ? editor.id : undefined)}
-          periods={periods}
+          periods={enabledPeriods}
           subjects={subjects}
           teachers={teachers}
           value={editor}
@@ -1137,7 +1146,7 @@ export function TimetablePage() {
           onCreateTeacher={createTeacherForSubject}
           onCreateSubject={createSubjectForLesson}
           onSave={saveExtra}
-          periods={periods}
+          periods={enabledPeriods}
           subjects={subjects}
           teachers={teachers}
           value={extraEditor.value}

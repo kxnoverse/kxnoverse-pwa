@@ -999,6 +999,7 @@ h1 { color: var(--text); }
 .school-days { display: flex; flex-wrap: wrap; gap: 6px; }
 .school-days label { display: inline-flex; min-width: 60px; align-items: center; gap: 6px; padding: 6px 8px; border: 1px solid var(--line); border-radius: var(--radius); color: var(--text-dim); font-size: 10px; }
 .school-days input { accent-color: var(--accent); }
+.setting-hint { margin: 10px 0 6px; color: var(--text-muted); font-size: 9px; }
 .ai-settings-row { display: flex; align-items: center; gap: 10px; color: var(--text-dim); font-size: 10px; }
 .ai-settings-row > span:first-child { margin-right: auto; }
 .ai-settings-row a { color: var(--accent); }

@@ -493,7 +493,7 @@ describe("Kxno Desk shell", () => {
       subjectId: subject!.id,
       period: 0,
       start: "08:15",
-      end: "09:00",
+      end: "08:45",
       weekType: "all",
       inheritTeacher: true,
       inheritRoom: true,
@@ -506,7 +506,7 @@ describe("Kxno Desk shell", () => {
     await user.click(screen.getByRole("button", { name: "Save" }));
     expect(await db.timetable.count()).toBe(2);
     expect(await db.timetable.where("weekday").equals(0).toArray()).toEqual(
-      expect.arrayContaining([expect.objectContaining({ period: 1, start: "09:00", end: "09:45" })]),
+      expect.arrayContaining([expect.objectContaining({ period: 1, start: "08:45", end: "09:25" })]),
     );
 
     await user.click(screen.getByRole("button", { name: "Delete Ms Local" }));
@@ -541,11 +541,11 @@ describe("Kxno Desk shell", () => {
 
     await user.click(screen.getByRole("button", { name: "Edit timetable" }));
     await user.click(screen.getByRole("button", { name: "Week A" }));
-    await user.selectOptions(screen.getByLabelText("Lesson 1 duration"), "30");
+    await user.selectOptions(screen.getByLabelText("Lesson 0 duration"), "30");
     await user.selectOptions(screen.getByLabelText("Break after"), "1");
     await user.selectOptions(screen.getByLabelText("Break length"), "20");
     await user.click(screen.getByRole("button", { name: "Add break" }));
-    expect(await screen.findAllByText("Break after lesson 1 · 20 min")).toHaveLength(2);
+    expect(await screen.findAllByText("Break after lesson 0 · 20 min")).toHaveLength(2);
 
     const paletteSubject = within(document.querySelector(".timetable-editor__palette") as HTMLElement).getByRole("button", { name: "Biology" });
     const secondPeriodMonday = document.querySelectorAll(".timetable-grid__row")[1].querySelector(".timetable-grid__slot") as HTMLElement;
@@ -558,9 +558,11 @@ describe("Kxno Desk shell", () => {
     fireEvent.drop(secondPeriodMonday, { dataTransfer });
     await waitFor(async () => expect(await db.timetable.count()).toBe(2));
     expect(await db.timetable.where("weekday").equals(0).toArray()).toEqual(
-      expect.arrayContaining([expect.objectContaining({ subjectId: subject!.id, period: 1, start: "09:05", end: "09:50", weekType: "A" })]),
+      expect.arrayContaining([expect.objectContaining({ subjectId: subject!.id, period: 1, start: "09:05", end: "09:45", weekType: "A" })]),
     );
-    expect(await db.timetable.get((await db.timetable.toCollection().first())!.id)).toMatchObject({ period: 0, start: "08:15", end: "08:45" });
+    expect(await db.timetable.toCollection().toArray()).toEqual(
+      expect.arrayContaining([expect.objectContaining({ period: 0, start: "08:15", end: "08:45" })]),
+    );
   });
 
   it("creates a subject and lesson from the new lesson flow when the timetable is empty", async () => {
@@ -588,7 +590,7 @@ describe("Kxno Desk shell", () => {
       teacherId: teacher!.id,
       period: 0,
       start: "08:15",
-      end: "09:00",
+      end: "08:45",
     });
   });
 
@@ -705,7 +707,40 @@ describe("Kxno Desk shell", () => {
     expect(screen.getByLabelText("Lesson")).toHaveValue("0");
     expect(screen.queryByLabelText("Starts")).not.toBeInTheDocument();
     expect(screen.queryByLabelText("Ends")).not.toBeInTheDocument();
-    expect(screen.getByRole("option", { name: "Lesson 1 · 07:30–08:15" })).toBeInTheDocument();
+    expect(screen.getByRole("option", { name: "Lesson 0 · 07:30–08:00" })).toBeInTheDocument();
+  });
+
+  it("allows disabling optional lessons 7 and 8 in settings without hiding occupied lessons", async () => {
+    await db.timetable.put({
+      id: "late-lesson",
+      weekday: 0,
+      period: 7,
+      start: "14:00",
+      end: "14:45",
+      weekType: "all",
+      kind: "free",
+    });
+
+    const user = userEvent.setup();
+    render(<App />);
+    await user.click(screen.getByRole("link", { name: "Settings" }));
+    const lessonSeven = await screen.findByRole("checkbox", { name: "Lesson 7" });
+    await user.click(lessonSeven);
+    const alerts = await screen.findAllByRole("alert");
+    expect(alerts.some((alert) => alert.textContent?.includes("Move or remove lessons in this period before disabling it."))).toBe(true);
+    expect(lessonSeven).toBeChecked();
+    expect(await db.settings.get("lessonGrid")).toBeUndefined();
+
+    await db.timetable.delete("late-lesson");
+    await user.click(lessonSeven);
+    await waitFor(async () => {
+      const setting = await db.settings.get("lessonGrid");
+      expect(setting).toBeDefined();
+      expect(JSON.parse(setting!.value).enabledPeriods[7]).toBe(false);
+    });
+
+    await user.click(screen.getByRole("link", { name: "Timetable" }));
+    await waitFor(() => expect(document.querySelectorAll(".timetable-grid__row")).toHaveLength(8));
   });
 
   it("loads the selected state's school holidays into the calendar agenda", async () => {

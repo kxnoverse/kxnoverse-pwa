@@ -3,13 +3,19 @@ import type { TimetableEntry } from "./db";
 export type LessonGridConfig = {
   durations: number[];
   breaks: Array<{ afterPeriod: number; duration: number }>;
+  enabledPeriods: boolean[];
 };
 
 export type LessonPeriod = { index: number; start: string; end: string };
 
 export const defaultLessonGrid: LessonGridConfig = {
-  durations: Array.from({ length: 9 }, () => 45),
-  breaks: [],
+  durations: [30, 40, 40, 40, 40, 40, 35, 45, 45],
+  breaks: [
+    { afterPeriod: 3, duration: 20 },
+    { afterPeriod: 5, duration: 20 },
+    { afterPeriod: 6, duration: 40 },
+  ],
+  enabledPeriods: Array.from({ length: 9 }, () => true),
 };
 
 export function minutesOfDay(time: string): number {
@@ -38,9 +44,17 @@ export function parseLessonGrid(value?: string): LessonGridConfig {
         Number.isInteger(item.duration) &&
         item.duration >= 1 &&
         item.duration <= 90,
-      )
+      ) ||
+      (parsed.enabledPeriods !== undefined &&
+        (!Array.isArray(parsed.enabledPeriods) ||
+          parsed.enabledPeriods.length !== parsed.durations.length ||
+          !parsed.enabledPeriods.every((enabled) => typeof enabled === "boolean")))
     ) return defaultLessonGrid;
-    return { durations: parsed.durations, breaks: parsed.breaks };
+    return {
+      durations: parsed.durations,
+      breaks: parsed.breaks,
+      enabledPeriods: parsed.enabledPeriods ?? Array.from({ length: parsed.durations.length }, () => true),
+    };
   } catch {
     return defaultLessonGrid;
   }
