@@ -13,6 +13,7 @@ export interface ScheduleStatus {
   current?: ResolvedEntry;
   next?: ResolvedEntry;
   nextBreak?: ResolvedEntry;
+  nextBreakInMinutes?: number;
   startMinute?: number;
   endMinute?: number;
   nowMinute: number;
@@ -112,6 +113,28 @@ export function resolveEntries(
     .sort((left, right) => minutesOfDay(left.start) - minutesOfDay(right.start));
 }
 
+export function mergeConsecutiveLessons(entries: ResolvedEntry[]): ResolvedEntry[] {
+  const merged: ResolvedEntry[] = [];
+  for (const entry of entries) {
+    const previous = merged.at(-1);
+    if (
+      previous?.kind === "lesson" &&
+      entry.kind === "lesson" &&
+      previous.subjectId &&
+      previous.subjectId === entry.subjectId &&
+      previous.teacherId === entry.teacherId &&
+      previous.room === entry.room &&
+      previous.weekType === entry.weekType &&
+      previous.end === entry.start
+    ) {
+      merged[merged.length - 1] = { ...previous, end: entry.end };
+    } else {
+      merged.push(entry);
+    }
+  }
+  return merged;
+}
+
 export function calculateScheduleStatus(
   now: Date,
   entries: TimetableEntry[],
@@ -145,6 +168,23 @@ export function calculateScheduleStatus(
   const nextBreak = today.find(
     (entry) => entry.kind === "break" && minutesOfDay(entry.start) > nowMinute,
   );
+  const lessonsToday = today.filter((entry) => entry.kind === "lesson");
+  const lessonBreakStarts = lessonsToday
+    .slice(1)
+    .flatMap((entry, index) => {
+      const previous = lessonsToday[index];
+      const breakStart = previous ? minutesOfDay(previous.end) : undefined;
+      const nextStart = minutesOfDay(entry.start);
+      return breakStart !== undefined && nextStart > breakStart && breakStart >= nowMinute ? [breakStart] : [];
+    });
+  const breakStarts = [
+    ...today
+      .filter((entry) => entry.kind === "break")
+      .map((entry) => minutesOfDay(entry.start))
+      .filter((start) => start >= nowMinute),
+    ...lessonBreakStarts,
+  ];
+  const nextBreakStart = breakStarts.length ? Math.min(...breakStarts) : undefined;
   const remainingLessonMinutes = today.reduce((remaining, entry) => {
     if (entry.kind !== "lesson") return remaining;
     const start = minutesOfDay(entry.start);
@@ -177,6 +217,7 @@ export function calculateScheduleStatus(
     current,
     next,
     nextBreak,
+    nextBreakInMinutes: nextBreakStart === undefined ? undefined : nextBreakStart - nowMinute,
     startMinute: current ? minutesOfDay(current.start) : undefined,
     endMinute: current ? minutesOfDay(current.end) : undefined,
     nowMinute,

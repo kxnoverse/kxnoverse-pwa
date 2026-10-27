@@ -4,7 +4,7 @@ import { ArrowUpRight, CalendarDays, Clock3, FileText, ListTodo, Timer } from "l
 import { Link } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import { db, localDateKey } from "../data/db";
-import { calculateScheduleStatus, formatDuration, getCycleWeek, minutesOfDay } from "../data/schedule";
+import { calculateScheduleStatus, formatDuration, getCycleWeek, mergeConsecutiveLessons } from "../data/schedule";
 import { useUiStore } from "../stores/ui-store";
 
 export function HomePage() {
@@ -40,6 +40,7 @@ export function HomePage() {
     anchorDate,
     anchorType,
   );
+  const displayedSchedule = mergeConsecutiveLessons(schedule.entries);
   const date = new Intl.DateTimeFormat(i18n.language, {
     weekday: "long",
     month: "long",
@@ -164,11 +165,13 @@ export function HomePage() {
               {t("home.scheduledLeft", { time: formatDuration(schedule.remainingLessonMinutes) })}
             </p>
           )}
-          {schedule.nextBreak && (
+          {schedule.nextBreakInMinutes !== undefined ? (
             <p className="day-progress__countdown">
-              {t("home.breakIn", { time: formatDuration(Math.max(0, minutesOfDay(schedule.nextBreak.start) - schedule.nowMinute)) })}
+              {t("home.breakIn", { time: formatDuration(schedule.nextBreakInMinutes) })}
             </p>
-          )}
+          ) : schedule.dayType === "lesson" ? (
+            <p className="day-progress__countdown day-progress__countdown--dim">{t("home.noMoreBreaks")}</p>
+          ) : null}
           </div>
         )}
       </div>
@@ -181,9 +184,9 @@ export function HomePage() {
             <ArrowUpRight size={15} />
           </Link>
         </div>
-        {schedule.entries.length > 0 ? (
+        {displayedSchedule.length > 0 ? (
           <div className="schedule-list">
-            {schedule.entries.map((entry) => {
+            {displayedSchedule.map((entry) => {
               const active =
                 now.getHours() * 60 + now.getMinutes() >= Number(entry.start.slice(0, 2)) * 60 + Number(entry.start.slice(3)) &&
                 now.getHours() * 60 + now.getMinutes() < Number(entry.end.slice(0, 2)) * 60 + Number(entry.end.slice(3));

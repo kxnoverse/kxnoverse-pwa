@@ -1,6 +1,6 @@
 import "fake-indexeddb/auto";
 import { describe, expect, it } from "vitest";
-import { calculateScheduleStatus, formatDuration, getCycleWeek } from "./schedule";
+import { calculateScheduleStatus, formatDuration, getCycleWeek, mergeConsecutiveLessons } from "./schedule";
 import type { ScheduleException, Subject, Teacher, TimetableEntry } from "./db";
 import { resolveEntries } from "./schedule";
 
@@ -66,6 +66,54 @@ describe("timetable schedule calculations", () => {
       "A",
     );
     expect(weekA.entries.some((entry) => entry.id === "english")).toBe(false);
+  });
+
+  it("counts time until an implicit break between lessons", () => {
+    const lessons: TimetableEntry[] = [
+      { ...entries[0], end: "10:00" },
+      { ...entries[2], weekType: "all", start: "10:20" },
+    ];
+    const status = calculateScheduleStatus(monday, lessons, [], [], [], anchor, "A");
+
+    expect(status.nextBreakInMinutes).toBe(40);
+    expect(status.nextBreak).toBeUndefined();
+  });
+
+  it("does not invent a break after the final lesson", () => {
+    const status = calculateScheduleStatus(
+      new Date(2026, 9, 26, 9, 20),
+      [{ ...entries[0], end: "10:00" }],
+      [],
+      [],
+      [],
+      anchor,
+      "A",
+    );
+
+    expect(status.nextBreakInMinutes).toBeUndefined();
+  });
+
+  it("merges only contiguous matching lessons for the home schedule", () => {
+    const subject: Subject = { id: "math", name: "English", color: "#228855" };
+    const resolved = resolveEntries(
+      [
+        { ...entries[0], start: "09:00", end: "09:45" },
+        { ...entries[0], id: "math-2", start: "09:45", end: "10:30" },
+        { ...entries[0], id: "math-3", start: "10:40", end: "11:25" },
+      ],
+      [subject],
+      [],
+      0,
+      monday,
+      [],
+      anchor,
+      "A",
+    );
+
+    const merged = mergeConsecutiveLessons(resolved);
+    expect(merged).toHaveLength(2);
+    expect(merged[0]).toMatchObject({ id: "math", start: "09:00", end: "10:30", label: "English" });
+    expect(merged[1]).toMatchObject({ id: "math-3", start: "10:40", end: "11:25" });
   });
 
   it("includes one-off lessons in the date-specific schedule", () => {
