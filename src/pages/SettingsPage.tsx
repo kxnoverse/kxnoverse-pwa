@@ -16,6 +16,47 @@ import { TurnstileChallenge } from "../components/TurnstileChallenge";
 
 const styles: Appearance["backgroundStyle"][] = ["solid", "grid", "glow", "chrome", "custom"];
 
+function hueFromHex(hex: string): number {
+  const match = /^#([0-9a-f]{6})$/i.exec(hex);
+  if (!match) return 0;
+  const channels = [0, 2, 4].map((offset) => parseInt(match[1].slice(offset, offset + 2), 16) / 255);
+  const [red, green, blue] = channels;
+  const max = Math.max(red, green, blue);
+  const min = Math.min(red, green, blue);
+  const delta = max - min;
+  if (delta === 0) return 0;
+  const hue = max === red
+    ? ((green - blue) / delta) % 6
+    : max === green
+      ? (blue - red) / delta + 2
+      : (red - green) / delta + 4;
+  return Math.round((hue * 60 + 360) % 360);
+}
+
+function hexWithHue(hex: string, hue: number): string {
+  const match = /^#([0-9a-f]{6})$/i.exec(hex);
+  if (!match) return hex;
+  const channels = [0, 2, 4].map((offset) => parseInt(match[1].slice(offset, offset + 2), 16) / 255);
+  const [red, green, blue] = channels;
+  const max = Math.max(red, green, blue);
+  const min = Math.min(red, green, blue);
+  const lightness = (max + min) / 2;
+  const delta = max - min;
+  const saturation = delta === 0 ? 0 : delta / (1 - Math.abs(2 * lightness - 1));
+  const normalizedHue = ((hue % 360) + 360) % 360;
+  const chroma = (1 - Math.abs(2 * lightness - 1)) * saturation;
+  const section = normalizedHue / 60;
+  const secondary = chroma * (1 - Math.abs((section % 2) - 1));
+  const offset = lightness - chroma / 2;
+  const rgb = section < 1 ? [chroma, secondary, 0]
+    : section < 2 ? [secondary, chroma, 0]
+      : section < 3 ? [0, chroma, secondary]
+        : section < 4 ? [0, secondary, chroma]
+          : section < 5 ? [secondary, 0, chroma]
+            : [chroma, 0, secondary];
+  return `#${rgb.map((channel) => Math.round((channel + offset) * 255).toString(16).padStart(2, "0")).join("")}`;
+}
+
 export function SettingsPage() {
   const { t, i18n } = useTranslation();
   const appearance = useUiStore((state) => state.appearance);
@@ -386,28 +427,46 @@ export function SettingsPage() {
     </label>
   );
 
-  const color = (label: string, key: "accent" | "background" | "surface") => (
-    <label className="setting-row setting-row--color">
-      <span>{label}</span>
-      <input
-        aria-label={label}
-        onChange={(event) => setAppearance(key, event.target.value)}
-        type="color"
-        value={appearance[key]}
-      />
-      <input
-        aria-label={`${label} HEX`}
-        maxLength={7}
-        pattern="#[0-9a-fA-F]{6}"
-        value={colorDrafts[key]}
-        onChange={(event) => {
-          const next = event.target.value;
-          setColorDrafts((draft) => ({ ...draft, [key]: next }));
-          if (/^#[0-9a-f]{6}$/i.test(next)) setAppearance(key, next);
-        }}
-      />
-    </label>
-  );
+  const color = (label: string, key: "accent" | "background" | "surface") => {
+    const draftColor = /^#[0-9a-f]{6}$/i.test(colorDrafts[key]) ? colorDrafts[key] : appearance[key];
+    const commitColor = () => {
+      if (/^#[0-9a-f]{6}$/i.test(colorDrafts[key])) setAppearance(key, colorDrafts[key]);
+    };
+
+    return (
+      <div className="setting-row setting-row--color">
+        <span>{label}</span>
+        <span className="setting-color-swatch" style={{ backgroundColor: draftColor }} aria-hidden="true" />
+        <input
+          aria-label={`${label} hue`}
+          className="setting-color-slider"
+          max={359}
+          min={0}
+          onBlur={commitColor}
+          onChange={(event) => {
+            const base = /^#[0-9a-f]{6}$/i.test(colorDrafts[key]) ? colorDrafts[key] : appearance[key];
+            setColorDrafts((draft) => ({ ...draft, [key]: hexWithHue(base, Number(event.target.value)) }));
+          }}
+          onKeyUp={commitColor}
+          onPointerUp={commitColor}
+          step={1}
+          type="range"
+          value={hueFromHex(draftColor)}
+        />
+        <input
+          aria-label={`${label} HEX`}
+          maxLength={7}
+          pattern="#[0-9a-fA-F]{6}"
+          value={colorDrafts[key]}
+          onChange={(event) => {
+            const next = event.target.value;
+            setColorDrafts((draft) => ({ ...draft, [key]: next }));
+            if (/^#[0-9a-f]{6}$/i.test(next)) setAppearance(key, next);
+          }}
+        />
+      </div>
+    );
+  };
 
   return (
     <section className="settings-page">

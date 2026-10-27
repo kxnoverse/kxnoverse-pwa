@@ -505,6 +505,11 @@ describe("Kxno Desk shell", () => {
   it("switches language immediately and applies theme settings", async () => {
     const user = userEvent.setup();
     render(<App />);
+    const navigation = within(screen.getByRole("navigation", { name: "Main navigation" }));
+    const navNames = navigation.getAllByRole("link").map((link) => link.textContent);
+    expect(navNames.indexOf("Assistant")).toBe(navNames.indexOf("Timetable") + 1);
+    expect(navNames.indexOf("Tasks")).toBe(navNames.indexOf("Assistant") + 1);
+
     await user.click(screen.getByRole("link", { name: "Settings" }));
 
     await user.selectOptions(await screen.findByRole("combobox", { name: "Language" }), "de");
@@ -518,6 +523,20 @@ describe("Kxno Desk shell", () => {
 
     await user.selectOptions(screen.getByRole("combobox", { name: "Hintergrundstil" }), "grid");
     expect(document.querySelector(".background-layer--grid")).toBeInTheDocument();
+  });
+
+  it("applies hue slider color changes after dragging instead of on every slider update", async () => {
+    const user = userEvent.setup();
+    render(<App />);
+    await user.click(screen.getByRole("link", { name: "Settings" }));
+    const slider = await screen.findByRole("slider", { name: "Accent hue" });
+
+    fireEvent.change(slider, { target: { value: "120" } });
+    expect(useUiStore.getState().appearance.accent).toBe(defaultAppearance.accent);
+    expect(document.querySelector(".setting-color-swatch")).toHaveStyle({ backgroundColor: "#8bd48b" });
+
+    fireEvent.pointerUp(slider);
+    expect(useUiStore.getState().appearance.accent).toBe("#8bd48b");
   });
 
   it("always exposes the local assistant without enabling cloud settings", async () => {

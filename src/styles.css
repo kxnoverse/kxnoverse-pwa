@@ -142,7 +142,8 @@ button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible
   height: 66px;
   flex: 0 0 66px;
   align-items: center;
-  padding-left: 20px;
+  justify-content: center;
+  padding: 0 12px;
 }
 
 .brand { display: inline-flex; align-items: center; gap: 9px; }
@@ -156,13 +157,13 @@ button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible
 .brand__source { display: none; }
 .brand__wordmark {
   display: inline-flex;
-  align-items: baseline;
+  align-items: center;
   gap: 5px;
   color: var(--text);
-  font-size: 12px;
+  font-size: 15px;
   font-weight: 650;
   line-height: 1;
-  letter-spacing: .045em;
+  letter-spacing: .055em;
   white-space: nowrap;
 }
 .brand__wordmark-primary { font-weight: 680; letter-spacing: .075em; }
@@ -541,8 +542,47 @@ h1 { color: var(--text); }
 .setting-row output { color: var(--text-muted); font-size: 9px; text-align: right; }
 .setting-row--toggle { grid-template-columns: 1fr auto; }
 .setting-row--toggle input { width: 14px; height: 14px; accent-color: var(--accent); }
-.setting-row--color { grid-template-columns: minmax(95px, 1fr) 29px 76px; gap: 8px; }
-.setting-row--color input[type="color"] { width: 26px; height: 24px; padding: 2px; border: 1px solid var(--line); border-radius: 4px; background: var(--surface-1); }
+.setting-row--color { grid-template-columns: minmax(95px, 1fr) 20px minmax(100px, 190px) 76px; gap: 10px; }
+.setting-color-swatch { width: 18px; height: 18px; border: 1px solid var(--line); border-radius: 50%; }
+.setting-row--color .setting-color-slider {
+  width: 100%;
+  height: 18px;
+  margin: 0;
+  appearance: none;
+  border: 0;
+  background: transparent;
+  cursor: pointer;
+}
+.setting-color-slider::-webkit-slider-runnable-track {
+  height: 7px;
+  border: 1px solid rgb(255 255 255 / 12%);
+  border-radius: 99px;
+  background: linear-gradient(to right, #f44 0%, #ff0 16.67%, #0f6 33.33%, #0ff 50%, #26f 66.67%, #f0f 83.33%, #f44 100%);
+}
+.setting-color-slider::-moz-range-track {
+  height: 7px;
+  border: 1px solid rgb(255 255 255 / 12%);
+  border-radius: 99px;
+  background: linear-gradient(to right, #f44 0%, #ff0 16.67%, #0f6 33.33%, #0ff 50%, #26f 66.67%, #f0f 83.33%, #f44 100%);
+}
+.setting-color-slider::-webkit-slider-thumb {
+  width: 13px;
+  height: 13px;
+  margin-top: -4px;
+  appearance: none;
+  border: 2px solid white;
+  border-radius: 50%;
+  background: var(--accent);
+  box-shadow: 0 0 0 1px rgb(0 0 0 / 35%);
+}
+.setting-color-slider::-moz-range-thumb {
+  width: 10px;
+  height: 10px;
+  border: 2px solid white;
+  border-radius: 50%;
+  background: var(--accent);
+  box-shadow: 0 0 0 1px rgb(0 0 0 / 35%);
+}
 .setting-row--color input:not([type="color"]) { width: 76px; height: 25px; padding: 0 5px; border: 1px solid var(--line); border-radius: var(--radius); background: var(--surface-1); color: var(--text-muted); font-size: 9px; }
 .setting-row--file { grid-template-columns: 1fr auto; }
 .setting-row--file .button { min-height: 27px; font-size: 9px; }

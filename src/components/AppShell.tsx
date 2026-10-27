@@ -24,10 +24,10 @@ import { PwaUpdateNotice } from "./PwaUpdateNotice";
 const navigation = [
   { key: "home", path: "/", icon: House },
   { key: "timetable", path: "/timetable", icon: CalendarRange },
+  { key: "assistant", path: "/assistant", icon: MessageSquareText },
   { key: "tasks", path: "/tasks", icon: ListTodo },
   { key: "calendar", path: "/calendar", icon: CalendarDays },
   { key: "notes", path: "/notes", icon: NotebookPen },
-  { key: "assistant", path: "/assistant", icon: MessageSquareText },
   { key: "timer", path: "/timer", icon: Timer },
   { key: "files", path: "/files", icon: Files },
   { key: "minigames", path: "/minigames", icon: Gamepad2 },
