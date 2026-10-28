@@ -1,4 +1,4 @@
-import { Suspense, useEffect } from "react";
+import { Suspense, useEffect, useState } from "react";
 import { Link, NavLink, Outlet, useLocation } from "react-router-dom";
 import {
   CalendarDays,
@@ -9,10 +9,13 @@ import {
   Gamepad2,
   MessageSquareText,
   NotebookPen,
+  FileText,
   Settings,
   Timer,
   Languages,
   PanelsTopLeft,
+  ChevronLeft,
+  ChevronRight,
 } from "lucide-react";
 import { useLiveQuery } from "dexie-react-hooks";
 import { useTranslation } from "react-i18next";
@@ -31,6 +34,7 @@ const navigation = [
   { key: "calendar", path: "/calendar", icon: CalendarDays },
   { key: "timer", path: "/timer", icon: Timer },
   { key: "notes", path: "/notes", icon: NotebookPen },
+  { key: "docs", path: "/docs", icon: FileText },
   { key: "minigames", path: "/minigames", icon: Gamepad2 },
   { key: "calculator", path: "/calculator", icon: Calculator },
   { key: "translate", path: "/translate", icon: Languages },
@@ -40,6 +44,7 @@ export function AppShell() {
   const { t, i18n } = useTranslation();
   const location = useLocation();
   const isWorkspace = location.pathname === "/workspace";
+  const [workspaceSidebarCollapsed, setWorkspaceSidebarCollapsed] = useState(false);
   const appearance = useUiStore((state) => state.appearance);
   const image = useLiveQuery(() => db.settings.get("backgroundImage"), [], undefined)?.value;
   const pageName =
@@ -59,7 +64,7 @@ export function AppShell() {
 
   return (
     <div
-      className={`app-frame${isWorkspace ? " app-frame--workspace" : ""}`}
+      className={`app-frame${isWorkspace ? " app-frame--workspace" : ""}${isWorkspace && workspaceSidebarCollapsed ? " app-frame--workspace-collapsed" : ""}`}
       data-theme={appearance.mode}
       data-performance-mode={appearance.performanceMode}
       style={
@@ -99,40 +104,57 @@ export function AppShell() {
         spacing={appearance.gridSpacing}
         style={appearance.backgroundStyle}
       />
-      {!isWorkspace && <aside className="sidebar">
-        <Link className="sidebar__brand" to="/" aria-label={t("appName")}>
-          <BrandMark />
-        </Link>
-        <nav className="sidebar__nav" aria-label={t("nav.landmark")}>
-          <span className="sidebar__section-label">{t("nav.main")}</span>
-          {navigation.map(({ key, path, icon: Icon }) => (
-            <NavLink
-              aria-label={t(`nav.${key}`)}
-              className={({ isActive }) =>
-                `nav-link${isActive ? " nav-link--active" : ""}`
-              }
-              end={path === "/"}
-              key={path}
-              title={t(`nav.${key}`)}
-              to={path}
-            >
-              <Icon size={17} strokeWidth={1.8} aria-hidden="true" />
-              <span>{t(`nav.${key}`)}</span>
-            </NavLink>
-          ))}
-        </nav>
-        <div className="sidebar__bottom">
-          <NavLink
-            aria-label={t("nav.settings")}
-            className={({ isActive }) => `nav-link${isActive ? " nav-link--active" : ""}`}
-            title={t("nav.settings")}
-            to="/settings"
+      <aside className="sidebar">
+        {!isWorkspace || !workspaceSidebarCollapsed ? (
+          <>
+            <Link className="sidebar__brand" to="/" aria-label={t("appName")}>
+              <BrandMark />
+            </Link>
+            <nav id="main-navigation" className="sidebar__nav" aria-label={t("nav.landmark")}>
+              <span className="sidebar__section-label">{t("nav.main")}</span>
+              {navigation.map(({ key, path, icon: Icon }) => (
+                <NavLink
+                  aria-label={t(`nav.${key}`)}
+                  className={({ isActive }) =>
+                    `nav-link${isActive ? " nav-link--active" : ""}`
+                  }
+                  end={path === "/"}
+                  key={path}
+                  title={t(`nav.${key}`)}
+                  to={path}
+                >
+                  <Icon size={17} strokeWidth={1.8} aria-hidden="true" />
+                  <span>{t(`nav.${key}`)}</span>
+                </NavLink>
+              ))}
+            </nav>
+            <div className="sidebar__bottom">
+              <NavLink
+                aria-label={t("nav.settings")}
+                className={({ isActive }) => `nav-link${isActive ? " nav-link--active" : ""}`}
+                title={t("nav.settings")}
+                to="/settings"
+              >
+                <Settings size={17} strokeWidth={1.8} aria-hidden="true" />
+                <span>{t("nav.settings")}</span>
+              </NavLink>
+            </div>
+          </>
+        ) : null}
+        {isWorkspace && (
+          <button
+            className="workspace-sidebar-toggle"
+            type="button"
+            aria-label={t(workspaceSidebarCollapsed ? "workspace.expandNavigation" : "workspace.collapseNavigation")}
+            aria-expanded={!workspaceSidebarCollapsed}
+            aria-controls="main-navigation"
+            title={t(workspaceSidebarCollapsed ? "workspace.expandNavigation" : "workspace.collapseNavigation")}
+            onClick={() => setWorkspaceSidebarCollapsed((collapsed) => !collapsed)}
           >
-            <Settings size={17} strokeWidth={1.8} aria-hidden="true" />
-            <span>{t("nav.settings")}</span>
-          </NavLink>
-        </div>
-      </aside>}
+            {workspaceSidebarCollapsed ? <ChevronRight size={16} /> : <ChevronLeft size={16} />}
+          </button>
+        )}
+      </aside>
       <main className={`main-column${isWorkspace ? " main-column--workspace" : ""}`}>
         <div className={`page-scroll${isWorkspace ? " page-scroll--workspace" : ""}`}>
           <Suspense fallback={<p className="route-loading" role="status">{t("app.loading")}</p>}>

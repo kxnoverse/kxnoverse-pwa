@@ -62,7 +62,10 @@ describe("local data safety", () => {
     expect(await db.files.count()).toBe(0);
     expect(await db.aiAttachments.count()).toBe(0);
     expect(await db.workspace.count()).toBe(0);
-    expect(db.verno).toBe(6);
+    expect(await db.documents.count()).toBe(0);
+    expect(await db.documentImages.count()).toBe(0);
+    expect(await db.pdfProjects.count()).toBe(0);
+    expect(db.verno).toBe(8);
   });
 
   it("exports data and merges without overwriting colliding local records", async () => {
@@ -252,6 +255,49 @@ describe("local data safety", () => {
       },
       updatedAt: 1,
     });
+    await db.documents.add({
+      id: "document-one",
+      title: "Biology report",
+      createdAt: 10,
+      updatedAt: 11,
+      paperSize: "A4",
+      orientation: "portrait",
+      margins: { top: 25, right: 25, bottom: 25, left: 25 },
+      header: "Biology",
+      footer: "Schoolwork",
+    });
+    await db.documentContents.add({
+      id: "document-one",
+      content: { type: "doc", content: [{ type: "paragraph", content: [{ type: "text", text: "Cells" }] }] },
+      plainText: "Cells",
+    });
+    await db.documentImages.add({
+      id: "image-one",
+      name: "cell.png",
+      type: "image/png",
+      size: 8,
+      blob: new Blob([new Uint8Array([137, 80, 78, 71, 13, 10, 26, 10])], { type: "image/png" }),
+      createdAt: 12,
+    });
+    await db.files.add({
+      id: "pdf-original-one",
+      name: "worksheet.pdf",
+      type: "application/pdf",
+      size: 8,
+      category: "docs-pdf-original",
+      createdAt: 13,
+      modifiedAt: 13,
+      blob: new Blob([new Uint8Array([37, 80, 68, 70, 45, 49, 46, 55])], { type: "application/pdf" }),
+    });
+    await db.pdfProjects.add({
+      id: "pdf-project-one",
+      title: "Worksheet",
+      sourceFileId: "pdf-original-one",
+      pageCount: 2,
+      createdAt: 13,
+      updatedAt: 13,
+      annotations: [{ id: "annotation-one", page: 1, type: "text", color: "#222222", x: 0.1, y: 0.2, text: "Answer" }],
+    });
     localStorage.setItem("kxnodesk-ui", JSON.stringify({
       state: { appearance: { ...defaultAppearance, accent: "#112233" } },
       version: 3,
@@ -264,7 +310,7 @@ describe("local data safety", () => {
       data: Record<string, Array<Record<string, unknown>>>;
       preferences: Record<string, string>;
     };
-    expect(exported.schemaVersion).toBe(6);
+    expect(exported.schemaVersion).toBe(8);
     expect(exported.data.subjects).toHaveLength(1);
     expect(exported.data.timetable).toHaveLength(1);
     expect(exported.data.exceptions).toHaveLength(1);
@@ -274,6 +320,10 @@ describe("local data safety", () => {
     expect(exported.data.focusSessions).toHaveLength(1);
     expect(exported.data.files[0].blobData).toBeDefined();
     expect(exported.data.workspace).toHaveLength(1);
+    expect(exported.data.documents).toHaveLength(1);
+    expect(exported.data.documentContents).toHaveLength(1);
+    expect(exported.data.documentImages[0].blobData).toBeDefined();
+    expect(exported.data.pdfProjects).toHaveLength(1);
     expect(exported.data.arcadeData.map((record) => record.id)).toEqual(expect.arrayContaining(gameRecords.map((record) => record.id)));
     expect(exported.preferences["kxnodesk-language"]).toBe("de");
 
@@ -281,6 +331,8 @@ describe("local data safety", () => {
       db.subjects, db.teachers, db.timetable, db.exceptions, db.settings, db.tasks,
       db.calendarEvents, db.notes, db.focusSessions, db.files, db.arcadeData,
       db.workspace,
+      db.documents, db.documentContents, db.documentImages,
+      db.pdfProjects,
     ];
     await Promise.all(tables.map((table) => table.clear()));
     localStorage.clear();
@@ -292,7 +344,7 @@ describe("local data safety", () => {
     expect(restored.calendarEvents).toEqual({ added: 1, skipped: 0 });
     expect(restored.notes).toEqual({ added: 1, skipped: 0 });
     expect(restored.focusSessions).toEqual({ added: 1, skipped: 0 });
-    expect(restored.files).toEqual({ added: 1, skipped: 0 });
+    expect(restored.files).toEqual({ added: 2, skipped: 0 });
     expect(restored.arcadeData).toEqual({ added: gameRecords.length, skipped: 0 });
     expect(restored.workspace).toEqual({ added: 1, skipped: 0 });
     expect(await db.workspace.get("default")).toMatchObject({
@@ -301,6 +353,17 @@ describe("local data safety", () => {
         viewport: { x: 12, y: 20, zoom: 1.2 },
       },
     });
+    expect(restored.documents).toEqual({ added: 1, skipped: 0 });
+    expect(restored.documentContents).toEqual({ added: 1, skipped: 0 });
+    expect(restored.documentImages).toEqual({ added: 1, skipped: 0 });
+    expect(restored.pdfProjects).toEqual({ added: 1, skipped: 0 });
+    expect(await db.pdfProjects.get("pdf-project-one")).toMatchObject({
+      sourceFileId: "pdf-original-one",
+      annotations: [{ text: "Answer", page: 1 }],
+    });
+    expect((await db.files.get("pdf-original-one"))?.blob.type).toBe("application/pdf");
+    expect((await db.documentImages.get("image-one"))?.blob.size).toBe(8);
+    expect(await db.documentContents.get("document-one")).toMatchObject({ plainText: "Cells" });
     expect((await db.files.get("file"))?.blob.type).toBe("text/plain");
     expect((await db.files.get("file"))?.blob.size).toBe(5);
     expect(await db.settings.get("schoolState")).toEqual({ key: "schoolState", value: "NW" });
@@ -325,7 +388,7 @@ describe("local data safety", () => {
     });
     const invalid = blobAsFile(new Blob([JSON.stringify({
       format: "kxnodesk-local-backup",
-      schemaVersion: 5,
+      schemaVersion: 6,
       data: {
         subjects: [],
         teachers: [],

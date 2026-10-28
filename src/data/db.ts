@@ -183,6 +183,7 @@ export interface WorkspaceElement {
   width: number;
   height: number;
   borderColor: string;
+  fontSize?: number;
   title: string;
   content: string;
   fileId?: string;
@@ -211,6 +212,58 @@ export interface WorkspaceRecord {
   updatedAt: number;
 }
 
+export interface SchoolDocument {
+  id: string;
+  title: string;
+  createdAt: number;
+  updatedAt: number;
+  paperSize: "A4";
+  orientation: "portrait" | "landscape";
+  margins: { top: number; right: number; bottom: number; left: number };
+  header: string;
+  footer: string;
+}
+
+export interface SchoolDocumentContent {
+  id: string;
+  content: Record<string, unknown>;
+  plainText: string;
+}
+
+export interface SchoolDocumentImage {
+  id: string;
+  name: string;
+  type: "image/png" | "image/jpeg" | "image/gif" | "image/bmp";
+  size: number;
+  blob: Blob;
+  createdAt: number;
+}
+
+export type PdfAnnotationTool = "text" | "highlight" | "draw";
+
+export interface PdfAnnotation {
+  id: string;
+  page: number;
+  type: PdfAnnotationTool;
+  color: string;
+  x: number;
+  y: number;
+  width?: number;
+  height?: number;
+  text?: string;
+  points?: Array<{ x: number; y: number }>;
+}
+
+export interface PdfProject {
+  id: string;
+  title: string;
+  sourceFileId: string;
+  pageCount: number;
+  createdAt: number;
+  updatedAt: number;
+  annotations: PdfAnnotation[];
+}
+
 class KxnoDatabase extends Dexie {
   subjects!: EntityTable<Subject, "id">;
   teachers!: EntityTable<Teacher, "id">;
@@ -228,6 +281,10 @@ class KxnoDatabase extends Dexie {
   files!: EntityTable<LocalFile, "id">;
   arcadeData!: EntityTable<ArcadeRecord, "id">;
   workspace!: EntityTable<WorkspaceRecord, "id">;
+  documents!: EntityTable<SchoolDocument, "id">;
+  documentContents!: EntityTable<SchoolDocumentContent, "id">;
+  documentImages!: EntityTable<SchoolDocumentImage, "id">;
+  pdfProjects!: EntityTable<PdfProject, "id">;
 
   constructor() {
     super("KxnoDesk");
@@ -313,6 +370,49 @@ class KxnoDatabase extends Dexie {
       files: "id, name, category, subjectId, noteId, modifiedAt",
       arcadeData: "id, updatedAt",
       workspace: "id",
+    });
+    this.version(7).stores({
+      subjects: "id, name",
+      teachers: "id, name",
+      timetable: "id, weekday, subjectId, teacherId, weekType",
+      exceptions: "id, date, type, entryId",
+      settings: "key",
+      aiPresets: "id, name",
+      aiConversations: "id, updatedAt",
+      aiMessages: "id, conversationId, createdAt",
+      aiAttachments: "id, messageId, createdAt",
+      tasks: "id, dueDate, completed, subjectId, priority, updatedAt",
+      calendarEvents: "id, startAt, endAt, taskId",
+      notes: "id, updatedAt, pinned, folder, subjectId",
+      focusSessions: "id, startedAt, endedAt, kind, taskId",
+      files: "id, name, category, subjectId, noteId, modifiedAt",
+      arcadeData: "id, updatedAt",
+      workspace: "id",
+      documents: "id, updatedAt",
+      documentContents: "id",
+      documentImages: "id, type, createdAt",
+    });
+    this.version(8).stores({
+      subjects: "id, name",
+      teachers: "id, name",
+      timetable: "id, weekday, subjectId, teacherId, weekType",
+      exceptions: "id, date, type, entryId",
+      settings: "key",
+      aiPresets: "id, name",
+      aiConversations: "id, updatedAt",
+      aiMessages: "id, conversationId, createdAt",
+      aiAttachments: "id, messageId, createdAt",
+      tasks: "id, dueDate, completed, subjectId, priority, updatedAt",
+      calendarEvents: "id, startAt, endAt, taskId",
+      notes: "id, updatedAt, pinned, folder, subjectId",
+      focusSessions: "id, startedAt, endedAt, kind, taskId",
+      files: "id, name, category, subjectId, noteId, modifiedAt",
+      arcadeData: "id, updatedAt",
+      workspace: "id",
+      documents: "id, updatedAt",
+      documentContents: "id",
+      documentImages: "id, type, createdAt",
+      pdfProjects: "id, updatedAt, sourceFileId",
     });
   }
 }

@@ -11,6 +11,7 @@ const AssistantPage = lazy(() => import("./pages/AssistantPage").then((module) =
 const TasksPage = lazy(() => import("./pages/TasksPage").then((module) => ({ default: module.TasksPage })));
 const CalendarPage = lazy(() => import("./pages/CalendarPage").then((module) => ({ default: module.CalendarPage })));
 const NotesPage = lazy(() => import("./pages/NotesPage").then((module) => ({ default: module.NotesPage })));
+const DocsPage = lazy(() => import("./pages/DocsPage").then((module) => ({ default: module.DocsPage })));
 const TimerPage = lazy(() => import("./pages/TimerPage").then((module) => ({ default: module.TimerPage })));
 const FilesPage = lazy(() => import("./pages/FilesPage").then((module) => ({ default: module.FilesPage })));
 const ArcadePage = lazy(() => import("./pages/ArcadePage").then((module) => ({ default: module.ArcadePage })));
@@ -31,6 +32,7 @@ export default function App() {
           <Route path="tasks" element={<TasksPage />} />
           <Route path="calendar" element={<CalendarPage />} />
           <Route path="notes" element={<NotesPage />} />
+          <Route path="docs" element={<DocsPage />} />
           <Route path="timer" element={<TimerPage />} />
           <Route path="focus" element={<Navigate to="/timer" replace />} />
           <Route path="files" element={<FilesPage />} />

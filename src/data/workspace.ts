@@ -6,6 +6,8 @@ export const DEFAULT_WORKSPACE: WorkspaceState = {
   viewport: { x: 28, y: 28, zoom: 1 },
 };
 
+export const WORKSPACE_FONT_SIZES = [10, 12, 14, 16, 18, 20, 24, 28, 32] as const;
+
 export function isWorkspaceState(value: unknown): value is WorkspaceState {
   if (!value || typeof value !== "object") return false;
   const state = value as Partial<WorkspaceState>;
@@ -20,6 +22,7 @@ export function isWorkspaceState(value: unknown): value is WorkspaceState {
       !Number.isFinite(element.width) || element.width < 220 ||
       !Number.isFinite(element.height) || element.height < 140 ||
       !/^#[0-9a-f]{6}$/i.test(element.borderColor) ||
+      (element.fontSize !== undefined && !WORKSPACE_FONT_SIZES.some((size) => size === element.fontSize)) ||
       typeof element.title !== "string" || typeof element.content !== "string" ||
       ((element.kind === "image" || element.kind === "file") && typeof element.fileId !== "string") ||
       (element.kind === "note" && typeof element.noteId !== "string")) return false;

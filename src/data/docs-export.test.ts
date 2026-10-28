@@ -1,0 +1,96 @@
+import "fake-indexeddb/auto";
+import { Blob as NodeBlob } from "node:buffer";
+import { unzipSync, strFromU8 } from "fflate";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { db, type SchoolDocument } from "./db";
+import { buildDocx, exportDocumentText } from "./docs-export";
+
+const documentInfo: SchoolDocument = {
+  id: "export-test",
+  title: "Biology / Review",
+  createdAt: 1,
+  updatedAt: 1,
+  paperSize: "A4",
+  orientation: "landscape",
+  margins: { top: 18, right: 20, bottom: 18, left: 20 },
+  header: "Cell biology",
+  footer: "Study copy",
+};
+
+const exportContent = {
+  type: "doc",
+  content: [
+    { type: "heading", attrs: { level: 1 }, content: [{ type: "text", text: "Cell structure" }] },
+    {
+      type: "paragraph",
+      content: [
+        { type: "text", text: "Mitochondria", marks: [{ type: "bold" }] },
+        { type: "text", text: " produce energy." },
+      ],
+    },
+    {
+      type: "bulletList",
+      content: [{ type: "listItem", content: [{ type: "paragraph", content: [{ type: "text", text: "Membrane" }] }] }],
+    },
+    {
+      type: "table",
+      content: [{
+        type: "tableRow",
+        content: [{ type: "tableCell", content: [{ type: "paragraph", content: [{ type: "text", text: "Nucleus" }] }] }],
+      }],
+    },
+    { type: "pageBreak" },
+  ],
+};
+
+describe("document exports", () => {
+  beforeEach(async () => {
+    vi.stubGlobal("Blob", NodeBlob);
+    db.close();
+    await db.delete();
+    await db.open();
+  });
+
+  afterEach(async () => {
+    db.close();
+    await db.delete();
+    vi.unstubAllGlobals();
+  });
+
+  it("creates a readable plain-text export with document content", async () => {
+    const blob = exportDocumentText("Biology", exportContent);
+    expect(blob.type).toBe("text/plain;charset=utf-8");
+    expect(await blob.text()).toContain("Biology\n");
+    expect(await blob.text()).toContain("Cell structure\nMitochondria produce energy.");
+    expect(await blob.text()).toContain("Membrane");
+    expect(await blob.text()).toContain("Nucleus");
+  });
+
+  it("creates a real editable DOCX with expected content, formatting, tables, and page settings", async () => {
+    const blob = await buildDocx(documentInfo, exportContent);
+    expect(blob.size).toBeGreaterThan(0);
+    const files = unzipSync(new Uint8Array(await blob.arrayBuffer()));
+    const documentXml = strFromU8(files["word/document.xml"]);
+    const relationshipsXml = strFromU8(files["word/_rels/document.xml.rels"]);
+    expect(documentXml).toContain("Cell structure");
+    expect(documentXml).toContain("Mitochondria");
+    expect(documentXml).toContain("<w:b");
+    expect(documentXml).toContain("<w:tbl>");
+    expect(documentXml).toContain("Nucleus");
+    expect(documentXml).toContain("<w:br w:type=\"page\"/>");
+    expect(documentXml).toContain("<w:pgSz");
+    expect(documentXml).toContain("orient=\"landscape\"");
+    expect(documentXml).toContain("<w:pgMar");
+    expect(documentXml).toContain("headerReference");
+    expect(documentXml).toContain("footerReference");
+    expect(relationshipsXml).toContain("header");
+    expect(relationshipsXml).toContain("footer");
+  });
+
+  it("rejects a DOCX export when a referenced image is missing instead of silently dropping it", async () => {
+    await expect(buildDocx(documentInfo, {
+      type: "doc",
+      content: [{ type: "documentImage", attrs: { assetId: "missing" } }],
+    })).rejects.toThrow("A document image is missing from local storage.");
+  });
+});

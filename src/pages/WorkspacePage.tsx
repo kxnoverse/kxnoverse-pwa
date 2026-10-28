@@ -3,7 +3,7 @@ import { useLiveQuery } from "dexie-react-hooks";
 import { Clock3, Download, FileText, Image, Link2, Plus, Trash2, X } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { createId, db, type LocalFile, type SchoolNote, type WorkspaceElement, type WorkspaceState } from "../data/db";
-import { connectWorkspaceElements, DEFAULT_WORKSPACE, isWorkspaceState, removeWorkspaceConnection, removeWorkspaceElement, saveWorkspace } from "../data/workspace";
+import { connectWorkspaceElements, DEFAULT_WORKSPACE, isWorkspaceState, removeWorkspaceConnection, removeWorkspaceElement, saveWorkspace, WORKSPACE_FONT_SIZES } from "../data/workspace";
 import { useUiStore } from "../stores/ui-store";
 
 const MAX_FILE_BYTES = 30 * 1024 * 1024;
@@ -65,14 +65,21 @@ export function WorkspacePage() {
   }, []);
 
   useEffect(() => {
+    const surface = surfaceRef.current;
+    if (!surface) return;
     const updateSize = () => {
-      const bounds = surfaceRef.current?.getBoundingClientRect();
+      const bounds = surface.getBoundingClientRect();
       setCanvasSize({
         width: bounds?.width || window.innerWidth,
         height: bounds?.height || window.innerHeight,
       });
     };
     updateSize();
+    if (typeof ResizeObserver !== "undefined") {
+      const observer = new ResizeObserver(updateSize);
+      observer.observe(surface);
+      return () => observer.disconnect();
+    }
     window.addEventListener("resize", updateSize);
     return () => window.removeEventListener("resize", updateSize);
   }, []);
@@ -138,6 +145,7 @@ export function WorkspacePage() {
       width,
       height,
       borderColor: appearance.accent,
+      fontSize: 12,
       title: kind === "text" ? t("workspace.textTitle") : t("workspace.noteTitle"),
       content: "",
       ...(kind === "note" ? { noteId: id } : {}),
@@ -400,7 +408,14 @@ export function WorkspacePage() {
               key={element.id}
               className={`workspace-card${activeId === element.id ? " is-active" : ""}${connectingFrom === element.id ? " is-connecting" : ""}`}
               data-workspace-element={element.id}
-              style={{ left: element.x, top: element.y, width: element.width, height: element.height, "--workspace-border": element.borderColor } as React.CSSProperties}
+              style={{
+                left: element.x,
+                top: element.y,
+                width: element.width,
+                height: element.height,
+                "--workspace-border": element.borderColor,
+                "--workspace-font-size": `${element.fontSize ?? 12}px`,
+              } as React.CSSProperties}
               onPointerDown={() => setActiveId(element.id)}
             >
               <header className="workspace-card__header" onPointerDown={(event) => beginElementGesture(event, element, "move")}>
@@ -419,6 +434,19 @@ export function WorkspacePage() {
                   <label className="workspace-card__color" title={t("workspace.changeBorder")}>
                     <input type="color" aria-label={t("workspace.changeBorder")} value={element.borderColor} onChange={(event) => editElement(element.id, { borderColor: event.target.value })} />
                   </label>
+                  {(element.kind === "text" || element.kind === "note") && (
+                    <label className="workspace-card__font-size" title={t("workspace.changeFontSize")}>
+                      <select
+                        aria-label={t("workspace.changeFontSize")}
+                        value={element.fontSize ?? 12}
+                        onChange={(event) => editElement(element.id, { fontSize: Number(event.target.value) })}
+                      >
+                        {WORKSPACE_FONT_SIZES.map((size) => (
+                          <option key={size} value={size}>{size}px</option>
+                        ))}
+                      </select>
+                    </label>
+                  )}
                   <button
                     className="workspace-card__action"
                     type="button"

@@ -47,6 +47,10 @@ beforeEach(async () => {
     db.files.clear(),
     db.arcadeData.clear(),
     db.workspace.clear(),
+    db.documents.clear(),
+    db.documentContents.clear(),
+    db.documentImages.clear(),
+    db.pdfProjects.clear(),
   ]);
   useUiStore.getState().updateAppearance(defaultAppearance);
   vi.spyOn(HTMLCanvasElement.prototype, "getContext").mockReturnValue(null);

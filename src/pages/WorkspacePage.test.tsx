@@ -33,7 +33,16 @@ describe("Workspace", () => {
     expect(navigation.queryByRole("link", { name: "Kxno Solve" })).not.toBeInTheDocument();
     await user.click(navigation.getByRole("link", { name: "Workspace" }));
     expect(await screen.findByRole("region", { name: "Workspace" })).toBeInTheDocument();
-    expect(document.querySelector(".app-frame--workspace .sidebar")).not.toBeInTheDocument();
+    expect(screen.getByRole("navigation", { name: "Main navigation" })).toBeInTheDocument();
+    const collapseButton = screen.getByRole("button", { name: "Collapse navigation" });
+    expect(collapseButton).toHaveAttribute("aria-expanded", "true");
+    await user.click(collapseButton);
+    expect(document.querySelector(".app-frame--workspace-collapsed")).toBeInTheDocument();
+    expect(screen.queryByRole("navigation", { name: "Main navigation" })).not.toBeInTheDocument();
+    const expandButton = screen.getByRole("button", { name: "Expand navigation" });
+    expect(expandButton).toHaveAttribute("aria-expanded", "false");
+    await user.click(expandButton);
+    expect(screen.getByRole("navigation", { name: "Main navigation" })).toBeInTheDocument();
     expect(document.querySelector(".workspace-clock")).toBeInTheDocument();
 
     await user.click(screen.getByRole("button", { name: "Add to workspace" }));
@@ -43,6 +52,9 @@ describe("Workspace", () => {
     await user.type(title, "Study idea");
     await user.type(screen.getByRole("textbox", { name: "Text" }), "Review chapter four");
     fireEvent.change(screen.getByLabelText("Change border color"), { target: { value: "#cc6677" } });
+    fireEvent.change(screen.getByLabelText("Change font size"), { target: { value: "18" } });
+    expect(screen.getByLabelText("Change font size")).toHaveValue("18");
+    expect(document.querySelector<HTMLElement>(".workspace-card")?.style.getPropertyValue("--workspace-font-size")).toBe("18px");
 
     const surface = screen.getByRole("region", { name: "Workspace" });
     const originalBackground = (surface as HTMLElement).style.backgroundPosition;
@@ -56,7 +68,7 @@ describe("Workspace", () => {
 
     await waitFor(async () => {
       const saved = await db.workspace.get("default");
-      expect(saved?.state.elements).toMatchObject([{ kind: "text", title: "Study idea", content: "Review chapter four", borderColor: "#cc6677" }]);
+      expect(saved?.state.elements).toMatchObject([{ kind: "text", title: "Study idea", content: "Review chapter four", borderColor: "#cc6677", fontSize: 18 }]);
       expect(saved?.state.viewport.zoom).toBeGreaterThan(1);
     });
   });

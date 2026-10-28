@@ -3,6 +3,8 @@ import { defaultAppearance, useUiStore } from "../stores/ui-store";
 import { i18n } from "../i18n";
 import { isBlobLike, readBlobAsArrayBuffer } from "./blob-utils";
 import { isWorkspaceState } from "./workspace";
+import { isDocumentContent, isSchoolDocument } from "./docs";
+import { isPdfProject } from "./docs-pdf";
 
 const BACKUP_FORMAT = "kxnodesk-local-backup";
 const MAX_IMPORT_BYTES = 150 * 1024 * 1024;
@@ -26,6 +28,10 @@ const DATA_TABLES = [
   "aiAttachments",
   "arcadeData",
   "workspace",
+  "documents",
+  "documentContents",
+  "documentImages",
+  "pdfProjects",
 ] as const;
 
 type DataTableName = (typeof DATA_TABLES)[number];
@@ -84,16 +90,23 @@ const requiredStrings: Record<DataTableName, string[]> = {
   aiAttachments: ["id", "messageId", "name", "mimeType", "blobData"],
   arcadeData: ["id", "value"],
   workspace: ["id"],
+  documents: ["id", "title", "paperSize", "orientation", "header", "footer"],
+  documentContents: ["id", "plainText"],
+  documentImages: ["id", "name", "type", "blobData"],
+  pdfProjects: ["id", "title", "sourceFileId"],
 };
 
 function validateRecord(table: DataTableName, record: BackupRecord): void {
   if (!requiredStrings[table].every((field) => hasString(record, field))) {
     throw new Error(`The backup contains an invalid ${table} record.`);
   }
-  if (table === "files" || table === "aiAttachments") {
+  if (table === "files" || table === "aiAttachments" || table === "documentImages") {
     if (!hasString(record, "blobData")) throw new Error("The backup contains an invalid file attachment.");
     if (table === "aiAttachments" && !["image/png", "image/jpeg", "image/webp", "application/pdf"].includes(String(record.mimeType))) {
       throw new Error("The backup contains an unsupported AI attachment.");
+    }
+    if (table === "documentImages" && !["image/png", "image/jpeg", "image/gif", "image/bmp"].includes(String(record.type))) {
+      throw new Error("The backup contains an unsupported document image.");
     }
     const bytes = base64ToBytes(record.blobData as string);
     if (typeof record.size !== "number" || bytes.byteLength !== record.size) {
@@ -114,6 +127,15 @@ function validateRecord(table: DataTableName, record: BackupRecord): void {
   }
   if (table === "workspace" && (!isWorkspaceState(record.state) || typeof record.updatedAt !== "number" || !Number.isFinite(record.updatedAt))) {
     throw new Error("The backup contains invalid workspace data.");
+  }
+  if (table === "documents" && !isSchoolDocument(record)) {
+    throw new Error("The backup contains an invalid document.");
+  }
+  if (table === "documentContents" && !isDocumentContent(record)) {
+    throw new Error("The backup contains invalid document content.");
+  }
+  if (table === "pdfProjects" && !isPdfProject(record)) {
+    throw new Error("The backup contains an invalid PDF project.");
   }
 }
 
@@ -174,14 +196,16 @@ export async function exportDataBackup(): Promise<Blob> {
         !PRIVATE_RUNTIME_SETTINGS.has(record.key as string) &&
         !(record.key as string).startsWith("regionalCalendar:")
       ));
-    if (name === "files" || name === "aiAttachments") {
-      data[name] = await Promise.all(records.map(async (record) => {
+    if (name === "files" || name === "aiAttachments" || name === "documentImages") {
+      const serializedRecords: BackupRecord[] = [];
+      for (const record of records) {
         const blob = record.blob;
         if (!isBlobLike(blob)) throw new Error("A local attachment could not be added to the backup.");
         const bytes = new Uint8Array(await readBlobAsArrayBuffer(blob));
         const { blob: _blob, ...rest } = record;
-        return { ...rest, blobData: bytesToBase64(bytes) };
-      }));
+        serializedRecords.push({ ...rest, blobData: bytesToBase64(bytes) });
+      }
+      data[name] = serializedRecords;
     } else {
       data[name] = records;
     }
@@ -193,7 +217,7 @@ export async function exportDataBackup(): Promise<Blob> {
   }
   return new Blob([JSON.stringify({
     format: BACKUP_FORMAT,
-    schemaVersion: 6,
+    schemaVersion: 8,
     exportedAt: new Date().toISOString(),
     data,
     preferences,
@@ -208,7 +232,7 @@ export async function importDataBackup(file: File): Promise<BackupImportSummary>
   } catch {
     throw new Error("The selected file is not valid backup JSON.");
   }
-  if (!isRecord(parsed) || parsed.format !== BACKUP_FORMAT || typeof parsed.schemaVersion !== "number" || parsed.schemaVersion < 2 || parsed.schemaVersion > 6 || !isRecord(parsed.data)) {
+  if (!isRecord(parsed) || parsed.format !== BACKUP_FORMAT || typeof parsed.schemaVersion !== "number" || parsed.schemaVersion < 2 || parsed.schemaVersion > 8 || !isRecord(parsed.data)) {
     throw new Error("This file is not a supported Kxno Desk backup.");
   }
 
@@ -226,7 +250,7 @@ export async function importDataBackup(file: File): Promise<BackupImportSummary>
   let total = 0;
   for (const name of DATA_TABLES) {
     const records = data[name];
-    if (records === undefined && ((parsed.schemaVersion < 3 && DATA_TABLES.indexOf(name) >= 8) || (parsed.schemaVersion < 4 && name === "aiAttachments") || (parsed.schemaVersion < 5 && name === "arcadeData") || (parsed.schemaVersion < 6 && name === "workspace"))) {
+    if (records === undefined && ((parsed.schemaVersion < 3 && DATA_TABLES.indexOf(name) >= 8) || (parsed.schemaVersion < 4 && name === "aiAttachments") || (parsed.schemaVersion < 5 && name === "arcadeData") || (parsed.schemaVersion < 6 && name === "workspace") || (parsed.schemaVersion < 7 && ["documents", "documentContents", "documentImages"].includes(name)) || (parsed.schemaVersion < 8 && name === "pdfProjects"))) {
       recordsByTable[name] = [];
       continue;
     }
@@ -271,6 +295,14 @@ export async function importDataBackup(file: File): Promise<BackupImportSummary>
     for (const name of DATA_TABLES.slice(10, 13)) await addTableRecords(name);
     await addTableRecords("arcadeData");
     await addTableRecords("workspace");
+  });
+  await db.transaction("rw", db.documents, db.documentContents, db.documentImages, async () => {
+    await addTableRecords("documents");
+    await addTableRecords("documentContents");
+    await addTableRecords("documentImages");
+  });
+  await db.transaction("rw", db.pdfProjects, async () => {
+    await addTableRecords("pdfProjects");
   });
   const preferenceSummary = { added: 0, skipped: 0 };
   for (const key of PREFERENCE_KEYS) {

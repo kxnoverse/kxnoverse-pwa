@@ -1,7 +1,7 @@
 import "fake-indexeddb/auto";
 import { afterEach, describe, expect, it } from "vitest";
 import { db, type WorkspaceElement } from "./db";
-import { connectWorkspaceElements, DEFAULT_WORKSPACE, removeWorkspaceElement, saveWorkspace } from "./workspace";
+import { connectWorkspaceElements, DEFAULT_WORKSPACE, isWorkspaceState, removeWorkspaceElement, saveWorkspace } from "./workspace";
 
 afterEach(async () => {
   await Promise.all([db.workspace.clear(), db.files.clear()]);
@@ -52,6 +52,24 @@ describe("workspace persistence", () => {
     expect(connectWorkspaceElements(first, "a", "b")).toBe(first);
     expect(connectWorkspaceElements(first, "b", "a")).toBe(first);
     expect(connectWorkspaceElements(first, "a", "a")).toBe(first);
+  });
+
+  it("rejects workspace font sizes that are not available in the editor", () => {
+    expect(isWorkspaceState({
+      ...DEFAULT_WORKSPACE,
+      elements: [{
+        id: "text",
+        kind: "text",
+        x: 0,
+        y: 0,
+        width: 280,
+        height: 200,
+        borderColor: "#000000",
+        fontSize: 11,
+        title: "",
+        content: "",
+      }],
+    })).toBe(false);
   });
 
   it("removes an element together with attached connections", () => {
