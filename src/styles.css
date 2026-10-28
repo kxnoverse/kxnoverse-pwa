@@ -2581,7 +2581,9 @@ h1 { color: var(--text); }
 .pdf-workspace__tool-group button:hover, .pdf-workspace__zoom button:hover, .pdf-workspace__page-controls button:hover { border-color: var(--line); background: var(--surface-hover); color: var(--text); }
 .pdf-workspace__tool-group button.is-active { border-color: color-mix(in srgb, var(--accent) 35%, var(--line)); background: color-mix(in srgb, var(--accent) 12%, var(--surface-1)); color: var(--accent); }
 .pdf-workspace__tool-group button:disabled, .pdf-workspace__page-controls button:disabled { opacity: .35; cursor: default; }
-.pdf-workspace__text-input { width: min(240px, 23vw); height: 29px; padding: 0 8px; border: 1px solid var(--line); border-radius: 5px; background: var(--surface-0); color: var(--text); font-size: 10px; }
+.pdf-workspace__text-box { position: absolute; z-index: 2; min-height: 28px; padding: 2px 3px; border: 1px solid color-mix(in srgb, var(--accent) 72%, transparent); border-radius: 2px; outline: 1px solid color-mix(in srgb, var(--accent) 22%, transparent); background: color-mix(in srgb, white 82%, transparent); font-family: Arial, sans-serif; line-height: 1.3; resize: both; overflow: auto; }
+.pdf-workspace__edit-text { display: flex; height: 28px; align-items: center; gap: 5px; padding: 0 8px; border: 1px solid var(--line); border-radius: 5px; background: var(--surface-0); color: var(--text); font: inherit; font-size: 9px; cursor: pointer; }
+.pdf-workspace__edit-text:hover { border-color: var(--accent); color: var(--accent); }
 .pdf-workspace__color { display: flex; height: 30px; align-items: center; gap: 6px; padding: 0 7px; border: 1px solid var(--line); border-radius: 5px; color: var(--text-muted); font-size: 9px; cursor: pointer; }
 .pdf-workspace__color input { width: 17px; height: 17px; padding: 0; overflow: hidden; border: 0; border-radius: 50%; background: transparent; cursor: pointer; }
 .pdf-workspace__color input::-webkit-color-swatch-wrapper { padding: 0; }
@@ -2596,16 +2598,12 @@ h1 { color: var(--text); }
 .pdf-workspace__sheet > canvas:first-child { display: block; }
 .pdf-workspace__annotation-layer { position: absolute; z-index: 1; inset: 0; }
 .pdf-workspace__annotation-layer--select { cursor: default; touch-action: none; }
-.pdf-workspace__annotation-layer--text { cursor: text; touch-action: none; }
 .pdf-workspace__annotation-layer--highlight, .pdf-workspace__annotation-layer--draw { cursor: crosshair; touch-action: none; }
 .pdf-workspace__page-panel { display: flex; width: 135px; flex: 0 0 135px; flex-direction: column; gap: 12px; padding: 16px 10px; border-left: 1px solid var(--line); background: color-mix(in srgb, var(--surface-1) 70%, var(--surface-0)); }
 .pdf-workspace__page-panel > span { color: var(--text-muted); font-size: 9px; font-weight: 650; letter-spacing: .08em; text-transform: uppercase; }
 .pdf-workspace__page-controls { display: flex; align-items: center; justify-content: space-between; gap: 2px; }
 .pdf-workspace__page-controls span { color: var(--text); font-size: 10px; font-variant-numeric: tabular-nums; }
 .pdf-workspace__annotation-count { padding-top: 10px; border-top: 1px solid var(--line); color: var(--text-muted); font-size: 9px; line-height: 1.5; }
-.pdf-workspace__convert-link { padding: 0; border: 0; background: transparent; color: var(--accent); font: inherit; font-size: 9px; text-align: left; cursor: pointer; }
-.pdf-workspace__convert-link:hover { text-decoration: underline; }
-.pdf-workspace__convert-link:disabled { opacity: .45; cursor: progress; }
 .pdf-workspace__loading, .pdf-workspace__error { display: flex; align-items: center; gap: 8px; margin: auto; color: var(--text-muted); font-size: 11px; }
 .pdf-workspace__error, .pdf-workspace__error-bar { color: #df8c7d; }
 .pdf-workspace__error-bar { margin: 0; padding: 6px 12px; border-top: 1px solid var(--line); font-size: 10px; }
@@ -2631,7 +2629,6 @@ h1 { color: var(--text); }
   .pdf-workspace__identity span { max-width: 35vw; }
   .pdf-workspace__status { display: none; }
   .pdf-workspace__toolbar { flex-wrap: wrap; gap: 5px; }
-  .pdf-workspace__text-input { width: 42vw; }
   .pdf-workspace__history { margin-left: auto; }
   .pdf-workspace__body { flex-direction: column; }
   .pdf-workspace__page-panel { width: auto; flex: 0 0 auto; flex-direction: row; align-items: center; justify-content: space-between; gap: 8px; padding: 5px 8px; border-top: 1px solid var(--line); border-left: 0; }

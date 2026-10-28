@@ -180,6 +180,9 @@ describe("Kxno Docs editor", () => {
 
     expect(await screen.findByRole("region", { name: "PDF annotation workspace" })).toHaveTextContent("Imported worksheet");
     expect(screen.queryByRole("textbox", { name: "Document editor" })).not.toBeInTheDocument();
+    expect(await db.documents.count()).toBe(1);
+    expect(await db.pdfProjects.count()).toBe(1);
+    expect(screen.queryByRole("button", { name: /convert/i })).not.toBeInTheDocument();
   });
 
   it("creates an isolated print view with only document content and configured page formatting", async () => {

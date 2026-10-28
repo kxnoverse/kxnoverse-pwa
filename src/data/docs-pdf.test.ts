@@ -1,6 +1,7 @@
 import "fake-indexeddb/auto";
 import { Blob as NodeBlob, File as NodeFile } from "node:buffer";
-import { PDFDocument } from "pdf-lib";
+import { inflateSync } from "node:zlib";
+import { PDFArray, PDFDocument, PDFRawStream } from "pdf-lib";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { db } from "./db";
 import {
@@ -16,6 +17,15 @@ import {
   updatePdfProject,
 } from "./docs-pdf";
 import { readBlobAsArrayBuffer } from "./blob-utils";
+
+vi.mock("pdfjs-dist", () => ({
+  GlobalWorkerOptions: { workerSrc: "" },
+  getDocument: () => ({
+    promise: Promise.resolve({ numPages: 2, destroy: vi.fn(async () => undefined) }),
+  }),
+}));
+
+vi.mock("pdfjs-dist/build/pdf.worker.min.mjs?url", () => ({ default: "/test-pdf-worker.mjs" }));
 
 describe("local PDF projects", () => {
   beforeEach(async () => {
@@ -62,6 +72,23 @@ describe("local PDF projects", () => {
     expect(isPdfProject({ ...project, annotations: [{ ...project.annotations, id: "" }] })).toBe(false);
   });
 
+  it("imports the original PDF directly without creating a converted text document", async () => {
+    const project = await importPdfProject(await createPdfFile("native.pdf"));
+
+    expect(await db.pdfProjects.get(project.id)).toMatchObject({
+      sourceFileId: project.sourceFileId,
+      pageCount: 2,
+      annotations: [],
+    });
+    expect(await db.files.get(project.sourceFileId)).toMatchObject({
+      name: "native.pdf",
+      type: "application/pdf",
+      category: "docs-pdf-original",
+    });
+    expect(await db.documents.count()).toBe(0);
+    expect(await db.documentContents.count()).toBe(0);
+  });
+
   it("rejects empty, non-PDF, and oversized imports before parsing or storing them", async () => {
     const emptyPdf = new File([], "empty.pdf", { type: "application/pdf" });
     const nonPdf = new File(["not a PDF"], "notes.txt", { type: "text/plain" });
@@ -82,7 +109,7 @@ describe("local PDF projects", () => {
     const annotated = {
       ...project,
       annotations: [
-        { id: "text", page: 1, type: "text" as const, color: "#222222", x: 0.12, y: 0.16, text: "My answer" },
+        { id: "text", page: 1, type: "text" as const, color: "#222222", x: 0.12, y: 0.16, width: 0.4, text: "My answer" },
         { id: "highlight", page: 2, type: "highlight" as const, color: "#e6bc62", x: 0.1, y: 0.2, width: 0.4, height: 0.03 },
         { id: "draw", page: 2, type: "draw" as const, color: "#8dbfd0", x: 0.2, y: 0.3, points: [{ x: 0.2, y: 0.3 }, { x: 0.4, y: 0.35 }] },
       ],
@@ -97,6 +124,15 @@ describe("local PDF projects", () => {
     expect(exported.type).toBe("application/pdf");
     const exportedPdf = await PDFDocument.load(new Uint8Array(await exported.arrayBuffer()));
     expect(exportedPdf.getPageCount()).toBe(2);
+    const pageContents = exportedPdf.getPage(0).node.Contents();
+    const streamRefs = pageContents instanceof PDFArray ? pageContents.asArray() : [pageContents];
+    const pageStreamText = streamRefs.map((reference) => {
+      if (!reference) return "";
+      const stream = exportedPdf.context.lookup(reference);
+      return stream instanceof PDFRawStream ? inflateSync(stream.contents).toString("latin1") : "";
+    }).join("\n");
+    expect(pageStreamText).toContain(Buffer.from("My answer").toString("hex").toUpperCase());
+    expect(pageStreamText).toContain("73.44 653.28");
     expect([...new Uint8Array(await readBlobAsArrayBuffer((await db.files.get(project.sourceFileId))!.blob))]).toEqual([...originalBytes]);
     expect([...new Uint8Array(await exported.arrayBuffer())]).not.toEqual([...originalBytes]);
   });

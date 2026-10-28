@@ -687,11 +687,6 @@ export function DocsPage() {
               setActiveId(nextId);
               setSearchParams(nextId ? { document: nextId } : {}, { replace: true });
             }}
-            onConverted={(id) => {
-              setActivePdfProjectId("");
-              setActiveId(id);
-              setSearchParams({ document: id }, { replace: true });
-            }}
           />
         ) : <div className="docs-loading" role="status"><LoaderCircle size={16} />{t("docs.pdfLoading")}</div> : activeDocument && storedContent && !loadingContent ? (
           <DocsEditor

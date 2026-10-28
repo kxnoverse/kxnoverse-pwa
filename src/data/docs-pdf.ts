@@ -191,7 +191,7 @@ export async function buildAnnotatedPdf(project: PdfProject): Promise<Blob> {
         size: fontSize,
         font,
         color,
-        maxWidth: width * Math.max(0.05, 1 - annotation.x),
+        maxWidth: width * Math.max(0.05, Math.min(annotation.width ?? 1 - annotation.x, 1 - annotation.x)),
       }));
     } else if (annotation.type === "highlight") {
       page.drawRectangle({
