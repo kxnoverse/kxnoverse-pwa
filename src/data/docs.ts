@@ -118,6 +118,7 @@ export function isSchoolDocument(value: unknown): value is SchoolDocument {
   const margins = document.margins;
   return typeof document.id === "string" && document.id.length > 0 &&
     typeof document.title === "string" &&
+    (document.subjectId === undefined || typeof document.subjectId === "string") &&
     typeof document.createdAt === "number" && Number.isFinite(document.createdAt) &&
     typeof document.updatedAt === "number" && Number.isFinite(document.updatedAt) &&
     document.paperSize === "A4" &&

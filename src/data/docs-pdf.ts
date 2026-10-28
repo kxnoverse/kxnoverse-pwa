@@ -141,6 +141,7 @@ export function isPdfProject(value: unknown): value is PdfProject {
   const project = value as Partial<PdfProject>;
   return typeof project.id === "string" && project.id.length > 0 &&
     typeof project.title === "string" && project.title.length > 0 &&
+    (project.subjectId === undefined || typeof project.subjectId === "string") &&
     typeof project.sourceFileId === "string" && project.sourceFileId.length > 0 &&
     Number.isInteger(project.pageCount) && (project.pageCount ?? 0) > 0 &&
     typeof project.createdAt === "number" && Number.isFinite(project.createdAt) &&

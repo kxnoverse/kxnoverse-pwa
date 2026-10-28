@@ -8,9 +8,7 @@ const ModulePage = lazy(() => import("./pages/ModulePage").then((module) => ({ d
 const TimetablePage = lazy(() => import("./pages/TimetablePage").then((module) => ({ default: module.TimetablePage })));
 const SettingsPage = lazy(() => import("./pages/SettingsPage").then((module) => ({ default: module.SettingsPage })));
 const AssistantPage = lazy(() => import("./pages/AssistantPage").then((module) => ({ default: module.AssistantPage })));
-const TasksPage = lazy(() => import("./pages/TasksPage").then((module) => ({ default: module.TasksPage })));
 const CalendarPage = lazy(() => import("./pages/CalendarPage").then((module) => ({ default: module.CalendarPage })));
-const NotesPage = lazy(() => import("./pages/NotesPage").then((module) => ({ default: module.NotesPage })));
 const DocsPage = lazy(() => import("./pages/DocsPage").then((module) => ({ default: module.DocsPage })));
 const TimerPage = lazy(() => import("./pages/TimerPage").then((module) => ({ default: module.TimerPage })));
 const FilesPage = lazy(() => import("./pages/FilesPage").then((module) => ({ default: module.FilesPage })));
@@ -29,9 +27,9 @@ export default function App() {
           <Route path="timetable" element={<TimetablePage />} />
           <Route path="settings" element={<SettingsPage />} />
           <Route path="assistant" element={<AssistantPage />} />
-          <Route path="tasks" element={<TasksPage />} />
+          <Route path="tasks" element={<Navigate to="/docs?section=tasks" replace />} />
           <Route path="calendar" element={<CalendarPage />} />
-          <Route path="notes" element={<NotesPage />} />
+          <Route path="notes" element={<Navigate to="/docs?section=notes" replace />} />
           <Route path="docs" element={<DocsPage />} />
           <Route path="timer" element={<TimerPage />} />
           <Route path="focus" element={<Navigate to="/timer" replace />} />

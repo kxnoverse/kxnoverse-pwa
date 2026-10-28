@@ -216,8 +216,8 @@ export function HomePage() {
 
       <section className="home-widgets" aria-label={t("home.widgets")}>
         <div className="home-widget">
-          <div className="section-heading"><h2>{t("home.tasks")}</h2><span>{tasks.filter((task) => !task.completed).length}</span><Link to="/tasks" aria-label={t("home.openTasks")}><ArrowUpRight size={14} /></Link></div>
-          {upcomingTasks.length ? <div className="home-widget__rows">{upcomingTasks.map((task) => <Link className="home-widget__row" key={task.id} to="/tasks"><span className="home-widget__marker" /><strong>{task.title}</strong><time>{new Intl.DateTimeFormat(i18n.language, { month: "short", day: "numeric" }).format(new Date(`${task.dueDate}T12:00:00`))}</time></Link>)}</div> : <p className="home-widget__empty">{t("home.noTasks")}</p>}
+          <div className="section-heading"><h2>{t("home.tasks")}</h2><span>{tasks.filter((task) => !task.completed).length}</span><Link to="/docs?section=tasks" aria-label={t("home.openTasks")}><ArrowUpRight size={14} /></Link></div>
+          {upcomingTasks.length ? <div className="home-widget__rows">{upcomingTasks.map((task) => <Link className="home-widget__row" key={task.id} to="/docs?section=tasks"><span className="home-widget__marker" /><strong>{task.title}</strong><time>{new Intl.DateTimeFormat(i18n.language, { month: "short", day: "numeric" }).format(new Date(`${task.dueDate}T12:00:00`))}</time></Link>)}</div> : <p className="home-widget__empty">{t("home.noTasks")}</p>}
         </div>
         <div className="home-widget">
           <div className="section-heading"><h2>{t("home.upcoming")}</h2><span>{calendarEvents.length}</span><Link to="/calendar" aria-label={t("home.openCalendar")}><ArrowUpRight size={14} /></Link></div>
@@ -226,10 +226,10 @@ export function HomePage() {
         <div className="home-widget home-widget--quick">
           <div className="section-heading"><h2>{t("home.workspace")}</h2></div>
           <div className="home-quick-links">
-            <Link to="/notes"><FileText size={14} /><span>{t("nav.notes")}</span><strong>{noteCount}</strong></Link>
+            <Link to="/docs?section=notes"><FileText size={14} /><span>{t("nav.notes")}</span><strong>{noteCount}</strong></Link>
             <Link to="/timer"><Timer size={14} /><span>{t("nav.timer")}</span><ArrowUpRight size={12} /></Link>
             <Link to="/calendar"><CalendarDays size={14} /><span>{t("nav.calendar")}</span><ArrowUpRight size={12} /></Link>
-            <Link to="/tasks"><ListTodo size={14} /><span>{t("nav.tasks")}</span><ArrowUpRight size={12} /></Link>
+            <Link to="/docs?section=tasks"><ListTodo size={14} /><span>{t("nav.tasks")}</span><ArrowUpRight size={12} /></Link>
           </div>
         </div>
       </section>

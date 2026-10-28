@@ -126,9 +126,9 @@ describe("PDF annotation workspace text boxes", () => {
       await db.pdfProjects.put({ ...next, updatedAt: Date.now() });
     };
     const firstView = render(
-      <PdfAnnotationWorkspace project={project} onProjectChange={saveProject} onBack={vi.fn()} />,
+      <PdfAnnotationWorkspace project={project} subjects={[]} onProjectChange={saveProject} onBack={vi.fn()} />,
     );
-    const addTextBox = await screen.findByRole("button", { name: "Add text box" });
+    const addTextBox = await screen.findByRole("button", { name: "Text / select" });
     const annotationCanvas = await screen.findByLabelText("Editable PDF annotations");
     await waitFor(() => {
       const error = screen.queryAllByRole("alert")[0];
@@ -157,6 +157,7 @@ describe("PDF annotation workspace text boxes", () => {
     await waitFor(async () => {
       expect((await db.pdfProjects.get(project.id))?.annotations[0]).toMatchObject({
         type: "text",
+        color: "#000000",
         page: 1,
         text: "Answer on the original page",
         x: 0.25,
@@ -168,14 +169,36 @@ describe("PDF annotation workspace text boxes", () => {
     expect(screen.queryByRole("textbox", { name: "Text box on PDF page 1" })).not.toBeInTheDocument();
     const persistedAnnotation = (await db.pdfProjects.get(project.id))!.annotations[0];
     fireEvent.pointerDown(annotationCanvas, {
+      pointerId: 5,
+      clientX: bounds.left + bounds.width * (persistedAnnotation.x + 0.01),
+      clientY: bounds.top + bounds.height * (persistedAnnotation.y + 0.01),
+    });
+    fireEvent.pointerMove(annotationCanvas, {
+      pointerId: 5,
+      clientX: bounds.left + bounds.width * (persistedAnnotation.x + 0.06),
+      clientY: bounds.top + bounds.height * (persistedAnnotation.y + 0.04),
+    });
+    fireEvent.pointerUp(annotationCanvas, {
+      pointerId: 5,
+      clientX: bounds.left + bounds.width * (persistedAnnotation.x + 0.06),
+      clientY: bounds.top + bounds.height * (persistedAnnotation.y + 0.04),
+    });
+    await waitFor(async () => {
+      expect((await db.pdfProjects.get(project.id))?.annotations[0]).toMatchObject({
+        x: expect.closeTo(persistedAnnotation.x + 0.05, 2),
+        y: expect.closeTo(persistedAnnotation.y + 0.03, 2),
+      });
+    });
+    const movedAnnotation = (await db.pdfProjects.get(project.id))!.annotations[0];
+    fireEvent.pointerDown(annotationCanvas, {
       pointerId: 2,
-      clientX: bounds.left + bounds.width * persistedAnnotation.x,
-      clientY: bounds.top + bounds.height * persistedAnnotation.y,
+      clientX: bounds.left + bounds.width * (movedAnnotation.x + 0.01),
+      clientY: bounds.top + bounds.height * (movedAnnotation.y + 0.01),
     });
     fireEvent.pointerUp(annotationCanvas, {
       pointerId: 2,
-      clientX: bounds.left + bounds.width * persistedAnnotation.x,
-      clientY: bounds.top + bounds.height * persistedAnnotation.y,
+      clientX: bounds.left + bounds.width * (movedAnnotation.x + 0.01),
+      clientY: bounds.top + bounds.height * (movedAnnotation.y + 0.01),
     });
     expect(await screen.findByRole("textbox", { name: "Text box on PDF page 1" })).toHaveValue("Answer on the original page");
 
@@ -221,7 +244,7 @@ describe("PDF annotation workspace text boxes", () => {
     firstView.unmount();
     const reopenedProject = (await db.pdfProjects.get(project.id))!;
     render(
-      <PdfAnnotationWorkspace project={reopenedProject} onProjectChange={saveProject} onBack={vi.fn()} />,
+      <PdfAnnotationWorkspace project={reopenedProject} subjects={[]} onProjectChange={saveProject} onBack={vi.fn()} />,
     );
     const reopenedCanvas = await screen.findByLabelText("Editable PDF annotations");
     await waitFor(() => expect((reopenedCanvas as HTMLCanvasElement).style.width).not.toBe(""));

@@ -4,15 +4,17 @@ import { ArrowUpRight, CalendarDays, Check, Circle, Plus, Search, Trash2 } from 
 import { Link } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import { createId, db, localDateKey, type SchoolTask, type TaskPriority, type TaskSubtask } from "../data/db";
+import { matchesSubject } from "../data/subjects";
 
 type TaskFilter = "all" | "open" | "completed";
 
-export function TasksPage() {
+export function TasksPage({ subjectFilter: sharedSubjectFilter }: { subjectFilter?: string }) {
   const { t, i18n } = useTranslation();
   const tasks = useLiveQuery(() => db.tasks.toArray(), [], []);
   const subjects = useLiveQuery(() => db.subjects.toArray(), [], []);
   const [filter, setFilter] = useState<TaskFilter>("open");
-  const [subjectFilter, setSubjectFilter] = useState("");
+  const [localSubjectFilter, setLocalSubjectFilter] = useState("");
+  const subjectFilter = sharedSubjectFilter ?? localSubjectFilter;
   const [query, setQuery] = useState("");
   const [formOpen, setFormOpen] = useState(false);
   const [editingId, setEditingId] = useState("");
@@ -27,7 +29,7 @@ export function TasksPage() {
 
   const visibleTasks = useMemo(() => tasks
     .filter((task) => filter === "all" || (filter === "completed" ? task.completed : !task.completed))
-    .filter((task) => !subjectFilter || task.subjectId === subjectFilter)
+    .filter((task) => matchesSubject(task.subjectId, subjectFilter))
     .filter((task) => !query.trim() || `${task.title} ${task.description} ${task.tags.join(" ")}`.toLocaleLowerCase().includes(query.trim().toLocaleLowerCase()))
     .sort((a, b) => Number(a.completed) - Number(b.completed) || a.dueDate.localeCompare(b.dueDate) || (a.dueTime ?? "").localeCompare(b.dueTime ?? "")), [filter, query, subjectFilter, tasks]);
 
@@ -133,10 +135,11 @@ export function TasksPage() {
 
       <div className="feature-toolbar">
         <div className="feature-search"><Search size={14} /><input aria-label={t("tasks.search")} onChange={(event) => setQuery(event.target.value)} placeholder={t("tasks.search")} value={query} /></div>
-        <select aria-label={t("tasks.subjectFilter")} onChange={(event) => setSubjectFilter(event.target.value)} value={subjectFilter}>
+        {sharedSubjectFilter === undefined && <select aria-label={t("tasks.subjectFilter")} onChange={(event) => setLocalSubjectFilter(event.target.value)} value={subjectFilter}>
           <option value="">{t("tasks.allSubjects")}</option>
+          <option value="__no_subject__">{t("docs.noSubjectFilter")}</option>
           {subjects.map((subject) => <option key={subject.id} value={subject.id}>{subject.name}</option>)}
-        </select>
+        </select>}
         <div aria-label={t("tasks.filters")} className="segmented-control">
           {(["open", "all", "completed"] as TaskFilter[]).map((value) => (
             <button aria-pressed={filter === value} className={filter === value ? "is-selected" : ""} key={value} onClick={() => setFilter(value)} type="button">{t(`tasks.filter.${value}`)} <span>{counts[value]}</span></button>

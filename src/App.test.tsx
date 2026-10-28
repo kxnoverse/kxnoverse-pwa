@@ -76,6 +76,7 @@ describe("Kxno Desk shell", () => {
       background: "#10161b",
       backgroundStyle: "chrome",
     });
+
     expect(document.querySelector(".background-layer--chrome")).toBeInTheDocument();
     expect(screen.getByRole("time")).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "Today’s schedule" })).toBeInTheDocument();
@@ -94,6 +95,19 @@ describe("Kxno Desk shell", () => {
       ),
     );
     expect(await screen.findByRole("heading", { name: "Timetable" }, { timeout: 5000 })).toBeInTheDocument();
+  });
+
+  it("keeps legacy task and note URLs working inside Docs", async () => {
+    window.location.hash = "#/tasks";
+    const first = render(<App />);
+    expect(await screen.findByRole("heading", { name: "Tasks" })).toBeInTheDocument();
+    expect(window.location.hash).toContain("/docs?section=tasks");
+
+    first.unmount();
+    window.location.hash = "#/notes";
+    render(<App />);
+    expect(await screen.findByRole("heading", { name: "Notes" })).toBeInTheDocument();
+    expect(window.location.hash).toContain("/docs?section=notes");
   });
 
   it("loads the new arcade strings from both offline language bundles", async () => {
@@ -902,8 +916,9 @@ describe("Kxno Desk shell", () => {
     expect(navNames.indexOf("Assistant")).toBe(navNames.indexOf("Timetable") + 1);
     expect(navNames).not.toContain("Kxno Solve");
     expect(navNames).toContain("Workspace");
-    expect(navNames.indexOf("Tasks")).toBe(navNames.indexOf("Assistant") + 1);
-    expect(navNames.indexOf("Timer")).toBe(navNames.indexOf("Notes") - 1);
+    expect(navNames).not.toContain("Tasks");
+    expect(navNames).not.toContain("Notes");
+    expect(navNames).toContain("Docs");
 
     await user.click(screen.getByRole("link", { name: "Settings" }));
 
@@ -1464,7 +1479,8 @@ describe("Kxno Desk shell", () => {
   it("creates and edits tasks, calendar events, and autosaved notes locally", async () => {
     const user = userEvent.setup();
     render(<App />);
-    await user.click(within(screen.getByRole("navigation", { name: "Main navigation" })).getByRole("link", { name: "Tasks" }));
+    await user.click(within(screen.getByRole("navigation", { name: "Main navigation" })).getByRole("link", { name: "Docs" }));
+    await user.click(await screen.findByRole("button", { name: "Tasks" }));
     await screen.findByRole("heading", { name: "Tasks", level: 1 });
     await user.click(screen.getAllByRole("button", { name: "Add task" })[0]);
     await user.type(screen.getByRole("textbox", { name: "Task" }), "Finish worksheet");
@@ -1480,7 +1496,8 @@ describe("Kxno Desk shell", () => {
     await user.click(screen.getByRole("button", { name: "Save" }));
     expect(await db.calendarEvents.toCollection().first()).toMatchObject({ title: "Biology exam", type: "exam" });
 
-    await user.click(screen.getByRole("link", { name: "Notes" }));
+    await user.click(within(screen.getByRole("navigation", { name: "Main navigation" })).getByRole("link", { name: "Docs" }));
+    await user.click(await screen.findByRole("button", { name: "Notes" }));
     await user.click((await screen.findAllByRole("button", { name: "New note" }))[0]);
     fireEvent.change(await screen.findByRole("textbox", { name: "Note title" }), { target: { value: "Cell structure" } });
     await user.type(screen.getByRole("textbox", { name: "Note content" }), "Mitochondria produce energy.");

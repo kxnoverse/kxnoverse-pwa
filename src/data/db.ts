@@ -216,6 +216,7 @@ export interface WorkspaceRecord {
 export interface SchoolDocument {
   id: string;
   title: string;
+  subjectId?: string;
   createdAt: number;
   updatedAt: number;
   paperSize: "A4";
@@ -259,6 +260,7 @@ export interface PdfAnnotation {
 export interface PdfProject {
   id: string;
   title: string;
+  subjectId?: string;
   sourceFileId: string;
   pageCount: number;
   createdAt: number;

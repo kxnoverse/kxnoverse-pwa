@@ -4,7 +4,7 @@ import {
   MousePointer2, Pencil, Redo2, Trash2, Type, Undo2, ZoomIn, ZoomOut,
 } from "lucide-react";
 import { useTranslation } from "react-i18next";
-import type { PdfAnnotation, PdfProject } from "../data/db";
+import type { PdfAnnotation, PdfProject, Subject } from "../data/db";
 import { db } from "../data/db";
 import { buildAnnotatedPdf, loadPdfJs, normalizePdfPoint } from "../data/docs-pdf";
 import { downloadBlob, safeFilename } from "../data/docs-export";
@@ -16,6 +16,7 @@ type RenderSize = { width: number; height: number; scale: number };
 type DragState = { id: string; start: Point; original: PdfAnnotation; moveHandle?: boolean };
 type Props = {
   project: PdfProject;
+  subjects: Subject[];
   onProjectChange: (project: PdfProject) => Promise<void>;
   onBack: () => void;
 };
@@ -157,7 +158,7 @@ function annotationHit(annotation: PdfAnnotation, point: Point): boolean {
   return (annotation.points ?? []).some((segment) => Math.hypot(segment.x - point.x, segment.y - point.y) < 0.025);
 }
 
-export function PdfAnnotationWorkspace({ project, onProjectChange, onBack }: Props) {
+export function PdfAnnotationWorkspace({ project, subjects, onProjectChange, onBack }: Props) {
   const { t } = useTranslation();
   const [localProject, setLocalProject] = useState(project);
   const [sourceName, setSourceName] = useState("");
@@ -165,7 +166,7 @@ export function PdfAnnotationWorkspace({ project, onProjectChange, onBack }: Pro
   const [page, setPage] = useState(1);
   const [zoom, setZoom] = useState(1);
   const [tool, setTool] = useState<Tool>("select");
-  const [color, setColor] = useState("#e6bc62");
+  const [color, setColor] = useState("#000000");
   const [selectedId, setSelectedId] = useState("");
   const [editingTextId, setEditingTextId] = useState("");
   const [placingTextBox, setPlacingTextBox] = useState(false);
@@ -188,7 +189,11 @@ export function PdfAnnotationWorkspace({ project, onProjectChange, onBack }: Pro
   const projectRef = useRef(localProject);
   projectRef.current = localProject;
 
-  useEffect(() => setLocalProject(project), [project]);
+  useEffect(() => {
+    setLocalProject(project);
+    projectRef.current = project;
+  }, [project]);
+
   useEffect(() => {
     if (editingTextId) textBoxRef.current?.focus();
   }, [editingTextId]);
@@ -365,6 +370,16 @@ export function PdfAnnotationWorkspace({ project, onProjectChange, onBack }: Pro
       return;
     }
     if (placingTextBox) {
+      const hit = [...pageAnnotations].reverse().find((annotation) =>
+        annotation.type === "text" && annotationHit(annotation, point)
+      );
+      if (hit) {
+        setSelectedId(hit.id);
+        setEditingTextId("");
+        drag.current = { id: hit.id, start: point, original: hit };
+        setDragPreview(point);
+        return;
+      }
       const annotation: PdfAnnotation = {
         id: crypto.randomUUID(),
         page,
@@ -382,7 +397,6 @@ export function PdfAnnotationWorkspace({ project, onProjectChange, onBack }: Pro
         size.width,
         annotation.x,
       ) / size.width;
-      setPlacingTextBox(false);
       setEditingTextId(annotation.id);
       commitAnnotations([...projectRef.current.annotations, annotation], annotation.id);
       return;
@@ -497,6 +511,21 @@ export function PdfAnnotationWorkspace({ project, onProjectChange, onBack }: Pro
             <span>{sourceName}</span>
           </div>
         </div>
+        <label className="pdf-workspace__subject">
+          <span>{t("docs.subject")}</span>
+          <select
+            aria-label={t("docs.subject")}
+            value={localProject.subjectId ?? ""}
+            onChange={(event) => {
+              const next = { ...localProject, subjectId: event.target.value || undefined, updatedAt: Date.now() };
+              setLocalProject(next);
+              void persist(next);
+            }}
+          >
+            <option value="">{t("docs.noSubject")}</option>
+            {subjects.map((subject) => <option key={subject.id} value={subject.id}>{subject.name}</option>)}
+          </select>
+        </label>
         <div className="pdf-workspace__status" role="status">{status}</div>
         <div className="pdf-workspace__header-actions">
           <button type="button" className="pdf-workspace__export" disabled={busy} onClick={() => void exportPdf()}><Download size={14} />{t("docs.pdfExport")}</button>
@@ -506,7 +535,7 @@ export function PdfAnnotationWorkspace({ project, onProjectChange, onBack }: Pro
         <div className="pdf-workspace__tool-group">
           <button
             type="button"
-            aria-label={t("docs.pdfAddTextBox")}
+            aria-label={t("docs.pdfTextSelect")}
             aria-pressed={placingTextBox}
             className={placingTextBox ? "is-active" : ""}
             onClick={() => {
@@ -515,9 +544,9 @@ export function PdfAnnotationWorkspace({ project, onProjectChange, onBack }: Pro
               setPlacingTextBox(true);
             }}
           >
-            <Type size={15} /><span>{t("docs.pdfAddTextBox")}</span>
+            <Type size={15} /><span>{t("docs.pdfTextSelect")}</span>
           </button>
-          {tools.map(({ id, icon: Icon, label }) => (
+          {tools.filter(({ id }) => id !== "select").map(({ id, icon: Icon, label }) => (
             <button key={id} type="button" aria-label={label} aria-pressed={tool === id} className={tool === id ? "is-active" : ""} onClick={() => {
               setEditingTextId("");
               setPlacingTextBox(false);

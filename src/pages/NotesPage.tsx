@@ -3,8 +3,9 @@ import { useLiveQuery } from "dexie-react-hooks";
 import { FilePlus2, Pin, Search, Trash2 } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { createId, db, type SchoolNote } from "../data/db";
+import { matchesSubject } from "../data/subjects";
 
-export function NotesPage() {
+export function NotesPage({ subjectFilter }: { subjectFilter?: string }) {
   const { t, i18n } = useTranslation();
   const notes = useLiveQuery(() => db.notes.orderBy("updatedAt").reverse().toArray(), [], []);
   const subjects = useLiveQuery(() => db.subjects.toArray(), [], []);
@@ -16,11 +17,11 @@ export function NotesPage() {
   const [subjectDraft, setSubjectDraft] = useState("");
   const [preview, setPreview] = useState(false);
   const [saveState, setSaveState] = useState<"saved" | "saving" | "error">("saved");
-  const activeNote = notes.find((note) => note.id === activeId) ?? notes[0];
-
   const filteredNotes = useMemo(() => notes
+    .filter((note) => subjectFilter === undefined || matchesSubject(note.subjectId, subjectFilter))
     .filter((note) => !query.trim() || `${note.title} ${note.content} ${note.folder}`.toLocaleLowerCase().includes(query.trim().toLocaleLowerCase()))
-    .sort((a, b) => Number(b.pinned) - Number(a.pinned) || b.updatedAt - a.updatedAt), [notes, query]);
+    .sort((a, b) => Number(b.pinned) - Number(a.pinned) || b.updatedAt - a.updatedAt), [notes, query, subjectFilter]);
+  const activeNote = filteredNotes.find((note) => note.id === activeId) ?? filteredNotes[0];
 
   useEffect(() => {
     if (!activeNote) return;

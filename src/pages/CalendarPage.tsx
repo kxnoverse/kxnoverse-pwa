@@ -297,7 +297,7 @@ export function CalendarPage() {
                   <button aria-label={t("calendar.deleteEvent", { title: event.title })} className="icon-button icon-button--small" onClick={() => void deleteEvent(event)} type="button"><Trash2 size={13} /></button>
                 </article>
               ))}
-              {selectedTasks.map((task) => <article className={`agenda-item agenda-item--task${task.completed ? " is-complete" : ""}`} key={task.id}><i /><Link className="agenda-item__main" to="/tasks"><strong>{task.title}</strong><span>{task.completed ? t("tasks.filter.completed") : task.dueTime ?? t("calendar.deadline")}</span></Link></article>)}
+              {selectedTasks.map((task) => <article className={`agenda-item agenda-item--task${task.completed ? " is-complete" : ""}`} key={task.id}><i /><Link className="agenda-item__main" to="/docs?section=tasks"><strong>{task.title}</strong><span>{task.completed ? t("tasks.filter.completed") : task.dueTime ?? t("calendar.deadline")}</span></Link></article>)}
             </div>
           )}
           <button className="button button--quiet calendar-agenda__add" onClick={openCreateForm} type="button"><Plus size={13} />{t("calendar.addEvent")}</button>

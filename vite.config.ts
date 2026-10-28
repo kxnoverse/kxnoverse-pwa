@@ -15,6 +15,17 @@ export default defineConfig(({ mode }) => {
     : "/";
   return {
     base: basePath,
+    build: {
+      rollupOptions: {
+        output: {
+          manualChunks(id: string) {
+            if (id.includes("/node_modules/@tiptap/") || id.includes("/node_modules/prosemirror/")) {
+              return "docs-editor-core";
+            }
+          },
+        },
+      },
+    },
     plugins: [
       react(),
       tailwindcss(),

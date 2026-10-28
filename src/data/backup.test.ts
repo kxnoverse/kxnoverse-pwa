@@ -5,6 +5,7 @@ import { Blob as NodeBlob } from "node:buffer";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { exportDataBackup, importDataBackup } from "./backup";
 import { db } from "./db";
+import { createSchoolDocument } from "./docs";
 import { defaultAppearance } from "../stores/ui-store";
 import { i18nReady } from "../i18n";
 
@@ -175,6 +176,7 @@ describe("local data safety", () => {
       description: "",
       dueDate: "2026-10-26",
       priority: "normal",
+      subjectId: "subject",
       category: "Homework",
       tags: [],
       subtasks: [],
@@ -272,6 +274,7 @@ describe("local data safety", () => {
     await db.documents.add({
       id: "document-one",
       title: "Biology report",
+      subjectId: "subject",
       createdAt: 10,
       updatedAt: 11,
       paperSize: "A4",
@@ -306,6 +309,7 @@ describe("local data safety", () => {
     await db.pdfProjects.add({
       id: "pdf-project-one",
       title: "Worksheet",
+      subjectId: "subject",
       sourceFileId: "pdf-original-one",
       pageCount: 2,
       createdAt: 13,
@@ -376,6 +380,7 @@ describe("local data safety", () => {
     expect(restored.pdfProjects).toEqual({ added: 1, skipped: 0 });
     expect(await db.pdfProjects.get("pdf-project-one")).toMatchObject({
       sourceFileId: "pdf-original-one",
+      subjectId: "subject",
       annotations: [{ text: "Answer", page: 1 }],
     });
     expect((await db.files.get("pdf-original-one"))?.blob.type).toBe("application/pdf");
@@ -386,6 +391,26 @@ describe("local data safety", () => {
     expect(await db.settings.get("schoolState")).toEqual({ key: "schoolState", value: "NW" });
     expect(JSON.parse(localStorage.getItem("kxnodesk-ui") ?? "{}").state.appearance.accent).toBe("#112233");
     expect(localStorage.getItem("kxnodesk-language")).toBe("de");
+  });
+
+  it("imports older document backups without subject metadata", async () => {
+    await db.open();
+    await db.documents.add(createSchoolDocument("Legacy document", 1));
+    const backup = await exportDataBackup();
+    const parsed = JSON.parse(await blobAsFile(backup).text()) as {
+      format: string;
+      schemaVersion: number;
+      data: Record<string, Array<Record<string, unknown>>>;
+      preferences: Record<string, string>;
+    };
+    delete parsed.data.documents[0].subjectId;
+
+    await db.documents.clear();
+    const restored = await importDataBackup(blobAsFile(new Blob([JSON.stringify(parsed)], { type: "application/json" })));
+
+    expect(restored.documents).toEqual({ added: 1, skipped: 0 });
+    expect(await db.documents.get(parsed.data.documents[0].id as string)).toMatchObject({ title: "Legacy document" });
+    expect((await db.documents.get(parsed.data.documents[0].id as string))?.subjectId).toBeUndefined();
   });
 
   it("rejects invalid backups before changing existing local records", async () => {

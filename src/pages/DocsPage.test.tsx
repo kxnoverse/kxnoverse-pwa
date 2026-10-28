@@ -22,8 +22,8 @@ vi.mock("./PdfAnnotationWorkspace", () => ({
   ),
 }));
 
-function renderDocsPage() {
-  return render(<MemoryRouter><DocsPage /></MemoryRouter>);
+function renderDocsPage(initialEntry = "/docs") {
+  return render(<MemoryRouter initialEntries={[initialEntry]}><DocsPage /></MemoryRouter>);
 }
 
 describe("Kxno Docs editor", () => {
@@ -234,5 +234,80 @@ describe("Kxno Docs editor", () => {
     });
     expect(await screen.findAllByText("Your documents will appear here.")).not.toHaveLength(0);
     expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+  });
+
+  it("switches between the Documents, Notes, and Tasks sections", async () => {
+    const user = userEvent.setup();
+    renderDocsPage();
+
+    await user.click(screen.getByRole("button", { name: "Notes" }));
+    expect(await screen.findByRole("heading", { name: "Notes" })).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Tasks" }));
+    expect(await screen.findByRole("heading", { name: "Tasks" })).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Documents" }));
+    expect(await screen.findAllByText("Your documents will appear here.")).not.toHaveLength(0);
+  });
+
+  it("filters notes by a subject or by no subject", async () => {
+    const subject = { id: "history", name: "History", color: "#8da9c0" };
+    await db.subjects.add(subject);
+    await db.notes.bulkAdd([
+      { id: "assigned", title: "Assigned note", content: "", folder: "History", subjectId: subject.id, pinned: false, createdAt: 1, updatedAt: 1 },
+      { id: "unassigned", title: "Unassigned note", content: "", folder: "Inbox", pinned: false, createdAt: 2, updatedAt: 2 },
+    ]);
+    const user = userEvent.setup();
+    renderDocsPage("/docs?section=notes");
+
+    const filter = await screen.findByRole("combobox", { name: "Filter by subject" });
+    await waitFor(() => expect(filter.querySelector(`option[value="${subject.id}"]`)).not.toBeNull());
+    await user.selectOptions(filter, subject.id);
+    expect(await screen.findByRole("button", { name: /Assigned note/ })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /Unassigned note/ })).not.toBeInTheDocument();
+    await user.selectOptions(filter, "__no_subject__");
+    expect(await screen.findByRole("button", { name: /Unassigned note/ })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /Assigned note/ })).not.toBeInTheDocument();
+  });
+
+  it("filters tasks by the same subject selector while preserving task status", async () => {
+    const subject = { id: "science", name: "Science", color: "#8da9c0" };
+    await db.subjects.add(subject);
+    await db.tasks.bulkAdd([
+      { id: "assigned", title: "Assigned task", description: "", dueDate: "2099-12-01", priority: "normal", subjectId: subject.id, category: "Homework", tags: [], subtasks: [], completed: false, createdAt: 1, updatedAt: 1 },
+      { id: "unassigned", title: "Unassigned task", description: "", dueDate: "2099-12-02", priority: "high", category: "Homework", tags: [], subtasks: [], completed: true, createdAt: 2, updatedAt: 2 },
+    ]);
+    const user = userEvent.setup();
+    renderDocsPage("/docs?section=tasks");
+
+    const filter = await screen.findByRole("combobox", { name: "Filter by subject" });
+    await waitFor(() => expect(filter.querySelector(`option[value="${subject.id}"]`)).not.toBeNull());
+    await user.selectOptions(filter, subject.id);
+    expect(await screen.findByRole("button", { name: "Assigned task" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Unassigned task" })).not.toBeInTheDocument();
+  });
+
+  it("assigns an existing Docs document to a subject without replacing it", async () => {
+    const document = await createDocument("Subject document");
+    await db.subjects.add({ id: "chemistry", name: "Chemistry", color: "#8da9c0" });
+    const user = userEvent.setup();
+    renderDocsPage();
+
+    const subjectSelect = await screen.findByRole("combobox", { name: "Subject" });
+    await user.selectOptions(subjectSelect, "chemistry");
+    await waitFor(async () => expect((await db.documents.get(document.id))?.subjectId).toBe("chemistry"));
+    expect(await db.documentContents.get(document.id)).toMatchObject({ id: document.id, plainText: "" });
+  });
+
+  it("creates and renames subjects in the unified Docs area", async () => {
+    const user = userEvent.setup();
+    renderDocsPage();
+    await user.click(screen.getByRole("button", { name: "Manage subjects" }));
+    await user.type(screen.getByRole("textbox", { name: "New subject" }), "Chemistry");
+    await user.click(screen.getByRole("button", { name: "Add subject" }));
+    expect(await db.subjects.where("name").equals("Chemistry").count()).toBe(1);
+
+    await user.clear(screen.getByRole("textbox", { name: "Rename Chemistry" }));
+    await user.type(screen.getByRole("textbox", { name: "Rename Chemistry" }), "Chemistry II");
+    await user.click(screen.getByRole("button", { name: "Save" }));
+    expect(await db.subjects.where("name").equals("Chemistry II").count()).toBe(1);
   });
 });
