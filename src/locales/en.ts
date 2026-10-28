@@ -104,7 +104,7 @@ export default {
         answer: "Answer",
         positioned: "Overlay on page {{page}}",
         answerSheet: "Separate answer sheet",
-        invalidResponse: "The AI returned an unreadable answer format. Try again with a simpler worksheet.",
+        invalidResponse: "The AI response did not contain usable answers, so nothing was guessed or exported. Try a simpler worksheet.",
         failed: "The worksheet could not be analyzed. Check the PDF and AI service, then retry.",
         cancelled: "Analysis cancelled.",
         exportFailed: "The solved copy could not be created. Check that the PDF is valid and try again.",

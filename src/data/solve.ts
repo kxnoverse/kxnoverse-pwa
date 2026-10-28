@@ -44,36 +44,147 @@ function parsePlacement(value: unknown): SolvePlacement | undefined {
   return { x, y, width, height, confidence };
 }
 
+function parseJsonCandidates(text: string): unknown[] {
+  const candidates: unknown[] = [];
+  const addCandidate = (candidate: string) => {
+    try {
+      candidates.push(JSON.parse(candidate) as unknown);
+    } catch {
+      // Other response segments may still contain valid JSON.
+    }
+  };
+  const trimmed = text.trim().replace(/^\uFEFF/, "");
+  if (trimmed) addCandidate(trimmed);
+
+  for (const match of trimmed.matchAll(/```(?:json)?\s*([\s\S]*?)```/gi)) {
+    addCandidate(match[1]);
+  }
+
+  let start = -1;
+  const stack: string[] = [];
+  let inString = false;
+  let escaped = false;
+  for (let index = 0; index < trimmed.length; index += 1) {
+    const character = trimmed[index];
+    if (inString) {
+      if (escaped) escaped = false;
+      else if (character === "\\") escaped = true;
+      else if (character === "\"") inString = false;
+      continue;
+    }
+    if (character === "\"") {
+      inString = true;
+      continue;
+    }
+    if (character === "{" || character === "[") {
+      if (!stack.length) start = index;
+      stack.push(character);
+      continue;
+    }
+    if (character !== "}" && character !== "]") continue;
+    const opening = stack.pop();
+    if ((character === "}" && opening !== "{") || (character === "]" && opening !== "[")) {
+      stack.length = 0;
+      start = -1;
+      continue;
+    }
+    if (!stack.length && start >= 0) {
+      addCandidate(trimmed.slice(start, index + 1));
+      start = -1;
+    }
+  }
+  return candidates;
+}
+
+function extractText(value: unknown): string | undefined {
+  if (typeof value === "string") return value.trim() ? value : undefined;
+  if (!Array.isArray(value)) return undefined;
+  const parts = value
+    .map((part) => {
+      if (typeof part === "string") return part;
+      if (!isRecord(part) || (part.type !== undefined && part.type !== "text")) return "";
+      return typeof part.text === "string" ? part.text : "";
+    })
+    .filter(Boolean);
+  return parts.length ? parts.join("\n") : undefined;
+}
+
+function extractAnswers(value: unknown, depth = 0): unknown[] | undefined {
+  if (depth > 5) return undefined;
+  if (typeof value === "string") {
+    for (const candidate of parseJsonCandidates(value)) {
+      const answers = extractAnswers(candidate, depth + 1);
+      if (answers) return answers;
+    }
+    return undefined;
+  }
+  if (Array.isArray(value)) {
+    if (value.length > 0 && value.every((item) => isRecord(item) &&
+      ["answer", "solution", "result"].some((key) => key in item))) {
+      return value;
+    }
+    const text = extractText(value);
+    if (text) return extractAnswers(text, depth + 1);
+    for (const item of value) {
+      const answers = extractAnswers(item, depth + 1);
+      if (answers) return answers;
+    }
+    return undefined;
+  }
+  if (!isRecord(value)) return undefined;
+
+  for (const key of ["answers", "solutions", "results", "exercises", "items"]) {
+    if (Array.isArray(value[key])) return value[key] as unknown[];
+  }
+  if (Array.isArray(value.choices)) {
+    const firstChoice = value.choices[0];
+    const answers = extractAnswers(firstChoice, depth + 1);
+    if (answers) return answers;
+  }
+
+  for (const key of ["message", "content", "output_text", "output", "data", "result", "response"]) {
+    if (!(key in value)) continue;
+    const nested = value[key];
+    const text = extractText(nested);
+    const answers = text ? extractAnswers(text, depth + 1) : extractAnswers(nested, depth + 1);
+    if (answers) return answers;
+  }
+  return undefined;
+}
+
 export function parseSolveResponse(text: string, pageCount: number): SolveAnswer[] {
-  const start = text.indexOf("{");
-  const end = text.lastIndexOf("}");
-  if (start < 0 || end <= start) throw new Error("invalidResponse");
-
-  let payload: unknown;
-  try {
-    payload = JSON.parse(text.slice(start, end + 1));
-  } catch {
-    throw new Error("invalidResponse");
-  }
-  if (!isRecord(payload) || !Array.isArray(payload.answers) || payload.answers.length === 0 || payload.answers.length > MAX_ANSWERS) {
+  const answers = parseJsonCandidates(text)
+    .map((candidate) => extractAnswers(candidate))
+    .find((candidate): candidate is unknown[] => candidate !== undefined);
+  if (!answers || answers.length === 0 || answers.length > MAX_ANSWERS) {
     throw new Error("invalidResponse");
   }
 
-  return payload.answers.map((item, index) => {
-    if (!isRecord(item) || typeof item.answer !== "string" || !item.answer.trim() || item.answer.length > MAX_ANSWER_LENGTH) {
+  return answers.map((item, index) => {
+    if (!isRecord(item)) throw new Error("invalidResponse");
+    const answerValue = item.answer ?? item.solution ?? item.result;
+    const answer = typeof answerValue === "string"
+      ? answerValue
+      : typeof answerValue === "number" && Number.isFinite(answerValue)
+        ? String(answerValue)
+        : "";
+    if (!answer.trim() || answer.length > MAX_ANSWER_LENGTH) {
       throw new Error("invalidResponse");
     }
-    const question = typeof item.question === "string" && item.question.trim()
-      ? item.question.trim().slice(0, MAX_ANSWER_LENGTH)
+    const questionValue = item.question ?? item.exercise ?? item.prompt ?? item.label;
+    const question = typeof questionValue === "string" && questionValue.trim()
+      ? questionValue.trim().slice(0, MAX_ANSWER_LENGTH)
       : `Exercise ${index + 1}`;
-    const page = Number.isInteger(item.page) && Number(item.page) >= 1 && Number(item.page) <= pageCount
-      ? Number(item.page)
+    const pageValue = item.page ?? item.page_number;
+    const pageNumber = typeof pageValue === "string" && /^\d+$/.test(pageValue) ? Number(pageValue) : pageValue;
+    const page = Number.isInteger(pageNumber) && Number(pageNumber) >= 1 && Number(pageNumber) <= pageCount
+      ? Number(pageNumber)
       : null;
-    const placement = page === null ? undefined : parsePlacement(item.placement);
+    const placement = page === null ? undefined : parsePlacement(item.placement ?? item.coordinates);
     return {
       id: `answer-${index + 1}`,
       question,
-      answer: item.answer.trim(),
+      answer: answer.trim(),
       page,
       ...(placement ? { placement } : {}),
     };

@@ -104,7 +104,7 @@ export default {
         answer: "Antwort",
         positioned: "Einblendung auf Seite {{page}}",
         answerSheet: "Separates Lösungsblatt",
-        invalidResponse: "Die KI hat ein unlesbares Antwortformat geliefert. Versuche ein einfacheres Arbeitsblatt.",
+        invalidResponse: "Die KI-Antwort enthielt keine verwendbaren Lösungen. Es wurde nichts geraten oder exportiert. Versuche ein einfacheres Arbeitsblatt.",
         failed: "Das Arbeitsblatt konnte nicht analysiert werden. Prüfe PDF und KI-Dienst und versuche es erneut.",
         cancelled: "Analyse abgebrochen.",
         exportFailed: "Die Lösungskopie konnte nicht erstellt werden. Prüfe das PDF und versuche es erneut.",
