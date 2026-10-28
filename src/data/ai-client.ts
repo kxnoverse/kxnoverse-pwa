@@ -78,6 +78,7 @@ export interface AssistantClient {
       signal: AbortSignal;
       onToken: (token: string) => void;
       onProgress: (percent: number) => void;
+      onProviderRequest?: () => void;
     },
   ): Promise<void>;
   testConnection(endpoint: string | undefined, turnstileToken: string): Promise<void>;
@@ -162,7 +163,11 @@ function dispatchEvent(segment: string, onEvent: (event: ServerEvent) => void) {
   if (data.length) onEvent({ event, data: data.join("\n") });
 }
 
-function parseServerEvent(event: ServerEvent, onToken: (token: string) => void): boolean {
+function parseServerEvent(
+  event: ServerEvent,
+  onToken: (token: string) => void,
+  onProviderRequest?: () => void,
+): boolean {
   let payload: { text?: unknown; error?: unknown };
   try {
     payload = JSON.parse(event.data) as { text?: unknown; error?: unknown };
@@ -170,6 +175,7 @@ function parseServerEvent(event: ServerEvent, onToken: (token: string) => void):
     throw new AssistantServiceError("requestFailed");
   }
   if (event.event === "token" && typeof payload.text === "string") onToken(payload.text);
+  if (event.event === "provider_request") onProviderRequest?.();
   if (event.event === "error") {
     if (payload.error === "provider_unavailable") throw new AssistantServiceError("providerUnavailable");
     throw new AssistantServiceError("requestFailed");
@@ -267,7 +273,7 @@ export const assistantClient: AssistantClient = {
       let completed = false;
       let settled = false;
       const consume = (event: ServerEvent) => {
-        if (parseServerEvent(event, options.onToken)) completed = true;
+        if (parseServerEvent(event, options.onToken, options.onProviderRequest)) completed = true;
       };
       const consumeResponse = (text: string) => {
         eventBuffer += text.slice(readPosition);

@@ -63,7 +63,7 @@ describe("assistant attachments and streaming client", () => {
       send(body: string) {
         this.body = body;
         this.upload.onprogress?.({ lengthComputable: true, loaded: 50, total: 100 } as ProgressEvent);
-        this.responseText = 'event: token\ndata: {"text":"OK"}\n\nevent: done\ndata: {}\n\n';
+        this.responseText = 'event: provider_request\ndata: {"count":1}\n\nevent: token\ndata: {"text":"OK"}\n\nevent: done\ndata: {}\n\n';
         this.onprogress?.();
         this.onload?.();
       }
@@ -79,6 +79,7 @@ describe("assistant attachments and streaming client", () => {
     vi.stubGlobal("XMLHttpRequest", TestXhr);
     const tokens: string[] = [];
     const progress: number[] = [];
+    let providerRequests = 0;
 
     await assistantClient.send({
       endpoint: "https://worker.example.test",
@@ -92,10 +93,12 @@ describe("assistant attachments and streaming client", () => {
       signal: new AbortController().signal,
       onToken: (token) => tokens.push(token),
       onProgress: (value) => progress.push(value),
+      onProviderRequest: () => { providerRequests += 1; },
     });
 
     expect(tokens).toEqual(["OK"]);
     expect(progress).toEqual([50]);
+    expect(providerRequests).toBe(1);
     expect(JSON.parse(xhr!.body)).toMatchObject({
       turnstileToken: "valid-turnstile-token",
       model: "openrouter/free",

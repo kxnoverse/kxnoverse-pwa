@@ -245,7 +245,14 @@ function extractAssistantText(content: unknown): string | undefined {
   return text.trim() ? text : undefined;
 }
 
-async function callOpenRouter(apiKey: string, origin: string, model: string, request: ChatRequest, signal: AbortSignal): Promise<string> {
+async function callOpenRouter(
+  apiKey: string,
+  origin: string,
+  model: string,
+  request: ChatRequest,
+  signal: AbortSignal,
+  onProviderRequest: () => void,
+): Promise<string> {
   const userContent = [
     { type: "text", text: request.message },
     ...request.attachments.map((attachment) => attachment.mimeType === "application/pdf"
@@ -262,6 +269,7 @@ async function callOpenRouter(apiKey: string, origin: string, model: string, req
         }),
   ];
   const includesPdf = request.attachments.some((attachment) => attachment.mimeType === "application/pdf");
+  onProviderRequest();
   const result = await fetch("https://openrouter.ai/api/v1/chat/completions", {
     method: "POST",
     headers: {
@@ -290,14 +298,26 @@ async function callOpenRouter(apiKey: string, origin: string, model: string, req
   return answer.slice(0, 24_000);
 }
 
-async function generateAnswer(env: Environment, origin: string, request: ChatRequest, signal: AbortSignal): Promise<string> {
+async function generateAnswer(
+  env: Environment,
+  origin: string,
+  request: ChatRequest,
+  signal: AbortSignal,
+  onProviderRequest: () => void,
+): Promise<string> {
   if (!isModelEnabled(env, request.model)) throw new Error("The selected model is not enabled by the backend.");
   if (env.AI_PROVIDER !== "openrouter" || !env.OPENROUTER_API_KEY) throw new Error("The provider is not configured.");
-  return callOpenRouter(env.OPENROUTER_API_KEY, origin, request.model, request, signal);
+  return callOpenRouter(env.OPENROUTER_API_KEY, origin, request.model, request, signal, onProviderRequest);
 }
 
-export async function* generateAnswerStream(env: Environment, origin: string, request: ChatRequest, signal: AbortSignal): AsyncGenerator<string> {
-  yield await generateAnswer(env, origin, request, signal);
+export async function* generateAnswerStream(
+  env: Environment,
+  origin: string,
+  request: ChatRequest,
+  signal: AbortSignal,
+  onProviderRequest: () => void = () => undefined,
+): AsyncGenerator<string> {
+  yield await generateAnswer(env, origin, request, signal, onProviderRequest);
 }
 
 type ProviderTestStage = "configuration" | "network" | "http" | "response_body" | "response_json" | "response_content";
@@ -563,7 +583,13 @@ export default {
         const send = (event: string, data: unknown) => controller.enqueue(encoder.encode(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`));
         void (async () => {
           try {
-            for await (const text of generateAnswerStream(env, allowedOrigin, chatPayload, streamAbort!.signal)) {
+            for await (const text of generateAnswerStream(
+              env,
+              allowedOrigin,
+              chatPayload,
+              streamAbort!.signal,
+              () => send("provider_request", { count: 1 }),
+            )) {
               send("token", { text });
             }
             send("done", {});

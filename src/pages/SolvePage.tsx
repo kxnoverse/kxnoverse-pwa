@@ -7,7 +7,13 @@ import { TurnstileChallenge } from "../components/TurnstileChallenge";
 import { assistantAttachmentToBase64, assistantClient, AssistantServiceError, validateAssistantAttachmentContent } from "../data/ai-client";
 import { readBlobAsArrayBuffer } from "../data/blob-utils";
 import { db } from "../data/db";
-import { createSolvedPdf, getPdfPageCount, parseSolveResponse, type SolveAnswer } from "../data/solve";
+import {
+  createSolvedPdf,
+  getPdfPageCount,
+  parseSolveResponse,
+  SolveResponseError,
+  type SolveAnalysis,
+} from "../data/solve";
 
 const MAX_PDF_SIZE = 10 * 1024 * 1024;
 const ASSISTANT_PRESET = {
@@ -16,24 +22,34 @@ const ASSISTANT_PRESET = {
   length: "medium",
   depth: "guided",
   language: "auto",
-  instructions: "For PDF exercise sheets, solve only simple, repetitive exercises. Be accurate and concise. Do not invent text or answers where the document is unclear.",
+  instructions: "For PDF exercise sheets, account for every readable question, including longer responses. Do not invent text or answers; mark genuinely unclear items unanswered with a reason.",
 };
 
 function solvePrompt(language: string, pageCount: number): string {
   return [
-    "Solve the attached PDF worksheet. Focus only on simple, repetitive exercises.",
-    "Do not solve long-form prompts, handwriting, or tasks dependent on complex diagrams. If an exercise is unclear, omit it.",
+    "Solve every readable worksheet question, including longer explanatory questions and every individual table row or subquestion.",
+    "First create a complete inventory of all detected questions. Keep each original number and table/subquestion label exactly as printed (for example 13, 8a, or b); do not create a second entry for a question number.",
+    "Use one stable id per distinct question. Include each inventory id exactly once in either answers or unanswered. Never omit an unclear or unsupported question: record it as unanswered with a short reason. Never guess an answer.",
+    "For an answer, include page and placement only if the corresponding blank answer area is clearly visible and its bounding box can be identified with confidence. Otherwise omit placement; the application will put that answer on the answer sheet. Never guess coordinates.",
     "Return only valid JSON with this schema:",
-    '{"answers":[{"question":"short exercise label","answer":"concise answer","page":1,"placement":{"x":0.1,"y":0.2,"width":0.2,"height":0.04,"confidence":0.98}}]}',
+    '{"detectedQuestions":[{"id":"13","label":"13","question":"Original question text","page":1}],"answers":[{"questionId":"13","answer":"Answer text","page":1,"placement":{"x":0.1,"y":0.2,"width":0.2,"height":0.04,"confidence":0.98}}],"unanswered":[{"questionId":"14","reason":"The question is unclear"}]}',
     `Use the response language ${language === "de" ? "German" : "English"}.`,
-    `The PDF has ${pageCount} pages. Page numbers are 1-based. Placement x/y/width/height are normalized from the page's top-left corner, each from 0 to 1. Include placement only when the answer box is clearly identifiable and confidence is at least 0.92; otherwise omit placement. Never guess coordinates. Keep each answer under 500 characters and return at most 30 answers.`,
+    `The PDF has ${pageCount} pages. Page numbers are 1-based. Placement x/y/width/height are normalized from the page's top-left corner, each from 0 to 1. Include placement only when confidence is at least 0.92 and the full answer fits the visible blank answer area; otherwise omit placement. Preserve mathematical symbols, chemical subscripts, and complete reasoning where needed. Keep question text under 2,000 characters and each answer under 4,000 characters. Return at most 60 detected questions.`,
   ].join("\n");
 }
 
 function getErrorMessage(cause: unknown, t: (key: string) => string): string {
   if (cause instanceof AssistantServiceError) return t(`assistant.serviceErrors.${cause.code}`);
   if (cause instanceof DOMException && cause.name === "AbortError") return t("solve.cancelled");
-  if (cause instanceof Error && cause.message === "invalidResponse") return t("solve.invalidResponse");
+  if (cause instanceof SolveResponseError) {
+    if (cause.code === "incompleteResponse") {
+      return t("solve.incompleteResponse").replace(
+        "{{questions}}",
+        () => cause.references.join(", ") || t("solve.unknownQuestions"),
+      );
+    }
+    return t("solve.invalidResponse");
+  }
   return t("solve.failed");
 }
 
@@ -50,12 +66,13 @@ export function SolvePage() {
   const [challengeRequestId, setChallengeRequestId] = useState(0);
   const [sourceFile, setSourceFile] = useState<File>();
   const [pageCount, setPageCount] = useState(0);
-  const [answers, setAnswers] = useState<SolveAnswer[]>([]);
+  const [analysis, setAnalysis] = useState<SolveAnalysis>();
   const [solvedPdf, setSolvedPdf] = useState<Blob>();
   const [sourceUrl, setSourceUrl] = useState("");
   const [solvedUrl, setSolvedUrl] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  const [providerRequestCount, setProviderRequestCount] = useState<number>();
 
   useEffect(() => {
     if (!sourceFile) {
@@ -123,8 +140,9 @@ export function SolvePage() {
       if (!count) throw new Error("invalidPdf");
       setSourceFile(file);
       setPageCount(count);
-      setAnswers([]);
+      setAnalysis(undefined);
       setSolvedPdf(undefined);
+      setProviderRequestCount(undefined);
       setError("");
     } catch {
       setError(t("solve.invalidPdf"));
@@ -137,8 +155,9 @@ export function SolvePage() {
     if (!sourceFile || !canUseCloud || busy) return;
     setBusy(true);
     setError("");
-    setAnswers([]);
+    setAnalysis(undefined);
     setSolvedPdf(undefined);
+    setProviderRequestCount(0);
     const abortController = new AbortController();
     controller.current = abortController;
     try {
@@ -158,8 +177,9 @@ export function SolvePage() {
         signal: abortController.signal,
         onToken: (token) => { response += token; },
         onProgress: () => undefined,
+        onProviderRequest: () => setProviderRequestCount((count) => (count ?? 0) + 1),
       });
-      setAnswers(parseSolveResponse(response, pageCount));
+      setAnalysis(parseSolveResponse(response, pageCount));
     } catch (cause) {
       setError(getErrorMessage(cause, t));
     } finally {
@@ -177,18 +197,24 @@ export function SolvePage() {
     setBusy(false);
   }
 
-  function updateAnswer(id: string, field: "question" | "answer", value: string) {
-    setAnswers((current) => current.map((item) => item.id === id ? { ...item, [field]: value } : item));
+  function updateQuestion(id: string, field: "question" | "answer", value: string) {
+    setAnalysis((current) => current ? {
+      questions: current.questions.map((item) => {
+        if (item.id !== id) return item;
+        if (field === "question") return { ...item, question: value };
+        return { ...item, answer: value.trim() ? value : null, ...(value.trim() ? { reason: undefined } : {}) };
+      }),
+    } : current);
     setSolvedPdf(undefined);
   }
 
   async function generatePdf() {
-    if (!sourceFile || !answers.length || busy) return;
+    if (!sourceFile || !analysis?.questions.length || busy) return;
     setBusy(true);
     setError("");
     try {
       const bytes = new Uint8Array(await readBlobAsArrayBuffer(sourceFile));
-      const output = await createSolvedPdf(bytes, answers);
+      const output = await createSolvedPdf(bytes, analysis);
       setSolvedPdf(new Blob([output], { type: "application/pdf" }));
     } catch {
       setError(t("solve.exportFailed"));
@@ -205,6 +231,8 @@ export function SolvePage() {
     anchor.download = `${baseName}-solved.pdf`;
     anchor.click();
   }
+
+  const unanswered = analysis?.questions.filter((item) => item.answer === null) ?? [];
 
   return (
     <section className="feature-page solve-page">
@@ -247,16 +275,34 @@ export function SolvePage() {
 
           <div className="solve-actions">
             <button className="button button--primary" disabled={!sourceFile || !canUseCloud || busy} onClick={() => void analyzePdf()} type="button">
-              {busy && answers.length === 0 ? <LoaderCircle className="solve-spinner" size={14} /> : <ScanText size={14} />}
-              {busy && answers.length === 0 ? t("solve.analyzing") : t("solve.analyze")}
+              {busy && !analysis ? <LoaderCircle className="solve-spinner" size={14} /> : <ScanText size={14} />}
+              {busy && !analysis ? t("solve.analyzing") : t("solve.analyze")}
             </button>
             {busy && <button className="button button--quiet" onClick={cancelAnalysis} type="button">{t("solve.cancel")}</button>}
-            {!!answers.length && <button className="button button--quiet" disabled={busy} onClick={() => void generatePdf()} type="button">
+            {!!analysis?.questions.length && <button className="button button--quiet" disabled={busy} onClick={() => void generatePdf()} type="button">
               <FileCheck2 size={14} />{busy ? t("solve.preparingPdf") : t("solve.createPdf")}
             </button>}
             {solvedUrl && <button className="button button--primary" onClick={downloadPdf} type="button"><Download size={14} />{t("solve.download")}</button>}
           </div>
           {error && <p className="form-error" role="alert">{error}</p>}
+          {providerRequestCount !== undefined && (
+            <p className="solve-request-count" aria-live="polite">
+              {t("solve.providerRequestCount", { count: providerRequestCount })}
+            </p>
+          )}
+          {analysis && (
+            <p className={unanswered.length ? "solve-incomplete" : "solve-complete"}>
+              {t(unanswered.length ? "solve.unansweredSummary" : "solve.completeSummary", {
+                total: analysis.questions.length,
+                count: unanswered.length,
+              })}
+            </p>
+          )}
+          {unanswered.length > 0 && (
+            <ul className="solve-unanswered" aria-label={t("solve.unansweredQuestions")}>
+              {unanswered.map((item) => <li key={item.id}><strong>{item.label}</strong>: {item.reason || t("solve.noAnswerProvided")}</li>)}
+            </ul>
+          )}
         </div>
 
         <div className="solve-preview-grid">
@@ -275,25 +321,23 @@ export function SolvePage() {
         </div>
       </section>
 
-      {answers.length > 0 && (
+      {analysis && analysis.questions.length > 0 && (
         <section className="solve-answers" aria-labelledby="solve-answers-title">
           <div className="solve-answers__heading">
             <div><h2 id="solve-answers-title">{t("solve.reviewAnswers")}</h2><p>{t("solve.answerHint")}</p></div>
-            <span>{t("solve.answerCount", { count: answers.length })}</span>
+            <span>{t("solve.answerCount", { count: analysis.questions.length })}</span>
           </div>
           <ol>
-            {answers.map((answer) => (
-              <li key={answer.id}>
-                <label><span>{t("solve.exerciseLabel", { question: answer.question })}</span>
-                  <textarea maxLength={500} onChange={(event) => updateAnswer(answer.id, "question", event.target.value)} value={answer.question} />
+            {analysis.questions.map((item) => (
+              <li key={item.id} className={item.answer === null ? "is-unanswered" : ""}>
+                <label><span>{t("solve.exerciseLabel", { question: `${item.label} · ${item.question}` })}</span>
+                  <textarea maxLength={2_000} onChange={(event) => updateQuestion(item.id, "question", event.target.value)} value={item.question} />
                 </label>
                 <label><span>{t("solve.answer")}</span>
-                  <textarea maxLength={500} onChange={(event) => updateAnswer(answer.id, "answer", event.target.value)} value={answer.answer} />
+                  <textarea maxLength={4_000} onChange={(event) => updateQuestion(item.id, "answer", event.target.value)} value={item.answer ?? ""} />
                 </label>
-                <span className={`solve-placement${answer.placement ? " is-positioned" : ""}`}>
-                  {answer.placement && answer.page
-                    ? t("solve.positioned", { page: answer.page })
-                    : t("solve.answerSheet")}
+                <span className={`solve-placement${item.answer === null ? " is-unanswered" : ""}`}>
+                  {item.answer === null ? `${t("solve.unanswered")}: ${item.reason || t("solve.noAnswerProvided")}` : t("solve.answerSheet")}
                 </span>
               </li>
             ))}

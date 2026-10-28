@@ -106,14 +106,18 @@ describe("AI Worker access controls", () => {
         OPENROUTER_API_KEY: "server-only-openrouter-test-key",
       };
       const chunks: string[] = [];
+      let providerRequests = 0;
       for await (const chunk of generateAnswerStream(
         env,
         "https://app.example.test",
         { ...request, model: env.AI_MODEL, attachments: [] },
         new AbortController().signal,
+        () => { providerRequests += 1; },
       )) chunks.push(chunk);
 
       expect(chunks.join("")).toBe("OpenRouter answer");
+      expect(providerRequests).toBe(1);
+      expect(fetchMock).toHaveBeenCalledTimes(1);
       expect(fetchMock).toHaveBeenCalledWith(
         "https://openrouter.ai/api/v1/chat/completions",
         expect.objectContaining({
@@ -452,8 +456,10 @@ describe("AI Worker access controls", () => {
     expect(chat.status).toBe(200);
     const eventStream = await chat.text();
     expect(eventStream).toContain('data: {"text":"OpenRouter chat answer"}');
+    expect(eventStream).toContain('event: provider_request\ndata: {"count":1}');
     expect(eventStream).not.toContain("legacy/old-model");
     expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(fetchMock.mock.calls.filter(([url]) => url === "https://openrouter.ai/api/v1/chat/completions")).toHaveLength(1);
     expect(JSON.parse(String(fetchMock.mock.calls[1][1]?.body)).model).toBe("openrouter/free");
   });
 

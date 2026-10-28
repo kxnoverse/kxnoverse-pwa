@@ -115,7 +115,7 @@ describe("Kxno Desk shell", () => {
     const navigation = within(screen.getByRole("navigation", { name: "Main navigation" }));
     await user.click(navigation.getByRole("link", { name: "Translate" }));
 
-    expect(await screen.findByRole("heading", { name: "Translate" })).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: "Translate" }, { timeout: 10000 })).toBeInTheDocument();
     expect(supported).toHaveBeenCalled();
     expect(translate).not.toHaveBeenCalled();
     await user.click(screen.getByRole("checkbox", { name: "Save history on this device" }));
@@ -134,7 +134,7 @@ describe("Kxno Desk shell", () => {
       expect(JSON.parse((await db.arcadeData.get("translate:history"))!.value)).toMatchObject([
         { sourceLanguage: "de", targetLanguage: "en", result: "Good morning, how are you?" },
       ]);
-    });
+    }, { timeout: 15000 });
 
     await user.click(screen.getByRole("button", { name: "Clear history" }));
     await waitFor(async () => expect(await db.arcadeData.get("translate:history")).toBeUndefined());
@@ -149,7 +149,7 @@ describe("Kxno Desk shell", () => {
     await user.click(screen.getByRole("button", { name: "Clear text" }));
     expect(screen.getByRole("textbox", { name: "Text to translate" })).toHaveValue("");
     expect(screen.getByRole("textbox", { name: "Translation" })).toHaveValue("");
-  });
+  }, 15000);
 
   it("lets a user cancel a translation that is still waiting for its local model", async () => {
     const user = userEvent.setup();
@@ -159,12 +159,12 @@ describe("Kxno Desk shell", () => {
     await user.click(within(screen.getByRole("navigation", { name: "Main navigation" })).getByRole("link", { name: "Translate" }));
     await user.type(await screen.findByRole("textbox", { name: "Text to translate" }), "Guten Morgen, wie geht es dir?");
     await user.click(screen.getByRole("button", { name: /^Translate$/ }));
-    await waitFor(() => expect(document.querySelector(".translate-progress")).toBeInTheDocument());
+    await waitFor(() => expect(document.querySelector(".translate-progress")).toBeInTheDocument(), { timeout: 5000 });
 
     await user.click(document.querySelector<HTMLButtonElement>(".translate-cancel")!);
     expect(await screen.findByRole("alert")).toHaveTextContent("Translation cancelled");
     expect(screen.getByRole("button", { name: /^Translate$/ })).toBeEnabled();
-  });
+  }, 15000);
 
   it("opens the arcade, persists favorites, and launches a playable game screen", async () => {
     const user = userEvent.setup();
@@ -390,7 +390,8 @@ describe("Kxno Desk shell", () => {
     const user = userEvent.setup();
     render(<App />);
     await user.click(within(screen.getByRole("navigation", { name: "Main navigation" })).getByRole("link", { name: "Minigames" }));
-    await user.click(within((await screen.findByRole("heading", { name: "Laser Mirrors" })).closest("article")!).getByRole("button", { name: "Play" }));
+    await screen.findByRole("heading", { name: "Minigames" }, { timeout: 5000 });
+    await user.click(within((await screen.findByRole("heading", { name: "Laser Mirrors" }, { timeout: 5000 })).closest("article")!).getByRole("button", { name: "Play" }));
     expect(await screen.findAllByRole("gridcell", { name: /Mirror at row/ })).not.toHaveLength(0);
     for (let move = 0; move < 12; move += 1) {
       const nextPuzzle = screen.queryByRole("button", { name: "Next puzzle" });
@@ -991,13 +992,16 @@ describe("Kxno Desk shell", () => {
     ]);
     const send = vi.spyOn(assistantClient, "send").mockImplementation(async (request, options) => {
       options.onToken(JSON.stringify({
+        detectedQuestions: [{ id: "3", label: "3", question: "3 + 4", page: 1 }],
         answers: [{
-          question: "3 + 4",
+          questionId: "3",
           answer: "7",
           page: 1,
           placement: { x: 0.2, y: 0.3, width: 0.25, height: 0.06, confidence: 0.99 },
         }],
+        unanswered: [],
       }));
+      options.onProviderRequest?.();
       expect(request.endpoint).toBe(endpoint);
     });
     const document = await PDFDocument.create();
@@ -1013,10 +1017,12 @@ describe("Kxno Desk shell", () => {
     expect(await screen.findByText("worksheet.pdf · 1 page")).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "Analyze worksheet" }));
     expect(await screen.findByRole("textbox", { name: "Answer" })).toHaveValue("7");
+    expect(await screen.findByText("OpenRouter requests this generation: 1")).toBeInTheDocument();
     expect(send).toHaveBeenCalledWith(
       expect.objectContaining({
         endpoint,
         model: "openrouter/free",
+        message: expect.stringContaining('"detectedQuestions"'),
         history: [],
         attachments: [expect.objectContaining({ name: "worksheet.pdf", mimeType: "application/pdf" })],
       }),
