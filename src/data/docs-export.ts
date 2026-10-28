@@ -40,7 +40,7 @@ async function inlineChildren(children: JsonNode[], library: DocxLibrary): Promi
         color: typeof colorMark === "string" ? colorMark.replace(/^#/, "") : undefined,
         shading: typeof highlight === "string" ? { fill: highlight.replace(/^#/, "") } : undefined,
         font: typeof textStyle.fontFamily === "string" ? textStyle.fontFamily : undefined,
-        size: Number(textStyle.fontSize) ? Number(textStyle.fontSize) * 2 : undefined,
+        size: Number(textStyle.fontSize) ? Math.round(Number(textStyle.fontSize) * 1.5) : undefined,
       });
       result.push(typeof link === "string" && /^https?:\/\//i.test(link)
         ? new library.ExternalHyperlink({ link, children: [run] })
@@ -89,7 +89,7 @@ async function renderBlocks(children: JsonNode[], library: DocxLibrary, list?: "
         numbering: list === "number" ? { reference: "docs-numbered", level: 0 } : undefined,
         indent: Number(attrs.indent) ? { left: Number(attrs.indent) * 360 } : undefined,
         spacing: {
-          after: Number(attrs.paragraphSpacing) || 140,
+          after: attrs.paragraphSpacing === undefined ? 120 : Math.max(0, Number(attrs.paragraphSpacing) * 15),
           line: Math.round((Number(attrs.lineSpacing) || 1.15) * 240),
         },
       }));
@@ -130,16 +130,18 @@ export async function buildDocx(documentInfo: SchoolDocument, contentValue: unkn
     ? { width: 16838, height: 11906 }
     : { width: 11906, height: 16838 };
   const header = documentInfo.header ? { default: new library.Header({ children: [new library.Paragraph(documentInfo.header)] }) } : undefined;
-  const footer = {
-    default: new library.Footer({ children: [new library.Paragraph({
-        alignment: library.AlignmentType.CENTER,
-        children: [
-          ...(documentInfo.footer ? [new library.TextRun(`${documentInfo.footer}  ·  `)] : []),
-          new library.TextRun({ children: [new library.TextRun("Page "), library.PageNumber.CURRENT] }),
-        ],
-      })] }),
-  };
+  const footer = documentInfo.footer
+    ? { default: new library.Footer({ children: [new library.Paragraph(documentInfo.footer)] }) }
+    : undefined;
   const doc = new library.Document({
+    styles: {
+      default: {
+        document: { run: { font: "Arial", size: 18 }, paragraph: { spacing: { after: 120, line: 276 } } },
+        heading1: { run: { font: "Arial", size: 36, bold: true } },
+        heading2: { run: { font: "Arial", size: 30, bold: true } },
+        heading3: { run: { font: "Arial", size: 24, bold: true } },
+      },
+    },
     numbering: {
       config: [{
         reference: "docs-numbered",

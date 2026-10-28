@@ -83,6 +83,8 @@ describe("Kxno Desk shell", () => {
     expect(within(screen.getByRole("navigation", { name: "Main navigation" })).getByRole("link", { name: "Translate" })).toBeInTheDocument();
     expect(within(screen.getByRole("navigation", { name: "Main navigation" })).queryByRole("link", { name: "Kxno Solve" })).not.toBeInTheDocument();
     expect(within(screen.getByRole("navigation", { name: "Main navigation" })).getByRole("link", { name: "Workspace" })).toBeInTheDocument();
+    expect(within(screen.getByRole("navigation", { name: "Main navigation" })).getByRole("link", { name: "Docs" })).toBeInTheDocument();
+    expect(within(screen.getByRole("navigation", { name: "Main navigation" })).queryByRole("link", { name: "Kxno Docs" })).not.toBeInTheDocument();
     expect(screen.getByText("Kxno Desk · Made By Kxno (Shero)")).toBeInTheDocument();
 
     await user.click(

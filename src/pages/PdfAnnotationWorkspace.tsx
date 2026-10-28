@@ -6,7 +6,7 @@ import {
 import { useTranslation } from "react-i18next";
 import type { PdfAnnotation, PdfProject } from "../data/db";
 import { db } from "../data/db";
-import { buildAnnotatedPdf, createConvertedDocument, loadPdfJs, pdfTextItemsToDocumentText } from "../data/docs-pdf";
+import { buildAnnotatedPdf, createConvertedDocument, loadPdfJs, normalizePdfPoint, pdfTextItemsToDocumentText } from "../data/docs-pdf";
 import { downloadBlob, safeFilename } from "../data/docs-export";
 
 type PdfDocumentProxy = Awaited<ReturnType<import("../data/docs-pdf").PdfJsApi["getDocument"]>["promise"]>;
@@ -35,6 +35,7 @@ function drawAnnotations(
   annotations: PdfAnnotation[],
   page: number,
   selectedId: string,
+  scale: number,
   draft?: { type: "highlight" | "draw"; points: Point[]; color: string },
 ): void {
   const context = canvas.getContext("2d");
@@ -53,7 +54,7 @@ function drawAnnotations(
     context.strokeStyle = annotation.color;
     context.fillStyle = annotation.color;
     if (annotation.type === "text") {
-      context.font = "14px Arial, sans-serif";
+      context.font = `${annotation.fontSize ? annotation.fontSize * scale : 14}px Arial, sans-serif`;
       context.textBaseline = "top";
       (annotation.text ?? "").split(/\r?\n/).forEach((line, index) => {
         context.fillText(line, annotation.x * width, annotation.y * height + index * 18);
@@ -264,7 +265,7 @@ export function PdfAnnotationWorkspace({ project, onProjectChange, onBack, onCon
       }
       return { ...annotation, x: clamp(original.x + dx), y: clamp(original.y + dy) };
     });
-    drawAnnotations(canvas, annotations, page, selectedId, draft);
+    drawAnnotations(canvas, annotations, page, selectedId, size.scale, draft);
   }, [localProject.annotations, page, selectedId, size, draft, dragPreview]);
 
   const pageAnnotations = useMemo(
@@ -310,7 +311,7 @@ export function PdfAnnotationWorkspace({ project, onProjectChange, onBack, onCon
 
   function position(event: ReactPointerEvent<HTMLCanvasElement>): Point {
     const bounds = event.currentTarget.getBoundingClientRect();
-    return { x: clamp((event.clientX - bounds.left) / bounds.width), y: clamp((event.clientY - bounds.top) / bounds.height) };
+    return normalizePdfPoint(event.clientX - bounds.left, event.clientY - bounds.top, bounds.width, bounds.height);
   }
 
   function pointerDown(event: ReactPointerEvent<HTMLCanvasElement>) {
@@ -334,6 +335,7 @@ export function PdfAnnotationWorkspace({ project, onProjectChange, onBack, onCon
       }
       const annotation: PdfAnnotation = {
         id: crypto.randomUUID(), page, type: "text", color, x: point.x, y: point.y, text,
+        fontSize: Math.max(1, Math.min(200, 14 / size.scale)),
       };
       commitAnnotations([...projectRef.current.annotations, annotation], annotation.id);
       setTextDraft("");

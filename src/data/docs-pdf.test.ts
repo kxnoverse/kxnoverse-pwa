@@ -9,6 +9,8 @@ import {
   importPdfProject,
   isPdfProject,
   MAX_PDF_BYTES,
+  normalizePdfPoint,
+  pdfPagePoint,
   pdfTextItemsToDocumentText,
   storePdfProject,
   updatePdfProject,
@@ -55,6 +57,8 @@ describe("local PDF projects", () => {
     const storedOriginal = (await db.files.get(project.sourceFileId))!;
     expect(storedOriginal.blob).not.toBeInstanceOf(NodeFile);
     expect([...new Uint8Array(await readBlobAsArrayBuffer(storedOriginal.blob))]).toEqual([...originalBytes]);
+    expect(await db.documents.count()).toBe(0);
+    expect(await db.documentContents.count()).toBe(0);
     expect(isPdfProject({ ...project, annotations: [{ ...project.annotations, id: "" }] })).toBe(false);
   });
 
@@ -85,6 +89,8 @@ describe("local PDF projects", () => {
     };
     await updatePdfProject(annotated);
 
+    db.close();
+    await db.open();
     const saved = await db.pdfProjects.get(project.id);
     expect(saved?.annotations).toEqual(annotated.annotations);
     const exported = await buildAnnotatedPdf(saved!);
@@ -93,6 +99,15 @@ describe("local PDF projects", () => {
     expect(exportedPdf.getPageCount()).toBe(2);
     expect([...new Uint8Array(await readBlobAsArrayBuffer((await db.files.get(project.sourceFileId))!.blob))]).toEqual([...originalBytes]);
     expect([...new Uint8Array(await exported.arrayBuffer())]).not.toEqual([...originalBytes]);
+  });
+
+  it("keeps pointer coordinates zoom-independent and maps them to PDF page space", () => {
+    const atFitScale = normalizePdfPoint(250, 400, 500, 800);
+    const atDoubleScale = normalizePdfPoint(500, 800, 1000, 1600);
+    expect(atDoubleScale).toEqual(atFitScale);
+    expect(pdfPagePoint(atFitScale.x, atFitScale.y, 612, 792)).toEqual({ x: 306, y: 396 });
+    expect(pdfPagePoint(atFitScale.x, atFitScale.y, 900, 600)).toEqual({ x: 450, y: 300 });
+    expect(() => normalizePdfPoint(0, 0, 0, 100)).toThrow("dimensions are invalid");
   });
 
   it("reconstructs readable text lines and paragraph spacing without claiming exact layout", () => {

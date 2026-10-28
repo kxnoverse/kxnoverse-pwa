@@ -14,9 +14,10 @@ function dispatchPointer(target: EventTarget, type: string, values: { pointerId:
 
 beforeEach(async () => {
   vi.spyOn(HTMLCanvasElement.prototype, "getContext").mockReturnValue(null);
+  vi.spyOn(URL, "createObjectURL").mockReturnValue("blob:test");
   await i18nReady;
   await i18n.changeLanguage("en");
-  await Promise.all([db.workspace.clear(), db.notes.clear(), db.files.clear()]);
+  await Promise.all([db.workspace.clear(), db.notes.clear(), db.files.clear(), db.documents.clear(), db.documentContents.clear()]);
   window.location.hash = "#/";
 });
 
@@ -140,6 +141,88 @@ describe("Workspace", () => {
       expect(await db.files.count()).toBe(1);
       expect(fileElement?.fileId).toBe((await db.files.toCollection().first())?.id);
       expect(fileElement).not.toHaveProperty("blob");
+    });
+  });
+
+  it("adds a stable Docs link, reflects document renames, and opens that document", async () => {
+    const user = userEvent.setup();
+    await db.documents.add({
+      id: "linked-school-document",
+      title: "Chemistry review",
+      createdAt: 1,
+      updatedAt: 2,
+      paperSize: "A4",
+      orientation: "portrait",
+      margins: { top: 25, right: 25, bottom: 25, left: 25 },
+      header: "",
+      footer: "",
+    });
+    await db.documentContents.add({
+      id: "linked-school-document",
+      content: { type: "doc", content: [{ type: "paragraph" }] },
+      plainText: "Atomic structure and bonding",
+    });
+    render(<App />);
+    await user.click(within(screen.getByRole("navigation", { name: "Main navigation" })).getByRole("link", { name: "Workspace" }));
+    await screen.findByRole("region", { name: "Workspace" });
+    await user.click(screen.getByRole("button", { name: "Add to workspace" }));
+    await user.click(screen.getByRole("menuitem", { name: "Add Kxno Docs document" }));
+    await user.click(await screen.findByRole("button", { name: /Chemistry review/ }));
+
+    await waitFor(async () => {
+      expect((await db.workspace.get("default"))?.state.elements).toContainEqual(expect.objectContaining({
+        kind: "document",
+        documentId: "linked-school-document",
+        content: "",
+      }));
+    });
+    const title = screen.getByRole("textbox", { name: "Element title" });
+    expect(title).toHaveValue("Chemistry review");
+    expect(screen.getByText("Atomic structure and bonding")).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Open in Docs" }));
+    const docsTitle = await screen.findByRole("textbox", { name: "Document title" });
+    expect(docsTitle).toHaveValue("Chemistry review");
+    await db.documents.update("linked-school-document", { title: "Chemistry notes", updatedAt: 3 });
+    await user.click(within(screen.getByRole("navigation", { name: "Main navigation" })).getByRole("link", { name: "Workspace" }));
+    await screen.findByRole("region", { name: "Workspace" });
+    await waitFor(async () => expect((await db.documents.get("linked-school-document"))?.title).toBe("Chemistry notes"));
+    expect(screen.getByRole("textbox", { name: "Element title" })).toHaveValue("Chemistry notes");
+  });
+
+  it("previews a template before adding its editable cards to existing workspace content", async () => {
+    const user = userEvent.setup();
+    const existing = {
+      id: "keep-existing",
+      kind: "text" as const,
+      x: -1800,
+      y: -900,
+      width: 280,
+      height: 200,
+      borderColor: "#4b8fa8",
+      title: "Existing card",
+      content: "Do not replace",
+    };
+    await db.workspace.add({
+      id: "default",
+      state: { elements: [existing], connections: [], viewport: { x: 28, y: 28, zoom: 1 } },
+      updatedAt: 1,
+    });
+    render(<App />);
+    await user.click(within(screen.getByRole("navigation", { name: "Main navigation" })).getByRole("link", { name: "Workspace" }));
+    await screen.findByRole("region", { name: "Workspace" });
+    await user.click(screen.getByRole("button", { name: "Templates" }));
+    await user.click(screen.getByRole("menuitem", { name: "Mind Map" }));
+
+    expect(await screen.findByRole("dialog", { name: "Mind Map" })).toBeInTheDocument();
+    expect((await db.workspace.get("default"))?.state.elements).toHaveLength(1);
+    await user.click(screen.getByRole("button", { name: "Add to Workspace" }));
+
+    await waitFor(async () => {
+      const state = (await db.workspace.get("default"))?.state;
+      expect(state?.elements).toHaveLength(6);
+      expect(state?.connections).toHaveLength(4);
+      expect(state?.elements[0]).toMatchObject({ id: "keep-existing", content: "Do not replace" });
     });
   });
 });

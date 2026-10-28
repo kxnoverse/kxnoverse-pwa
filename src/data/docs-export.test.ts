@@ -83,8 +83,33 @@ describe("document exports", () => {
     expect(documentXml).toContain("<w:pgMar");
     expect(documentXml).toContain("headerReference");
     expect(documentXml).toContain("footerReference");
+    expect(documentXml).not.toContain("Page");
+    expect(documentXml).not.toContain("w:instrText");
     expect(relationshipsXml).toContain("header");
     expect(relationshipsXml).toContain("footer");
+  });
+
+  it("uses the Docs font metrics and does not inject a footer or page number", async () => {
+    const blob = await buildDocx({ ...documentInfo, header: "", footer: "" }, {
+      type: "doc",
+      content: [
+        { type: "heading", attrs: { level: 1 }, content: [{ type: "text", text: "Heading" }] },
+        { type: "paragraph", content: [{ type: "text", text: "Default body text" }] },
+        { type: "paragraph", content: [{ type: "text", text: "Sized text", marks: [{ type: "textStyle", attrs: { fontSize: "16" } }] }] },
+      ],
+    });
+    const files = unzipSync(new Uint8Array(await blob.arrayBuffer()));
+    const documentXml = strFromU8(files["word/document.xml"]);
+    const stylesXml = strFromU8(files["word/styles.xml"]);
+    const relationshipsXml = strFromU8(files["word/_rels/document.xml.rels"]);
+    expect(documentXml).toContain("Default body text");
+    expect(documentXml).toContain("<w:sz w:val=\"24\"");
+    expect(documentXml).not.toContain("footerReference");
+    expect(documentXml).not.toContain("w:instrText");
+    expect(stylesXml).toContain("Arial");
+    expect(stylesXml).toContain("<w:sz w:val=\"18\"");
+    expect(stylesXml).toContain("<w:sz w:val=\"36\"");
+    expect(relationshipsXml).not.toContain("footer");
   });
 
   it("rejects a DOCX export when a referenced image is missing instead of silently dropping it", async () => {

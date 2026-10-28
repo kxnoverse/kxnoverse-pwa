@@ -173,7 +173,7 @@ export interface ArcadeRecord {
   updatedAt: number;
 }
 
-export type WorkspaceElementKind = "text" | "note" | "image" | "file";
+export type WorkspaceElementKind = "text" | "note" | "image" | "file" | "document";
 
 export interface WorkspaceElement {
   id: string;
@@ -188,6 +188,7 @@ export interface WorkspaceElement {
   content: string;
   fileId?: string;
   noteId?: string;
+  documentId?: string;
 }
 
 export interface WorkspaceConnection {
@@ -251,6 +252,7 @@ export interface PdfAnnotation {
   width?: number;
   height?: number;
   text?: string;
+  fontSize?: number;
   points?: Array<{ x: number; y: number }>;
 }
 

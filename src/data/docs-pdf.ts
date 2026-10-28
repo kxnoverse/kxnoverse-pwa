@@ -14,6 +14,18 @@ type PdfTextItem = {
 
 export type PdfJsApi = typeof import("pdfjs-dist");
 
+export function normalizePdfPoint(x: number, y: number, width: number, height: number): { x: number; y: number } {
+  if (width <= 0 || height <= 0) throw new Error("The PDF page dimensions are invalid.");
+  return {
+    x: Math.max(0, Math.min(1, x / width)),
+    y: Math.max(0, Math.min(1, y / height)),
+  };
+}
+
+export function pdfPagePoint(x: number, y: number, width: number, height: number): { x: number; y: number } {
+  return { x: x * width, y: (1 - y) * height };
+}
+
 export async function loadPdfJs(): Promise<PdfJsApi> {
   const [pdfjs, worker] = await Promise.all([
     import("pdfjs-dist"),
@@ -146,6 +158,7 @@ function isPdfAnnotation(value: unknown): value is PdfAnnotation {
     (annotation.width === undefined || (Number.isFinite(annotation.width) && annotation.width >= 0 && annotation.width <= 1)) &&
     (annotation.height === undefined || (Number.isFinite(annotation.height) && annotation.height >= 0 && annotation.height <= 1)) &&
     (annotation.text === undefined || typeof annotation.text === "string") &&
+    (annotation.fontSize === undefined || (Number.isFinite(annotation.fontSize) && annotation.fontSize > 0 && annotation.fontSize <= 200)) &&
     (annotation.points === undefined || (Array.isArray(annotation.points) && annotation.points.every((point) =>
       Number.isFinite(point.x) && point.x >= 0 && point.x <= 1 && Number.isFinite(point.y) && point.y >= 0 && point.y <= 1
     )));
@@ -168,11 +181,13 @@ export async function buildAnnotatedPdf(project: PdfProject): Promise<Blob> {
       parseInt(annotation.color.slice(5, 7), 16) / 255,
     );
     if (annotation.type === "text" && annotation.text) {
-      const fontSize = Math.max(8, Math.min(36, 12 / Math.max(0.1, annotation.width ?? 1)));
+      const fontSize = Math.max(1, Math.min(200, annotation.fontSize ?? 12));
       const lines = annotation.text.split(/\r?\n/);
-      lines.forEach((line, index) => page.drawText(line, {
-        x: annotation.x * width,
-        y: height - annotation.y * height - fontSize * (index + 1),
+      const point = pdfPagePoint(annotation.x, annotation.y, width, height);
+      lines.forEach((line, index) =>
+      page.drawText(line, {
+        x: point.x,
+        y: point.y - fontSize * (index + 1),
         size: fontSize,
         font,
         color,
@@ -181,7 +196,7 @@ export async function buildAnnotatedPdf(project: PdfProject): Promise<Blob> {
     } else if (annotation.type === "highlight") {
       page.drawRectangle({
         x: annotation.x * width,
-        y: height - (annotation.y + (annotation.height ?? 0)) * height,
+        y: pdfPagePoint(annotation.x, annotation.y + (annotation.height ?? 0), width, height).y,
         width: Math.max(1, (annotation.width ?? 0) * width),
         height: Math.max(1, (annotation.height ?? 0) * height),
         color,
@@ -193,8 +208,8 @@ export async function buildAnnotatedPdf(project: PdfProject): Promise<Blob> {
         const from = annotation.points[index - 1];
         const to = annotation.points[index];
         page.drawLine({
-          start: { x: from.x * width, y: height - from.y * height },
-          end: { x: to.x * width, y: height - to.y * height },
+          start: pdfPagePoint(from.x, from.y, width, height),
+          end: pdfPagePoint(to.x, to.y, width, height),
           thickness: 2,
           color,
         });

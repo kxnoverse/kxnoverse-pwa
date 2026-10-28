@@ -20,9 +20,11 @@ import TableHeader from "@tiptap/extension-table-header";
 import TableCell from "@tiptap/extension-table-cell";
 import FontFamily from "@tiptap/extension-font-family";
 import { useTranslation } from "react-i18next";
+import { useSearchParams } from "react-router-dom";
 import { createId, db, type SchoolDocument, type SchoolDocumentContent, type SchoolDocumentImage } from "../data/db";
 import { countDocumentWords, createDocument, deleteDocument, duplicateDocument, extractDocumentText, isDocumentContent, saveDocument } from "../data/docs";
 import { downloadBlob, exportDocumentDocx, exportDocumentText, safeFilename } from "../data/docs-export";
+import { createDocumentPrintFrame } from "../data/docs-print";
 import { importPdfProject, updatePdfProject } from "../data/docs-pdf";
 import { PdfAnnotationWorkspace } from "./PdfAnnotationWorkspace";
 import { DocumentFontSize, DocumentImage, DocumentIndent, DocumentPageBreak, DocumentParagraphSpacing } from "./docs-extensions";
@@ -278,7 +280,28 @@ function DocsEditor({
 
   function printDocument() {
     void flushSave();
-    window.print();
+    const content = window.document.querySelector<HTMLElement>(".docs-prose");
+    if (!content) {
+      setExportError(t("docs.exportError"));
+      return;
+    }
+    try {
+      setExportError("");
+      const frame = createDocumentPrintFrame(content, documentInfo);
+      const printWindow = frame.contentWindow;
+      if (!printWindow) throw new Error("The document print view could not be opened.");
+      let cleanupTimer = 0;
+      const cleanup = () => {
+        window.clearTimeout(cleanupTimer);
+        frame.remove();
+      };
+      printWindow.addEventListener("afterprint", cleanup, { once: true });
+      cleanupTimer = window.setTimeout(cleanup, 60_000);
+      printWindow.focus();
+      printWindow.print();
+    } catch {
+      setExportError(t("docs.exportError"));
+    }
   }
 
   function updateImageWidth(delta: number) {
@@ -448,9 +471,12 @@ function DocsEditor({
 
 export function DocsPage() {
   const { t, i18n } = useTranslation();
+  const [searchParams, setSearchParams] = useSearchParams();
+  const requestedDocumentId = searchParams.get("document") ?? "";
+  const ignoredDocumentRoute = useRef<string | null>(null);
   const documents = useLiveQuery(() => db.documents.orderBy("updatedAt").reverse().toArray(), [], []);
   const pdfProjects = useLiveQuery(() => db.pdfProjects.orderBy("updatedAt").reverse().toArray(), [], []);
-  const [activeId, setActiveId] = useState("");
+  const [activeId, setActiveId] = useState(requestedDocumentId);
   const [activePdfProjectId, setActivePdfProjectId] = useState("");
   const [storedContent, setStoredContent] = useState<SchoolDocumentContent | null>(null);
   const [loadingContent, setLoadingContent] = useState(false);
@@ -468,8 +494,15 @@ export function DocsPage() {
   const activePdfProject = pdfProjects.find((item) => item.id === activePdfProjectId);
 
   useEffect(() => {
+    if (requestedDocumentId) {
+      if (requestedDocumentId === ignoredDocumentRoute.current) return;
+      setActivePdfProjectId("");
+      setActiveId(requestedDocumentId);
+      return;
+    }
+    ignoredDocumentRoute.current = null;
     if (!activeId && !activePdfProjectId && documents.length) setActiveId(documents[0].id);
-  }, [activeId, activePdfProjectId, documents]);
+  }, [activeId, activePdfProjectId, documents, requestedDocumentId]);
 
   useEffect(() => {
     if (!activeId) {
@@ -506,6 +539,7 @@ export function DocsPage() {
       const created = await createDocument(t("docs.untitled"));
       setActivePdfProjectId("");
       setActiveId(created.id);
+      setSearchParams({ document: created.id }, { replace: true });
       setError("");
     } catch {
       setError(t("docs.saveError"));
@@ -520,8 +554,10 @@ export function DocsPage() {
     setPdfImportError("");
     try {
       const project = await importPdfProject(file);
+      ignoredDocumentRoute.current = requestedDocumentId || null;
       setActiveId("");
       setActivePdfProjectId(project.id);
+      setSearchParams({}, { replace: true });
       setPdfImportStatus(t("docs.pdfImportSuccess", { name: file.name }));
     } catch (reason) {
       setPdfImportStatus("");
@@ -549,6 +585,7 @@ export function DocsPage() {
     try {
       const duplicate = await duplicateDocument(activeDocument.id, t("docs.copySuffix"));
       setActiveId(duplicate.id);
+      setSearchParams({ document: duplicate.id }, { replace: true });
     } catch {
       setError(t("docs.saveError"));
     }
@@ -558,7 +595,9 @@ export function DocsPage() {
     if (!activeDocument || !window.confirm(t("docs.confirmDelete", { title: activeDocument.title }))) return;
     try {
       await deleteDocument(activeDocument.id);
-      setActiveId(documents.find((item) => item.id !== activeDocument.id)?.id ?? "");
+      const nextId = documents.find((item) => item.id !== activeDocument.id)?.id ?? "";
+      setActiveId(nextId);
+      setSearchParams(nextId ? { document: nextId } : {}, { replace: true });
       setStoredContent(null);
       setError("");
     } catch {
@@ -586,10 +625,10 @@ export function DocsPage() {
 
   return (
     <section className={`docs-page${sidebarCollapsed ? " docs-page--sidebar-collapsed" : ""}`} aria-label={t("nav.docs")}>
-      <aside className="docs-sidebar">
+      <aside id="docs-document-sidebar" className="docs-sidebar">
         <header className="docs-sidebar__header">
           {!sidebarCollapsed && <strong>{t("nav.docs")}</strong>}
-          <button className="docs-icon-button" type="button" aria-label={sidebarCollapsed ? t("docs.expandSidebar") : t("docs.collapseSidebar")} onClick={toggleSidebar}>
+          <button id="docs-sidebar-toggle" className="docs-icon-button" type="button" aria-label={sidebarCollapsed ? t("docs.expandSidebar") : t("docs.collapseSidebar")} aria-expanded={!sidebarCollapsed} aria-controls="docs-document-sidebar" onClick={toggleSidebar}>
             {sidebarCollapsed ? <ChevronRight size={15} /> : <ChevronLeft size={15} />}
           </button>
         </header>
@@ -606,6 +645,7 @@ export function DocsPage() {
                 <button key={item.id} type="button" className={`docs-document-row${item.id === activeId ? " is-active" : ""}`} aria-current={item.id === activeId ? "page" : undefined} onClick={() => {
                   setActivePdfProjectId("");
                   setActiveId(item.id);
+                  setSearchParams({ document: item.id }, { replace: true });
                 }}>
                   <FileText size={14} />
                   <span><strong>{item.title || t("docs.untitled")}</strong><small>{new Intl.DateTimeFormat(i18n.language, { month: "short", day: "numeric" }).format(item.updatedAt)}</small></span>
@@ -623,6 +663,7 @@ export function DocsPage() {
                     onClick={() => {
                       setActiveId("");
                       setActivePdfProjectId(item.id);
+                      setSearchParams({}, { replace: true });
                     }}
                   >
                     <FileText size={14} />
@@ -642,11 +683,14 @@ export function DocsPage() {
             onProjectChange={savePdfProject}
             onBack={() => {
               setActivePdfProjectId("");
-              setActiveId(documents[0]?.id ?? "");
+              const nextId = documents[0]?.id ?? "";
+              setActiveId(nextId);
+              setSearchParams(nextId ? { document: nextId } : {}, { replace: true });
             }}
             onConverted={(id) => {
               setActivePdfProjectId("");
               setActiveId(id);
+              setSearchParams({ document: id }, { replace: true });
             }}
           />
         ) : <div className="docs-loading" role="status"><LoaderCircle size={16} />{t("docs.pdfLoading")}</div> : activeDocument && storedContent && !loadingContent ? (

@@ -239,17 +239,31 @@ describe("local data safety", () => {
     await db.workspace.add({
       id: "default",
       state: {
-        elements: [{
-          id: "workspace-text",
-          kind: "text",
-          x: 120,
-          y: 80,
-          width: 280,
-          height: 200,
-          borderColor: "#347ab4",
-          title: "Revision notes",
-          content: "Review chapter 4",
-        }],
+        elements: [
+          {
+            id: "workspace-text",
+            kind: "text",
+            x: 120,
+            y: 80,
+            width: 280,
+            height: 200,
+            borderColor: "#347ab4",
+            title: "Revision notes",
+            content: "Review chapter 4",
+          },
+          {
+            id: "workspace-document",
+            kind: "document",
+            x: 460,
+            y: 80,
+            width: 340,
+            height: 250,
+            borderColor: "#347ab4",
+            title: "Biology report",
+            content: "",
+            documentId: "document-one",
+          },
+        ],
         connections: [],
         viewport: { x: 12, y: 20, zoom: 1.2 },
       },
@@ -349,7 +363,10 @@ describe("local data safety", () => {
     expect(restored.workspace).toEqual({ added: 1, skipped: 0 });
     expect(await db.workspace.get("default")).toMatchObject({
       state: {
-        elements: [expect.objectContaining({ title: "Revision notes", content: "Review chapter 4" })],
+        elements: [
+          expect.objectContaining({ title: "Revision notes", content: "Review chapter 4" }),
+          expect.objectContaining({ kind: "document", documentId: "document-one" }),
+        ],
         viewport: { x: 12, y: 20, zoom: 1.2 },
       },
     });
