@@ -207,6 +207,7 @@ export default {
         pdfAddTextBox: "Add text box",
         pdfPlaceTextBox: "Click the PDF page to place the text box.",
         pdfTextBoxPage: "Text box on PDF page {{page}}",
+        pdfMoveTextBox: "Move text box on PDF page {{page}}",
         pdfTextBoxPlaceholder: "Type here",
         pdfHighlight: "Highlight",
         pdfDraw: "Draw",

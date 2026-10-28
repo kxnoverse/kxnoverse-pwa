@@ -207,6 +207,7 @@ export default {
         pdfAddTextBox: "Textfeld hinzufügen",
         pdfPlaceTextBox: "Klicke auf die PDF-Seite, um das Textfeld zu platzieren.",
         pdfTextBoxPage: "Textfeld auf PDF-Seite {{page}}",
+        pdfMoveTextBox: "Textfeld auf PDF-Seite {{page}} verschieben",
         pdfTextBoxPlaceholder: "Hier schreiben",
         pdfHighlight: "Markieren",
         pdfDraw: "Zeichnen",

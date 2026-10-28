@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
 import {
-  ArrowLeft, ChevronLeft, ChevronRight, Download, FileText, Highlighter, LoaderCircle,
+  ArrowLeft, ChevronLeft, ChevronRight, Download, FileText, Grip, Highlighter, LoaderCircle,
   MousePointer2, Pencil, Redo2, Trash2, Type, Undo2, ZoomIn, ZoomOut,
 } from "lucide-react";
 import { useTranslation } from "react-i18next";
@@ -13,7 +13,7 @@ type PdfDocumentProxy = Awaited<ReturnType<import("../data/docs-pdf").PdfJsApi["
 type Tool = "select" | "highlight" | "draw";
 type Point = { x: number; y: number };
 type RenderSize = { width: number; height: number; scale: number };
-type DragState = { id: string; start: Point; original: PdfAnnotation };
+type DragState = { id: string; start: Point; original: PdfAnnotation; moveHandle?: boolean };
 type Props = {
   project: PdfProject;
   onProjectChange: (project: PdfProject) => Promise<void>;
@@ -34,7 +34,6 @@ function drawAnnotations(
   annotations: PdfAnnotation[],
   page: number,
   selectedId: string,
-  editingTextId: string,
   scale: number,
   draft?: { type: "highlight" | "draw"; points: Point[]; color: string },
 ): void {
@@ -95,15 +94,15 @@ function drawAnnotations(
         context.stroke();
       }
     }
-    if (annotation.id === selectedId && (annotation.type !== "text" || annotation.id === editingTextId)) {
+    if (annotation.id === selectedId && annotation.type !== "text") {
       const x = annotation.x * width;
       const y = annotation.y * height;
       const boxWidth = annotation.type === "highlight"
         ? (annotation.width ?? 0) * width
-        : annotation.type === "text" ? Math.max(42, (annotation.width ?? 0.12) * width) : 18;
+        : 18;
       const boxHeight = annotation.type === "highlight"
         ? (annotation.height ?? 0) * height
-        : annotation.type === "text" ? Math.max(28, (annotation.height ?? 0.04) * height) : 18;
+        : 18;
       context.setLineDash([4, 3]);
       context.lineWidth = 1;
       context.strokeStyle = getComputedStyle(document.documentElement).getPropertyValue("--accent").trim() || "#8dbfd0";
@@ -179,7 +178,7 @@ export function PdfAnnotationWorkspace({ project, onProjectChange, onBack }: Pro
   const [dragPreview, setDragPreview] = useState<{ x: number; y: number }>();
   const pdfCanvas = useRef<HTMLCanvasElement>(null);
   const annotationCanvas = useRef<HTMLCanvasElement>(null);
-  const textBoxRef = useRef<HTMLTextAreaElement>(null);
+  const textBoxRef = useRef<HTMLInputElement>(null);
   const canvasArea = useRef<HTMLDivElement>(null);
   const renderTask = useRef<{ cancel: () => void } | null>(null);
   const drag = useRef<DragState | null>(null);
@@ -297,8 +296,8 @@ export function PdfAnnotationWorkspace({ project, onProjectChange, onBack }: Pro
       }
       return { ...annotation, x: clamp(original.x + dx), y: clamp(original.y + dy) };
     });
-    drawAnnotations(canvas, annotations, page, selectedId, editingTextId, size.scale, draft);
-  }, [localProject.annotations, page, selectedId, editingTextId, size, draft, dragPreview]);
+    drawAnnotations(canvas, annotations, page, selectedId, size.scale, draft);
+  }, [localProject.annotations, page, selectedId, size, draft, dragPreview]);
 
   const pageAnnotations = useMemo(
     () => localProject.annotations.filter((annotation) => annotation.page === page),
@@ -342,15 +341,29 @@ export function PdfAnnotationWorkspace({ project, onProjectChange, onBack }: Pro
     void persist({ ...projectRef.current, annotations: next, updatedAt: Date.now() });
   }
 
-  function position(event: ReactPointerEvent<HTMLCanvasElement>): Point {
-    const bounds = event.currentTarget.getBoundingClientRect();
+  function position(event: ReactPointerEvent<HTMLElement>): Point {
+    const canvas = annotationCanvas.current;
+    if (!canvas) return { x: 0, y: 0 };
+    const bounds = canvas.getBoundingClientRect();
     return normalizePdfPoint(event.clientX - bounds.left, event.clientY - bounds.top, bounds.width, bounds.height);
   }
 
-  function pointerDown(event: ReactPointerEvent<HTMLCanvasElement>) {
+  function pointerDown(event: ReactPointerEvent<HTMLElement>) {
     if (!size) return;
-    event.currentTarget.setPointerCapture(event.pointerId);
+    if (typeof event.currentTarget.setPointerCapture === "function") {
+      event.currentTarget.setPointerCapture(event.pointerId);
+    }
     const point = position(event);
+    if (event.currentTarget !== annotationCanvas.current) {
+      const annotationId = event.currentTarget.dataset.annotationId;
+      const annotation = pageAnnotations.find((item) => item.id === annotationId);
+      if (!annotation || annotation.type !== "text") return;
+      setSelectedId(annotation.id);
+      setEditingTextId("");
+      drag.current = { id: annotation.id, start: point, original: annotation, moveHandle: true };
+      setDragPreview(point);
+      return;
+    }
     if (placingTextBox) {
       const annotation: PdfAnnotation = {
         id: crypto.randomUUID(),
@@ -388,7 +401,7 @@ export function PdfAnnotationWorkspace({ project, onProjectChange, onBack }: Pro
     setDraft({ type: tool, points: [point], color });
   }
 
-  function pointerMove(event: ReactPointerEvent<HTMLCanvasElement>) {
+  function pointerMove(event: ReactPointerEvent<HTMLElement>) {
     const point = position(event);
     if (drag.current) {
       setDragPreview(point);
@@ -398,7 +411,7 @@ export function PdfAnnotationWorkspace({ project, onProjectChange, onBack }: Pro
     setDraft((current) => current && ({ ...current, points: [...current.points, point] }));
   }
 
-  function pointerUp(event: ReactPointerEvent<HTMLCanvasElement>) {
+  function pointerUp(event: ReactPointerEvent<HTMLElement>) {
     const point = position(event);
     if (drag.current) {
       const current = drag.current;
@@ -420,7 +433,7 @@ export function PdfAnnotationWorkspace({ project, onProjectChange, onBack }: Pro
       drag.current = null;
       setDragPreview(undefined);
       if (Math.hypot(dx, dy) < 0.003) {
-        if (current.original.type === "text") setEditingTextId(current.id);
+        if (current.original.type === "text" && !current.moveHandle) setEditingTextId(current.id);
         return;
       }
       commitAnnotations(annotations, current.id);
@@ -551,28 +564,44 @@ export function PdfAnnotationWorkspace({ project, onProjectChange, onBack }: Pro
               onPointerUp={pointerUp}
               onPointerCancel={pointerUp}
             />
+            {placingTextBox && size && pageAnnotations.filter((annotation) => annotation.type === "text").map((annotation) => (
+              <button
+                key={annotation.id}
+                type="button"
+                className="pdf-workspace__move-handle"
+                aria-label={t("docs.pdfMoveTextBox", { page })}
+                title={t("docs.pdfMoveTextBox", { page })}
+                data-annotation-id={annotation.id}
+                onPointerDown={pointerDown}
+                onPointerMove={pointerMove}
+                onPointerUp={pointerUp}
+                onPointerCancel={pointerUp}
+                style={{ left: `${annotation.x * size.width}px`, top: `${annotation.y * size.height}px` }}
+              >
+                <Grip size={9} aria-hidden="true" />
+              </button>
+            ))}
             {size && localProject.annotations.filter((annotation) =>
               annotation.page === page && annotation.type === "text" && annotation.id === editingTextId
             ).map((annotation) => (
-              <textarea
+              <input
                 key={annotation.id}
                 ref={textBoxRef}
                 className="pdf-workspace__text-box"
                 aria-label={t("docs.pdfTextBoxPage", { page })}
                 placeholder={t("docs.pdfTextBoxPlaceholder")}
-                rows={1}
+                type="text"
                 value={annotation.text ?? ""}
                 onChange={(event) => {
-                  const text = event.target.value;
+                  const text = event.target.value.split(/\r?\n/, 1)[0];
+                  event.currentTarget.value = text;
                   const width = measureTextBoxWidth(text, annotation.fontSize ?? 12, size.scale, size.width, annotation.x);
-                  event.currentTarget.style.height = "auto";
-                  event.currentTarget.style.height = `${Math.max(28, event.currentTarget.scrollHeight)}px`;
                   commitAnnotations(projectRef.current.annotations.map((item) =>
                     item.id === annotation.id ? { ...item, text, width: width / size.width } : item
                   ));
                 }}
                 onKeyDown={(event) => {
-                  if (event.key === "Enter" && !event.shiftKey) {
+                  if (event.key === "Enter") {
                     event.preventDefault();
                     setEditingTextId("");
                   }
