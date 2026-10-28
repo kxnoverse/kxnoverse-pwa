@@ -34,6 +34,7 @@ function drawAnnotations(
   annotations: PdfAnnotation[],
   page: number,
   selectedId: string,
+  editingTextId: string,
   scale: number,
   draft?: { type: "highlight" | "draw"; points: Point[]; color: string },
 ): void {
@@ -94,7 +95,7 @@ function drawAnnotations(
         context.stroke();
       }
     }
-    if (annotation.id === selectedId) {
+    if (annotation.id === selectedId && (annotation.type !== "text" || annotation.id === editingTextId)) {
       const x = annotation.x * width;
       const y = annotation.y * height;
       const boxWidth = annotation.type === "highlight"
@@ -131,6 +132,17 @@ function drawAnnotations(
       context.restore();
     }
   }
+}
+
+function measureTextBoxWidth(text: string, fontSize: number, scale: number, pageWidth: number, x: number): number {
+  const context = document.createElement("canvas").getContext("2d");
+  if (!context) return Math.min(pageWidth * (1 - x), fontSize * scale * 3 + 8);
+  context.font = `${fontSize * scale}px Arial, sans-serif`;
+  const textWidth = Math.max(
+    context.measureText("00000").width,
+    ...text.split(/\r?\n/).map((line) => context.measureText(line).width),
+  );
+  return Math.min(pageWidth * (1 - x), textWidth + 8);
 }
 
 function annotationHit(annotation: PdfAnnotation, point: Point): boolean {
@@ -285,8 +297,8 @@ export function PdfAnnotationWorkspace({ project, onProjectChange, onBack }: Pro
       }
       return { ...annotation, x: clamp(original.x + dx), y: clamp(original.y + dy) };
     });
-    drawAnnotations(canvas, annotations, page, selectedId, size.scale, draft);
-  }, [localProject.annotations, page, selectedId, size, draft, dragPreview]);
+    drawAnnotations(canvas, annotations, page, selectedId, editingTextId, size.scale, draft);
+  }, [localProject.annotations, page, selectedId, editingTextId, size, draft, dragPreview]);
 
   const pageAnnotations = useMemo(
     () => localProject.annotations.filter((annotation) => annotation.page === page),
@@ -347,10 +359,16 @@ export function PdfAnnotationWorkspace({ project, onProjectChange, onBack }: Pro
         color,
         x: Math.min(point.x, 0.95),
         y: Math.min(point.y, 0.96),
-        width: Math.max(0.05, Math.min(0.45, 1 - point.x)),
         fontSize: Math.max(1, Math.min(200, 12 / size.scale)),
         text: "",
       };
+      annotation.width = measureTextBoxWidth(
+        "",
+        annotation.fontSize ?? 12,
+        size.scale,
+        size.width,
+        annotation.x,
+      ) / size.width;
       setPlacingTextBox(false);
       setEditingTextId(annotation.id);
       commitAnnotations([...projectRef.current.annotations, annotation], annotation.id);
@@ -388,6 +406,7 @@ export function PdfAnnotationWorkspace({ project, onProjectChange, onBack }: Pro
       const dy = point.y - current.start.y;
       const annotations = projectRef.current.annotations.map((annotation) => {
         if (annotation.id !== current.id) return annotation;
+        if (Math.hypot(dx, dy) < 0.003) return annotation;
         if (current.original.type === "draw") {
           return {
             ...annotation,
@@ -400,6 +419,10 @@ export function PdfAnnotationWorkspace({ project, onProjectChange, onBack }: Pro
       });
       drag.current = null;
       setDragPreview(undefined);
+      if (Math.hypot(dx, dy) < 0.003) {
+        if (current.original.type === "text") setEditingTextId(current.id);
+        return;
+      }
       commitAnnotations(annotations, current.id);
       return;
     }
@@ -491,17 +514,21 @@ export function PdfAnnotationWorkspace({ project, onProjectChange, onBack }: Pro
             </button>
           ))}
         </div>
-        <label className="pdf-workspace__color" title={t("docs.pdfInkColor")}><span>{t("docs.pdfInk")}</span><input aria-label={t("docs.pdfInkColor")} type="color" value={color} onChange={(event) => setColor(event.target.value)} /></label>
+        <label className="pdf-workspace__color" title={t("docs.pdfInkColor")}><span>{t("docs.pdfInk")}</span><input aria-label={t("docs.pdfInkColor")} type="color" value={color} onChange={(event) => {
+          const nextColor = event.target.value;
+          setColor(nextColor);
+          if (selectedAnnotation) {
+            commitAnnotations(projectRef.current.annotations.map((annotation) =>
+              annotation.id === selectedAnnotation.id ? { ...annotation, color: nextColor } : annotation
+            ));
+            setEditingTextId("");
+          }
+        }} /></label>
         <div className="pdf-workspace__tool-group pdf-workspace__history">
           <button type="button" aria-label={t("docs.undo")} disabled={!undoStack.current.length} onClick={undo}><Undo2 size={15} /></button>
           <button type="button" aria-label={t("docs.redo")} disabled={!redoStack.current.length} onClick={redo}><Redo2 size={15} /></button>
           <button type="button" aria-label={t("docs.pdfDeleteAnnotation")} disabled={!selectedAnnotation} onClick={() => commitAnnotations(projectRef.current.annotations.filter((annotation) => annotation.id !== selectedId), "")}><Trash2 size={15} /></button>
         </div>
-        {selectedAnnotation?.type === "text" && editingTextId !== selectedAnnotation.id && (
-          <button type="button" className="pdf-workspace__edit-text" onClick={() => setEditingTextId(selectedAnnotation.id)}>
-            <Type size={13} />{t("docs.pdfEditAnnotation")}
-          </button>
-        )}
         <div className="pdf-workspace__zoom">
           <button type="button" aria-label={t("docs.pdfZoomOut")} onClick={() => setZoom((current) => Math.max(0.6, Math.round((current - 0.1) * 10) / 10))}><ZoomOut size={14} /></button>
           <span>{Math.round(zoom * 100)}%</span>
@@ -535,14 +562,26 @@ export function PdfAnnotationWorkspace({ project, onProjectChange, onBack }: Pro
                 placeholder={t("docs.pdfTextBoxPlaceholder")}
                 rows={1}
                 value={annotation.text ?? ""}
-                onChange={(event) => commitAnnotations(projectRef.current.annotations.map((item) =>
-                  item.id === annotation.id ? { ...item, text: event.target.value } : item
-                ))}
+                onChange={(event) => {
+                  const text = event.target.value;
+                  const width = measureTextBoxWidth(text, annotation.fontSize ?? 12, size.scale, size.width, annotation.x);
+                  event.currentTarget.style.height = "auto";
+                  event.currentTarget.style.height = `${Math.max(28, event.currentTarget.scrollHeight)}px`;
+                  commitAnnotations(projectRef.current.annotations.map((item) =>
+                    item.id === annotation.id ? { ...item, text, width: width / size.width } : item
+                  ));
+                }}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter" && !event.shiftKey) {
+                    event.preventDefault();
+                    setEditingTextId("");
+                  }
+                }}
                 onPointerDown={(event) => event.stopPropagation()}
                 style={{
                   left: `${annotation.x * size.width}px`,
                   top: `${annotation.y * size.height}px`,
-                  width: `${Math.min(annotation.width ?? 0.45, 1 - annotation.x) * size.width}px`,
+                  width: `${Math.min(annotation.width ?? 0.05, 1 - annotation.x) * size.width}px`,
                   fontSize: `${(annotation.fontSize ?? 12) * size.scale}px`,
                   color: annotation.color,
                 }}

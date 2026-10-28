@@ -147,9 +147,12 @@ describe("PDF annotation workspace text boxes", () => {
     });
 
     const editor = await screen.findByRole("textbox", { name: "Text box on PDF page 1" });
-    fireEvent.blur(editor);
     expect(editor).toBeInTheDocument();
+    const initialWidth = Number.parseFloat((editor as HTMLTextAreaElement).style.width);
+    expect(initialWidth).toBeGreaterThan(25);
+    expect(initialWidth).toBeLessThan(100);
     fireEvent.change(editor, { target: { value: "Answer on the original page" } });
+    expect(Number.parseFloat((editor as HTMLTextAreaElement).style.width)).toBeGreaterThan(initialWidth);
     await waitFor(async () => {
       expect((await db.pdfProjects.get(project.id))?.annotations[0]).toMatchObject({
         type: "text",
@@ -160,13 +163,33 @@ describe("PDF annotation workspace text boxes", () => {
       });
     });
     expect(await db.documents.count()).toBe(0);
+    fireEvent.keyDown(editor, { key: "Enter" });
+    expect(screen.queryByRole("textbox", { name: "Text box on PDF page 1" })).not.toBeInTheDocument();
+    const persistedAnnotation = (await db.pdfProjects.get(project.id))!.annotations[0];
+    fireEvent.pointerDown(annotationCanvas, {
+      pointerId: 2,
+      clientX: bounds.left + bounds.width * persistedAnnotation.x,
+      clientY: bounds.top + bounds.height * persistedAnnotation.y,
+    });
+    fireEvent.pointerUp(annotationCanvas, {
+      pointerId: 2,
+      clientX: bounds.left + bounds.width * persistedAnnotation.x,
+      clientY: bounds.top + bounds.height * persistedAnnotation.y,
+    });
+    expect(await screen.findByRole("textbox", { name: "Text box on PDF page 1" })).toHaveValue("Answer on the original page");
 
-    const positionBeforeZoom = Number.parseFloat((editor as HTMLTextAreaElement).style.left);
+    const positionBeforeZoom = Number.parseFloat((screen.getByRole("textbox", { name: "Text box on PDF page 1" }) as HTMLTextAreaElement).style.left);
     await screen.findByRole("button", { name: "Zoom in" }).then((button) => fireEvent.click(button));
     await waitFor(() => {
       expect(Number.parseFloat((screen.getByRole("textbox", { name: "Text box on PDF page 1" }) as HTMLTextAreaElement).style.left))
         .toBeGreaterThan(positionBeforeZoom);
     });
+
+    fireEvent.change(screen.getByLabelText("Annotation color"), { target: { value: "#123456" } });
+    await waitFor(async () => {
+      expect((await db.pdfProjects.get(project.id))?.annotations[0].color).toBe("#123456");
+    });
+    expect(screen.queryByRole("textbox", { name: "Text box on PDF page 1" })).not.toBeInTheDocument();
 
     firstView.unmount();
     const reopenedProject = (await db.pdfProjects.get(project.id))!;
@@ -177,12 +200,15 @@ describe("PDF annotation workspace text boxes", () => {
     await waitFor(() => expect((reopenedCanvas as HTMLCanvasElement).style.width).not.toBe(""));
     const reopenedBounds = reopenedCanvas.getBoundingClientRect();
     fireEvent.pointerDown(reopenedCanvas, {
-      pointerId: 2,
+      pointerId: 3,
       clientX: reopenedBounds.left + reopenedBounds.width * reopenedProject.annotations[0].x,
       clientY: reopenedBounds.top + reopenedBounds.height * reopenedProject.annotations[0].y,
     });
-    await waitFor(() => expect(screen.getByRole("button", { name: "Delete selected annotation" })).toBeEnabled());
-    fireEvent.click(await screen.findByRole("button", { name: "Edit selected text annotation" }));
+    fireEvent.pointerUp(reopenedCanvas, {
+      pointerId: 3,
+      clientX: reopenedBounds.left + reopenedBounds.width * reopenedProject.annotations[0].x,
+      clientY: reopenedBounds.top + reopenedBounds.height * reopenedProject.annotations[0].y,
+    });
     expect(await screen.findByRole("textbox", { name: "Text box on PDF page 1" }))
       .toHaveValue("Answer on the original page");
   });
