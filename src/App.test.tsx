@@ -46,6 +46,7 @@ beforeEach(async () => {
     db.focusSessions.clear(),
     db.files.clear(),
     db.arcadeData.clear(),
+    db.workspace.clear(),
   ]);
   useUiStore.getState().updateAppearance(defaultAppearance);
   vi.spyOn(HTMLCanvasElement.prototype, "getContext").mockReturnValue(null);
@@ -76,7 +77,8 @@ describe("Kxno Desk shell", () => {
     expect(screen.getByRole("heading", { name: "Today’s schedule" })).toBeInTheDocument();
     expect(within(screen.getByRole("navigation", { name: "Main navigation" })).queryByRole("link", { name: "Files" })).not.toBeInTheDocument();
     expect(within(screen.getByRole("navigation", { name: "Main navigation" })).getByRole("link", { name: "Translate" })).toBeInTheDocument();
-    expect(within(screen.getByRole("navigation", { name: "Main navigation" })).getByRole("link", { name: "Kxno Solve" })).toBeInTheDocument();
+    expect(within(screen.getByRole("navigation", { name: "Main navigation" })).queryByRole("link", { name: "Kxno Solve" })).not.toBeInTheDocument();
+    expect(within(screen.getByRole("navigation", { name: "Main navigation" })).getByRole("link", { name: "Workspace" })).toBeInTheDocument();
     expect(screen.getByText("Kxno Desk · Made By Kxno (Shero)")).toBeInTheDocument();
 
     await user.click(
@@ -892,8 +894,9 @@ describe("Kxno Desk shell", () => {
     const navigation = within(screen.getByRole("navigation", { name: "Main navigation" }));
     const navNames = navigation.getAllByRole("link").map((link) => link.textContent);
     expect(navNames.indexOf("Assistant")).toBe(navNames.indexOf("Timetable") + 1);
-    expect(navNames.indexOf("Kxno Solve")).toBe(navNames.indexOf("Assistant") + 1);
-    expect(navNames.indexOf("Tasks")).toBe(navNames.indexOf("Kxno Solve") + 1);
+    expect(navNames).not.toContain("Kxno Solve");
+    expect(navNames).toContain("Workspace");
+    expect(navNames.indexOf("Tasks")).toBe(navNames.indexOf("Assistant") + 1);
     expect(navNames.indexOf("Timer")).toBe(navNames.indexOf("Notes") - 1);
 
     await user.click(screen.getByRole("link", { name: "Settings" }));
@@ -1009,8 +1012,7 @@ describe("Kxno Desk shell", () => {
     const pdf = new File([await document.save()], "worksheet.pdf", { type: "application/pdf" });
 
     render(<App />);
-    const navigation = within(screen.getByRole("navigation", { name: "Main navigation" }));
-    await user.click(navigation.getByRole("link", { name: "Kxno Solve" }));
+    window.location.hash = "#/solve";
     expect(await screen.findByRole("heading", { name: "Kxno Solve" })).toBeInTheDocument();
     fireEvent.change(screen.getByLabelText("Choose PDF"), { target: { files: [pdf] } });
 

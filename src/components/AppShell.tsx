@@ -12,7 +12,7 @@ import {
   Settings,
   Timer,
   Languages,
-  FileCheck2,
+  PanelsTopLeft,
 } from "lucide-react";
 import { useLiveQuery } from "dexie-react-hooks";
 import { useTranslation } from "react-i18next";
@@ -24,9 +24,9 @@ import { PwaUpdateNotice } from "./PwaUpdateNotice";
 
 const navigation = [
   { key: "home", path: "/", icon: House },
+  { key: "workspace", path: "/workspace", icon: PanelsTopLeft },
   { key: "timetable", path: "/timetable", icon: CalendarRange },
   { key: "assistant", path: "/assistant", icon: MessageSquareText },
-  { key: "solve", path: "/solve", icon: FileCheck2 },
   { key: "tasks", path: "/tasks", icon: ListTodo },
   { key: "calendar", path: "/calendar", icon: CalendarDays },
   { key: "timer", path: "/timer", icon: Timer },
@@ -39,11 +39,14 @@ const navigation = [
 export function AppShell() {
   const { t, i18n } = useTranslation();
   const location = useLocation();
+  const isWorkspace = location.pathname === "/workspace";
   const appearance = useUiStore((state) => state.appearance);
   const image = useLiveQuery(() => db.settings.get("backgroundImage"), [], undefined)?.value;
   const pageName =
     location.pathname === "/settings"
       ? "settings"
+      : location.pathname === "/solve"
+        ? "solve"
       : location.pathname === "/files"
         ? "files"
         : location.pathname.startsWith("/minigames")
@@ -56,7 +59,7 @@ export function AppShell() {
 
   return (
     <div
-      className="app-frame"
+      className={`app-frame${isWorkspace ? " app-frame--workspace" : ""}`}
       data-theme={appearance.mode}
       data-performance-mode={appearance.performanceMode}
       style={
@@ -96,7 +99,7 @@ export function AppShell() {
         spacing={appearance.gridSpacing}
         style={appearance.backgroundStyle}
       />
-      <aside className="sidebar">
+      {!isWorkspace && <aside className="sidebar">
         <Link className="sidebar__brand" to="/" aria-label={t("appName")}>
           <BrandMark />
         </Link>
@@ -129,9 +132,9 @@ export function AppShell() {
             <span>{t("nav.settings")}</span>
           </NavLink>
         </div>
-      </aside>
-      <main className="main-column">
-        <div className="page-scroll">
+      </aside>}
+      <main className={`main-column${isWorkspace ? " main-column--workspace" : ""}`}>
+        <div className={`page-scroll${isWorkspace ? " page-scroll--workspace" : ""}`}>
           <Suspense fallback={<p className="route-loading" role="status">{t("app.loading")}</p>}>
             <Outlet />
           </Suspense>

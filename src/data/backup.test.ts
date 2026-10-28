@@ -6,6 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { exportDataBackup, importDataBackup } from "./backup";
 import { db } from "./db";
 import { defaultAppearance } from "../stores/ui-store";
+import { i18nReady } from "../i18n";
 
 function blobAsFile(blob: Blob): File {
   return {
@@ -16,6 +17,7 @@ function blobAsFile(blob: Blob): File {
 
 describe("local data safety", () => {
   beforeEach(async () => {
+    await i18nReady;
     vi.stubGlobal("Blob", NodeBlob);
     localStorage.clear();
     db.close();
@@ -59,7 +61,8 @@ describe("local data safety", () => {
     expect(await db.tasks.count()).toBe(0);
     expect(await db.files.count()).toBe(0);
     expect(await db.aiAttachments.count()).toBe(0);
-    expect(db.verno).toBe(5);
+    expect(await db.workspace.count()).toBe(0);
+    expect(db.verno).toBe(6);
   });
 
   it("exports data and merges without overwriting colliding local records", async () => {
@@ -230,6 +233,25 @@ describe("local data safety", () => {
       { id: "stats:pong", value: '{"computer":{"wins":1,"losses":0},"local":{"wins":0,"losses":0}}' },
     ];
     await db.arcadeData.bulkAdd(gameRecords.map((record) => ({ ...record, updatedAt: 1 })));
+    await db.workspace.add({
+      id: "default",
+      state: {
+        elements: [{
+          id: "workspace-text",
+          kind: "text",
+          x: 120,
+          y: 80,
+          width: 280,
+          height: 200,
+          borderColor: "#347ab4",
+          title: "Revision notes",
+          content: "Review chapter 4",
+        }],
+        connections: [],
+        viewport: { x: 12, y: 20, zoom: 1.2 },
+      },
+      updatedAt: 1,
+    });
     localStorage.setItem("kxnodesk-ui", JSON.stringify({
       state: { appearance: { ...defaultAppearance, accent: "#112233" } },
       version: 3,
@@ -242,7 +264,7 @@ describe("local data safety", () => {
       data: Record<string, Array<Record<string, unknown>>>;
       preferences: Record<string, string>;
     };
-    expect(exported.schemaVersion).toBe(5);
+    expect(exported.schemaVersion).toBe(6);
     expect(exported.data.subjects).toHaveLength(1);
     expect(exported.data.timetable).toHaveLength(1);
     expect(exported.data.exceptions).toHaveLength(1);
@@ -251,12 +273,14 @@ describe("local data safety", () => {
     expect(exported.data.notes).toHaveLength(1);
     expect(exported.data.focusSessions).toHaveLength(1);
     expect(exported.data.files[0].blobData).toBeDefined();
+    expect(exported.data.workspace).toHaveLength(1);
     expect(exported.data.arcadeData.map((record) => record.id)).toEqual(expect.arrayContaining(gameRecords.map((record) => record.id)));
     expect(exported.preferences["kxnodesk-language"]).toBe("de");
 
     const tables = [
       db.subjects, db.teachers, db.timetable, db.exceptions, db.settings, db.tasks,
       db.calendarEvents, db.notes, db.focusSessions, db.files, db.arcadeData,
+      db.workspace,
     ];
     await Promise.all(tables.map((table) => table.clear()));
     localStorage.clear();
@@ -270,6 +294,13 @@ describe("local data safety", () => {
     expect(restored.focusSessions).toEqual({ added: 1, skipped: 0 });
     expect(restored.files).toEqual({ added: 1, skipped: 0 });
     expect(restored.arcadeData).toEqual({ added: gameRecords.length, skipped: 0 });
+    expect(restored.workspace).toEqual({ added: 1, skipped: 0 });
+    expect(await db.workspace.get("default")).toMatchObject({
+      state: {
+        elements: [expect.objectContaining({ title: "Revision notes", content: "Review chapter 4" })],
+        viewport: { x: 12, y: 20, zoom: 1.2 },
+      },
+    });
     expect((await db.files.get("file"))?.blob.type).toBe("text/plain");
     expect((await db.files.get("file"))?.blob.size).toBe(5);
     expect(await db.settings.get("schoolState")).toEqual({ key: "schoolState", value: "NW" });

@@ -173,6 +173,44 @@ export interface ArcadeRecord {
   updatedAt: number;
 }
 
+export type WorkspaceElementKind = "text" | "note" | "image" | "file";
+
+export interface WorkspaceElement {
+  id: string;
+  kind: WorkspaceElementKind;
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  borderColor: string;
+  title: string;
+  content: string;
+  fileId?: string;
+  noteId?: string;
+}
+
+export interface WorkspaceConnection {
+  id: string;
+  fromId: string;
+  toId: string;
+}
+
+export interface WorkspaceState {
+  elements: WorkspaceElement[];
+  connections: WorkspaceConnection[];
+  viewport: {
+    x: number;
+    y: number;
+    zoom: number;
+  };
+}
+
+export interface WorkspaceRecord {
+  id: "default";
+  state: WorkspaceState;
+  updatedAt: number;
+}
+
 class KxnoDatabase extends Dexie {
   subjects!: EntityTable<Subject, "id">;
   teachers!: EntityTable<Teacher, "id">;
@@ -189,6 +227,7 @@ class KxnoDatabase extends Dexie {
   focusSessions!: EntityTable<FocusSession, "id">;
   files!: EntityTable<LocalFile, "id">;
   arcadeData!: EntityTable<ArcadeRecord, "id">;
+  workspace!: EntityTable<WorkspaceRecord, "id">;
 
   constructor() {
     super("KxnoDesk");
@@ -256,6 +295,24 @@ class KxnoDatabase extends Dexie {
       focusSessions: "id, startedAt, endedAt, kind, taskId",
       files: "id, name, category, subjectId, noteId, modifiedAt",
       arcadeData: "id, updatedAt",
+    });
+    this.version(6).stores({
+      subjects: "id, name",
+      teachers: "id, name",
+      timetable: "id, weekday, subjectId, teacherId, weekType",
+      exceptions: "id, date, type, entryId",
+      settings: "key",
+      aiPresets: "id, name",
+      aiConversations: "id, updatedAt",
+      aiMessages: "id, conversationId, createdAt",
+      aiAttachments: "id, messageId, createdAt",
+      tasks: "id, dueDate, completed, subjectId, priority, updatedAt",
+      calendarEvents: "id, startAt, endAt, taskId",
+      notes: "id, updatedAt, pinned, folder, subjectId",
+      focusSessions: "id, startedAt, endedAt, kind, taskId",
+      files: "id, name, category, subjectId, noteId, modifiedAt",
+      arcadeData: "id, updatedAt",
+      workspace: "id",
     });
   }
 }

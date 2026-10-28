@@ -2,6 +2,7 @@ import { db } from "./db";
 import { defaultAppearance, useUiStore } from "../stores/ui-store";
 import { i18n } from "../i18n";
 import { isBlobLike, readBlobAsArrayBuffer } from "./blob-utils";
+import { isWorkspaceState } from "./workspace";
 
 const BACKUP_FORMAT = "kxnodesk-local-backup";
 const MAX_IMPORT_BYTES = 150 * 1024 * 1024;
@@ -24,6 +25,7 @@ const DATA_TABLES = [
   "files",
   "aiAttachments",
   "arcadeData",
+  "workspace",
 ] as const;
 
 type DataTableName = (typeof DATA_TABLES)[number];
@@ -81,6 +83,7 @@ const requiredStrings: Record<DataTableName, string[]> = {
   files: ["id", "name", "type", "category", "blobData"],
   aiAttachments: ["id", "messageId", "name", "mimeType", "blobData"],
   arcadeData: ["id", "value"],
+  workspace: ["id"],
 };
 
 function validateRecord(table: DataTableName, record: BackupRecord): void {
@@ -108,6 +111,9 @@ function validateRecord(table: DataTableName, record: BackupRecord): void {
   }
   if (table === "focusSessions" && (typeof record.startedAt !== "number" || typeof record.endedAt !== "number" || typeof record.plannedSeconds !== "number" || typeof record.durationSeconds !== "number")) {
     throw new Error("The backup contains an invalid focus session.");
+  }
+  if (table === "workspace" && (!isWorkspaceState(record.state) || typeof record.updatedAt !== "number" || !Number.isFinite(record.updatedAt))) {
+    throw new Error("The backup contains invalid workspace data.");
   }
 }
 
@@ -187,7 +193,7 @@ export async function exportDataBackup(): Promise<Blob> {
   }
   return new Blob([JSON.stringify({
     format: BACKUP_FORMAT,
-    schemaVersion: 5,
+    schemaVersion: 6,
     exportedAt: new Date().toISOString(),
     data,
     preferences,
@@ -202,7 +208,7 @@ export async function importDataBackup(file: File): Promise<BackupImportSummary>
   } catch {
     throw new Error("The selected file is not valid backup JSON.");
   }
-  if (!isRecord(parsed) || parsed.format !== BACKUP_FORMAT || typeof parsed.schemaVersion !== "number" || parsed.schemaVersion < 2 || parsed.schemaVersion > 5 || !isRecord(parsed.data)) {
+  if (!isRecord(parsed) || parsed.format !== BACKUP_FORMAT || typeof parsed.schemaVersion !== "number" || parsed.schemaVersion < 2 || parsed.schemaVersion > 6 || !isRecord(parsed.data)) {
     throw new Error("This file is not a supported Kxno Desk backup.");
   }
 
@@ -220,7 +226,7 @@ export async function importDataBackup(file: File): Promise<BackupImportSummary>
   let total = 0;
   for (const name of DATA_TABLES) {
     const records = data[name];
-    if (records === undefined && ((parsed.schemaVersion < 3 && DATA_TABLES.indexOf(name) >= 8) || (parsed.schemaVersion < 4 && name === "aiAttachments") || (parsed.schemaVersion < 5 && name === "arcadeData"))) {
+    if (records === undefined && ((parsed.schemaVersion < 3 && DATA_TABLES.indexOf(name) >= 8) || (parsed.schemaVersion < 4 && name === "aiAttachments") || (parsed.schemaVersion < 5 && name === "arcadeData") || (parsed.schemaVersion < 6 && name === "workspace"))) {
       recordsByTable[name] = [];
       continue;
     }
@@ -261,9 +267,10 @@ export async function importDataBackup(file: File): Promise<BackupImportSummary>
     for (const name of DATA_TABLES.slice(5, 10)) await addTableRecords(name);
     await addTableRecords("aiAttachments");
   });
-  await db.transaction("rw", db.notes, db.focusSessions, db.files, db.arcadeData, async () => {
+  await db.transaction("rw", db.notes, db.focusSessions, db.files, db.arcadeData, db.workspace, async () => {
     for (const name of DATA_TABLES.slice(10, 13)) await addTableRecords(name);
     await addTableRecords("arcadeData");
+    await addTableRecords("workspace");
   });
   const preferenceSummary = { added: 0, skipped: 0 };
   for (const key of PREFERENCE_KEYS) {

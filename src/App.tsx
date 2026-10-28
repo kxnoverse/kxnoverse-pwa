@@ -16,6 +16,7 @@ const FilesPage = lazy(() => import("./pages/FilesPage").then((module) => ({ def
 const ArcadePage = lazy(() => import("./pages/ArcadePage").then((module) => ({ default: module.ArcadePage })));
 const CalculatorPage = lazy(() => import("./pages/CalculatorPage").then((module) => ({ default: module.CalculatorPage })));
 const TranslatePage = lazy(() => import("./pages/TranslatePage").then((module) => ({ default: module.TranslatePage })));
+const WorkspacePage = lazy(() => import("./pages/WorkspacePage").then((module) => ({ default: module.WorkspacePage })));
 const SolvePage = lazy(() => import("./pages/SolvePage").then((module) => ({ default: module.SolvePage })));
 
 export default function App() {
@@ -36,6 +37,7 @@ export default function App() {
           <Route path="minigames/*" element={<ArcadePage />} />
           <Route path="calculator" element={<CalculatorPage />} />
           <Route path="translate" element={<TranslatePage />} />
+          <Route path="workspace" element={<WorkspacePage />} />
           <Route path="solve" element={<SolvePage />} />
           <Route path=":module" element={<ModulePage />} />
           <Route path="*" element={<Navigate to="/" replace />} />

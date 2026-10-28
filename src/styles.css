@@ -2163,3 +2163,111 @@ h1 { color: var(--text); }
   .solve-placement { grid-column: auto; }
 }
 @media (prefers-reduced-motion: reduce) { .solve-spinner { animation: none; } }
+
+.app-frame--workspace { overflow: hidden; }
+.app-frame--workspace .sidebar { display: none; }
+.app-frame--workspace .main-column { min-height: 100dvh; height: 100dvh; margin-left: 0; overflow: hidden; }
+.app-frame--workspace .page-scroll { width: 100%; min-height: 100dvh; height: 100dvh; padding: 0; overflow: hidden; }
+.app-frame--workspace .app-footer { display: none; }
+.workspace-page {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  min-height: 100dvh;
+  overflow: hidden;
+  background-color: var(--surface-0);
+  background-image: radial-gradient(circle, color-mix(in srgb, var(--text-muted) 35%, transparent) 1px, transparent 1.2px);
+  cursor: grab;
+  touch-action: none;
+  user-select: none;
+}
+.workspace-page:active { cursor: grabbing; }
+.workspace-topbar { position: absolute; z-index: 8; inset: 18px 22px auto; display: flex; align-items: flex-start; justify-content: space-between; pointer-events: none; }
+.workspace-add-wrap { position: relative; pointer-events: auto; }
+.workspace-add {
+  display: grid;
+  width: 34px;
+  height: 34px;
+  place-items: center;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  background: color-mix(in srgb, var(--surface-1) 88%, transparent);
+  color: var(--text);
+  cursor: pointer;
+  box-shadow: 0 4px 18px rgb(0 0 0 / 12%);
+  transition: background 140ms ease, border-color 140ms ease, color 140ms ease;
+}
+.workspace-add:hover, .workspace-add[aria-expanded="true"] { border-color: color-mix(in srgb, var(--accent) 54%, var(--line)); color: var(--accent); background: var(--surface-1); }
+.workspace-add-menu {
+  position: absolute;
+  top: 42px;
+  left: 0;
+  display: grid;
+  width: 166px;
+  gap: 2px;
+  padding: 5px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--surface-1) 96%, transparent);
+  box-shadow: 0 12px 30px rgb(0 0 0 / 24%);
+  backdrop-filter: blur(16px);
+}
+.workspace-add-menu button { display: flex; align-items: center; gap: 9px; min-height: 32px; padding: 0 9px; border: 0; border-radius: 5px; background: transparent; color: var(--text); font: inherit; font-size: 11px; text-align: left; cursor: pointer; }
+.workspace-add-menu button:hover { background: var(--surface-hover); }
+.workspace-add-menu button > span { display: grid; width: 14px; height: 14px; place-items: center; border: 1px solid var(--line); border-radius: 3px; color: var(--text-muted); font-size: 9px; }
+.workspace-file-input { display: none; }
+.workspace-clock { pointer-events: none; margin: 3px 4px 0 0; }
+.workspace-clock span { font-size: 27px; }
+.workspace-connections { position: absolute; z-index: 1; inset: 0; overflow: visible; pointer-events: none; }
+.workspace-connection { pointer-events: none; }
+.workspace-connection path { fill: none; }
+.workspace-connection__line { stroke: color-mix(in srgb, var(--accent) 72%, var(--text)); stroke-width: 1.6; opacity: .7; }
+.workspace-connection__hit { stroke: transparent; stroke-width: 14; pointer-events: stroke; cursor: pointer; }
+.workspace-connection__hit:focus-visible { stroke: color-mix(in srgb, var(--accent) 30%, transparent); outline: none; }
+.workspace-world { position: absolute; z-index: 2; inset: 0; pointer-events: none; transform-origin: 0 0; }
+.workspace-card {
+  position: absolute;
+  display: flex;
+  min-width: 220px;
+  min-height: 140px;
+  flex-direction: column;
+  overflow: hidden;
+  border: 1px solid color-mix(in srgb, var(--workspace-border) 78%, transparent);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--surface-1) 92%, transparent);
+  box-shadow: 0 12px 32px rgb(0 0 0 / 14%);
+  color: var(--text);
+  pointer-events: auto;
+  backdrop-filter: blur(15px);
+}
+.workspace-card.is-active { z-index: 4; border-color: var(--workspace-border); box-shadow: 0 0 0 1px color-mix(in srgb, var(--workspace-border) 28%, transparent), 0 14px 36px rgb(0 0 0 / 19%); }
+.workspace-card.is-connecting { box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 55%, transparent), 0 14px 36px rgb(0 0 0 / 19%); }
+.workspace-card__header { display: flex; min-height: 35px; align-items: center; gap: 6px; padding: 0 7px 0 11px; border-bottom: 1px solid color-mix(in srgb, var(--workspace-border) 28%, var(--line)); cursor: move; touch-action: none; }
+.workspace-card__title { min-width: 0; flex: 1; padding: 5px 0; border: 0; outline: 0; background: transparent; color: var(--text); font: inherit; font-size: 10px; font-weight: 580; }
+.workspace-card__title:disabled { opacity: .85; }
+.workspace-card__actions { display: flex; align-items: center; gap: 2px; }
+.workspace-card__color { display: grid; width: 22px; height: 24px; place-items: center; cursor: pointer; }
+.workspace-card__color input { width: 13px; height: 13px; padding: 0; overflow: hidden; border: 1px solid var(--line); border-radius: 50%; background: transparent; cursor: pointer; appearance: none; }
+.workspace-card__color input::-webkit-color-swatch-wrapper { padding: 0; }
+.workspace-card__color input::-webkit-color-swatch { border: 0; border-radius: 50%; }
+.workspace-card__action { display: grid; width: 24px; height: 24px; place-items: center; border: 0; border-radius: 4px; background: transparent; color: var(--text-muted); cursor: pointer; }
+.workspace-card__action:hover { background: var(--surface-hover); color: var(--text); }
+.workspace-card__body { display: flex; min-height: 0; flex: 1; overflow: hidden; }
+.workspace-card__body textarea { width: 100%; height: 100%; min-height: 0; resize: none; padding: 12px; border: 0; outline: 0; background: transparent; color: var(--text); font: inherit; font-size: 12px; line-height: 1.6; user-select: text; }
+.workspace-card__body textarea::placeholder { color: var(--text-muted); }
+.workspace-card__image { display: block; width: 100%; height: 100%; object-fit: contain; }
+.workspace-card__file, .workspace-card__missing { display: flex; width: 100%; flex-direction: column; align-items: center; justify-content: center; gap: 8px; padding: 12px; color: var(--text-muted); font-size: 10px; text-align: center; }
+.workspace-card__file > button { display: flex; align-items: center; gap: 6px; max-width: 100%; padding: 6px 9px; border: 1px solid var(--line); border-radius: 5px; background: transparent; color: var(--text); font: inherit; cursor: pointer; }
+.workspace-card__file > button:hover { border-color: var(--workspace-border); }
+.workspace-card__resize { position: absolute; right: 2px; bottom: 2px; width: 18px; height: 18px; border: 0; background: linear-gradient(135deg, transparent 48%, color-mix(in srgb, var(--workspace-border) 78%, var(--text-muted)) 50%, color-mix(in srgb, var(--workspace-border) 78%, var(--text-muted)) 55%, transparent 57%, transparent 67%, color-mix(in srgb, var(--workspace-border) 78%, var(--text-muted)) 69%, color-mix(in srgb, var(--workspace-border) 78%, var(--text-muted)) 74%, transparent 76%); cursor: nwse-resize; touch-action: none; }
+.workspace-empty { position: absolute; top: 50%; left: 50%; margin: 0; transform: translate(-50%, -50%); color: var(--text-muted); font-size: 11px; letter-spacing: .01em; pointer-events: none; }
+.workspace-connect-cancel { position: absolute; z-index: 8; top: 62px; left: 22px; padding: 6px 9px; border: 1px solid var(--line); border-radius: 5px; background: var(--surface-1); color: var(--text-muted); font: inherit; font-size: 10px; cursor: pointer; }
+.workspace-loading { position: absolute; z-index: 8; bottom: 18px; left: 22px; color: var(--text-muted); font-size: 10px; }
+.workspace-error { position: absolute; z-index: 9; right: 18px; bottom: 14px; max-width: min(440px, calc(100% - 36px)); margin: 0; padding: 9px 12px; border: 1px solid color-mix(in srgb, #d77b6c 40%, var(--line)); border-radius: 6px; background: var(--surface-1); color: var(--text); font-size: 10px; line-height: 1.5; }
+@media (max-width: 560px) {
+  .workspace-topbar { inset: 12px 13px auto; }
+  .workspace-clock span { font-size: 23px; }
+  .workspace-connect-cancel { top: 55px; left: 13px; }
+  .workspace-loading { left: 13px; }
+  .workspace-error { right: 10px; bottom: 10px; }
+}
