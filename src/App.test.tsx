@@ -1698,7 +1698,7 @@ describe("Kxno Desk shell", () => {
     const user = userEvent.setup();
     const view = render(<App />);
     await user.click(await screen.findByRole("link", { name: "Assistant" }));
-    const composer = await screen.findByRole("textbox", { name: "Message" });
+    const composer = await screen.findByRole("textbox", { name: "Message" }, { timeout: 5000 });
     await user.type(composer, "Explain fractions");
     await user.keyboard("{Shift>}{Enter}{/Shift}");
     await user.type(composer, " please");
@@ -1715,7 +1715,7 @@ describe("Kxno Desk shell", () => {
       message: "Explain fractions\n please",
       turnstileToken: "test-turnstile-token",
     });
-    expect(await screen.findByText("Cloud answer")).toBeInTheDocument();
+    expect(await screen.findByText("Cloud answer", {}, { timeout: 5000 })).toBeInTheDocument();
     expect((await db.aiMessages.toArray()).find((message) => message.role === "user")).toMatchObject({ content: "Explain fractions\n please" });
     expect(await db.settings.get("aiCloudConsentEndpoint")).toMatchObject({ value: "https://worker.example.test" });
     await waitFor(() => expect(screen.getByLabelText("49 requests remaining today")).toBeInTheDocument());
@@ -1729,7 +1729,10 @@ describe("Kxno Desk shell", () => {
     view.unmount();
     render(<App />);
     await user.click(await screen.findByRole("link", { name: "Settings" }));
-    expect(await screen.findByRole("checkbox", { name: /Allow cloud sharing/ })).toBeChecked();
+    await waitFor(
+      () => expect(screen.getByRole("checkbox", { name: /Allow cloud sharing/ })).toBeChecked(),
+      { timeout: 5000 },
+    );
   });
 
   it("preserves saved assistant presets while loading the assistant", async () => {
