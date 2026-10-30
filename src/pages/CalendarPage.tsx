@@ -1,8 +1,9 @@
-import { useEffect, useMemo, useState, type FormEvent } from "react";
+import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import { useLiveQuery } from "dexie-react-hooks";
-import { ArrowLeft, ArrowRight, CalendarDays, Plus, Trash2 } from "lucide-react";
+import { CalendarDays, ChevronLeft, ChevronRight, Plus, Trash2 } from "lucide-react";
 import { Link } from "react-router-dom";
 import { useTranslation } from "react-i18next";
+import { Surface } from "../components/Surface";
 import { createId, db, localDateKey, type CalendarEvent, type SchoolTask } from "../data/db";
 import { useUiStore } from "../stores/ui-store";
 import {
@@ -46,17 +47,19 @@ export function CalendarPage() {
   const [regionalDates, setRegionalDates] = useState<RegionalDate[]>([]);
   const [regionalStatus, setRegionalStatus] = useState<"loading" | "refreshing" | "ready" | "cached" | "offlineCached" | "offlineEmpty" | "error" | "cacheError" | "cacheReadError">("loading");
   const [isOnline, setIsOnline] = useState(() => typeof navigator === "undefined" || navigator.onLine);
+  const cacheKeyRef = useRef("");
   const region = germanStates.includes(schoolStateSetting?.value as GermanState)
     ? schoolStateSetting?.value as GermanState
     : "";
   const regionReady = schoolStateSetting !== null;
   const language = i18n.language.startsWith("de") ? "de" : "en";
   const cacheKey = `regionalCalendar:${region || "nationwide"}:${month.getFullYear()}:${language}`;
+  cacheKeyRef.current = cacheKey;
 
   useEffect(() => {
     const onOffline = () => setIsOnline(false);
     const onOnline = () => {
-      clearRegionalDateRequestFailure(cacheKey);
+      clearRegionalDateRequestFailure(cacheKeyRef.current);
       setIsOnline(true);
     };
     window.addEventListener("offline", onOffline);
@@ -65,7 +68,7 @@ export function CalendarPage() {
       window.removeEventListener("offline", onOffline);
       window.removeEventListener("online", onOnline);
     };
-  }, [cacheKey]);
+  }, []);
 
   useEffect(() => {
     if (!regionReady) return;
@@ -147,14 +150,80 @@ export function CalendarPage() {
     });
   }, [month]);
 
-  const selectedEvents = events.filter((event) => eventDateKey(event) === selectedDate).sort((a, b) => a.startAt.localeCompare(b.startAt));
-  const selectedTasks = tasks.filter((task) => task.dueDate === selectedDate).sort((a, b) => (a.dueTime ?? "").localeCompare(b.dueTime ?? ""));
-  const selectedRegionalDates = regionalDates.filter((item) => dateRangeContains(item, selectedDate));
-  const monthTitle = new Intl.DateTimeFormat(i18n.language, { month: "long", year: "numeric" }).format(month);
-  const weekdays = Array.from({ length: 7 }, (_, index) => {
-    const date = new Date(2024, 0, 1 + index);
-    return new Intl.DateTimeFormat(i18n.language, { weekday: "short" }).format(date);
-  });
+  const eventsByDate = useMemo(() => {
+    const grouped = new Map<string, CalendarEvent[]>();
+    for (const event of events) {
+      const key = eventDateKey(event);
+      const group = grouped.get(key);
+      if (group) group.push(event);
+      else grouped.set(key, [event]);
+    }
+    for (const group of grouped.values()) group.sort((a, b) => a.startAt.localeCompare(b.startAt));
+    return grouped;
+  }, [events]);
+  const tasksByDate = useMemo(() => {
+    const grouped = new Map<string, SchoolTask[]>();
+    for (const task of tasks) {
+      const group = grouped.get(task.dueDate);
+      if (group) group.push(task);
+      else grouped.set(task.dueDate, [task]);
+    }
+    for (const group of grouped.values()) group.sort((a, b) => (a.dueTime ?? "").localeCompare(b.dueTime ?? ""));
+    return grouped;
+  }, [tasks]);
+  const pendingTasksByDate = useMemo(() => {
+    const grouped = new Map<string, SchoolTask[]>();
+    for (const task of tasks) {
+      if (task.completed) continue;
+      const group = grouped.get(task.dueDate);
+      if (group) group.push(task);
+      else grouped.set(task.dueDate, [task]);
+    }
+    return grouped;
+  }, [tasks]);
+  const regionalDatesByDate = useMemo(() => {
+    const grouped = new Map<string, RegionalDate[]>();
+    for (const item of regionalDates) {
+      for (const day of days) {
+        if (!dateRangeContains(item, day.key)) continue;
+        const group = grouped.get(day.key);
+        if (group) group.push(item);
+        else grouped.set(day.key, [item]);
+      }
+    }
+    return grouped;
+  }, [days, regionalDates]);
+  const selectedEvents = eventsByDate.get(selectedDate) ?? [];
+  const selectedTasks = tasksByDate.get(selectedDate) ?? [];
+  const selectedRegionalDates = regionalDatesByDate.get(selectedDate) ?? [];
+  const todayKey = localDateKey(new Date());
+  const monthTitle = useMemo(
+    () => new Intl.DateTimeFormat(i18n.language, { month: "long", year: "numeric" }).format(month),
+    [i18n.language, month],
+  );
+  const weekdays = useMemo(
+    () => Array.from({ length: 7 }, (_, index) =>
+      new Intl.DateTimeFormat(i18n.language, { weekday: "short" }).format(new Date(2024, 0, 1 + index)),
+    ),
+    [i18n.language],
+  );
+  const fullDateFormatter = useMemo(
+    () => new Intl.DateTimeFormat(i18n.language, { dateStyle: "full" }),
+    [i18n.language],
+  );
+  const selectedDateFormatter = useMemo(
+    () => new Intl.DateTimeFormat(i18n.language, { weekday: "long", month: "long", day: "numeric" }),
+    [i18n.language],
+  );
+  const hourFormat = useUiStore((state) => state.appearance.hourFormat);
+  const eventTimeFormatter = useMemo(
+    () => new Intl.DateTimeFormat(i18n.language, {
+      hour: hourFormat === "24" ? "2-digit" : "numeric",
+      minute: "2-digit",
+      hour12: hourFormat === "12",
+    }),
+    [hourFormat, i18n.language],
+  );
 
   function openCreateForm() {
     const start = new Date(`${selectedDate}T09:00:00`);
@@ -229,54 +298,89 @@ export function CalendarPage() {
     setMonth((current) => new Date(current.getFullYear(), current.getMonth() + amount, 1));
   }
 
-  function monthCellTasks(date: string): SchoolTask[] {
-    return tasks.filter((task) => task.dueDate === date && !task.completed);
-  }
-
   return (
     <section className="feature-page calendar-page">
-      <header className="page-heading--compact feature-heading">
-        <div><h1>{t("nav.calendar")}</h1><p>{t("calendar.subtitle")}</p></div>
+      <header className="page-heading--compact feature-heading calendar-page__heading">
+        <div className="calendar-page__intro">
+          <span className="calendar-page__eyebrow"><CalendarDays size={13} />{monthTitle}</span>
+          <h1>{t("nav.calendar")}</h1>
+          <p>{t("calendar.subtitle")}</p>
+        </div>
         <button className="button button--primary" onClick={openCreateForm} type="button"><Plus size={14} />{t("calendar.add")}</button>
       </header>
 
-      <div className={`calendar-regional-status calendar-regional-status--${regionalStatus}`} aria-live="polite">
+      <Surface
+        aria-live="polite"
+        className={`calendar-regional-status calendar-regional-status--${regionalStatus}`}
+        role="status"
+        variant="glass"
+      >
         <span>{t(!region && regionalStatus === "ready" ? "calendar.regionalStatus.noState" : `calendar.regionalStatus.${regionalStatus}`)}</span>
         <a href="https://openholidaysapi.org/" rel="noreferrer" target="_blank">{t("calendar.dataSource")}</a>
-      </div>
+      </Surface>
 
       <div className="calendar-layout">
-        <section className="calendar-month" aria-label={t("calendar.monthView")}>
+        <Surface as="section" className="calendar-month" aria-label={t("calendar.monthView")}>
           <div className="calendar-month__heading">
-            <div><h2>{monthTitle}</h2><span>{t("calendar.monthView")}</span></div>
+            <div className="calendar-month__title"><span>{t("calendar.monthView")}</span><h2>{monthTitle}</h2></div>
             <div className="calendar-month__controls">
-              <button aria-label={t("calendar.previousMonth")} className="icon-button" onClick={() => shiftMonth(-1)} type="button"><ArrowLeft size={14} /></button>
+              <button aria-label={t("calendar.previousMonth")} className="icon-button" onClick={() => shiftMonth(-1)} type="button"><ChevronLeft size={15} /></button>
               <button className="button button--quiet" onClick={() => { const today = new Date(); setMonth(new Date(today.getFullYear(), today.getMonth(), 1)); setSelectedDate(localDateKey(today)); }} type="button">{t("calendar.today")}</button>
-              <button aria-label={t("calendar.nextMonth")} className="icon-button" onClick={() => shiftMonth(1)} type="button"><ArrowRight size={14} /></button>
+              <button aria-label={t("calendar.nextMonth")} className="icon-button" onClick={() => shiftMonth(1)} type="button"><ChevronRight size={15} /></button>
             </div>
           </div>
-          <div className="calendar-grid calendar-grid--weekdays">{weekdays.map((day, index) => <span key={`${day}-${index}`}>{day}</span>)}</div>
-          <div className="calendar-grid calendar-grid--days">
+          <div className="calendar-legend" aria-label={t("calendar.legend")}>
+            <span><i className="calendar-legend__event" />{t("calendar.event")}</span>
+            <span><i className="calendar-legend__task" />{t("calendar.deadline")}</span>
+            <span><i className="calendar-legend__public" />{t("calendar.publicHoliday")}</span>
+            <span><i className="calendar-legend__school" />{t("calendar.schoolHoliday")}</span>
+          </div>
+          <div className="calendar-grid calendar-grid--weekdays" aria-hidden="true">{weekdays.map((day, index) => <span key={`${day}-${index}`}>{day}</span>)}</div>
+          <Surface className="calendar-grid calendar-grid--days" variant="inset">
             {days.map(({ date, key, inMonth }) => {
-              const dayEvents = events.filter((event) => eventDateKey(event) === key);
-              const pending = monthCellTasks(key);
-              const dayRegionalDates = regionalDates.filter((item) => dateRangeContains(item, key));
-              const today = key === localDateKey(new Date());
+              const dayEvents = eventsByDate.get(key) ?? [];
+              const pending = pendingTasksByDate.get(key) ?? [];
+              const dayRegionalDates = regionalDatesByDate.get(key) ?? [];
+              const today = key === todayKey;
               const itemCount = dayEvents.length + pending.length + dayRegionalDates.length;
+              const shownCount = Math.min(2, dayEvents.length) + Number(pending.length > 0) + Number(dayRegionalDates.length > 0);
+              const remainingCount = Math.max(0, itemCount - shownCount);
               return (
-                <button aria-label={`${new Intl.DateTimeFormat(i18n.language, { dateStyle: "full" }).format(date)}${itemCount ? `, ${itemCount} ${t("calendar.items")}` : ""}`} aria-pressed={selectedDate === key} className={`calendar-day${inMonth ? "" : " calendar-day--outside"}${today ? " calendar-day--today" : ""}${selectedDate === key ? " calendar-day--selected" : ""}`} key={key} onClick={() => setSelectedDate(key)} type="button">
-                  <span>{date.getDate()}</span>
-                  <i className="calendar-day__marks">{dayEvents.slice(0, 2).map((event) => <b key={event.id} style={{ backgroundColor: event.color }} />)}{pending.length > 0 && <b className="calendar-day__task-mark" />}{dayRegionalDates.slice(0, 2).map((item) => <b className={`calendar-day__regional-mark calendar-day__regional-mark--${item.type}`} key={item.id} />)}</i>
+                <button
+                  aria-label={`${fullDateFormatter.format(date)}${itemCount ? `, ${itemCount} ${t("calendar.items")}` : ""}`}
+                  aria-current={today ? "date" : undefined}
+                  aria-pressed={selectedDate === key}
+                  className={`calendar-day${inMonth ? "" : " calendar-day--outside"}${today ? " calendar-day--today" : ""}${selectedDate === key ? " calendar-day--selected" : ""}`}
+                  key={key}
+                  onClick={() => {
+                    setSelectedDate(key);
+                    if (!inMonth) setMonth(new Date(date.getFullYear(), date.getMonth(), 1));
+                  }}
+                  type="button"
+                >
+                  <span className="calendar-day__number">{date.getDate()}</span>
+                  <span className="calendar-day__entries" aria-hidden="true">
+                    {dayEvents.slice(0, 2).map((event) => (
+                      <span className={`calendar-day__entry${event.type === "exam" ? " calendar-day__entry--exam" : ""}`} key={event.id}>
+                        <i style={{ backgroundColor: event.color }} />{event.title}
+                      </span>
+                    ))}
+                    {pending.length > 0 && <span className="calendar-day__entry calendar-day__entry--task"><i />{t("calendar.deadline")}</span>}
+                    {dayRegionalDates.slice(0, 1).map((item) => <span className={`calendar-day__entry calendar-day__entry--${item.type}`} key={item.id}><i />{item.name}</span>)}
+                    {remainingCount > 0 && <span className="calendar-day__more">{t("calendar.moreItems", { count: remainingCount })}</span>}
+                  </span>
                 </button>
               );
             })}
-          </div>
-        </section>
+          </Surface>
+        </Surface>
 
-        <aside className="calendar-agenda">
-          <div className="calendar-agenda__heading"><div><h2>{new Intl.DateTimeFormat(i18n.language, { weekday: "long", month: "long", day: "numeric" }).format(new Date(`${selectedDate}T12:00:00`))}</h2><span>{t("calendar.agenda")}</span></div><CalendarDays size={15} /></div>
+        <Surface as="aside" aria-label={t("calendar.agenda")} className="calendar-agenda">
+          <div className="calendar-agenda__heading"><div><span>{t("calendar.agenda")}</span><h2>{selectedDateFormatter.format(new Date(`${selectedDate}T12:00:00`))}</h2></div><CalendarDays size={16} /></div>
           {selectedEvents.length === 0 && selectedTasks.length === 0 && selectedRegionalDates.length === 0 ? (
-            <div className="feature-empty feature-empty--compact"><span className="feature-empty__rule" /><div><strong>{t("calendar.empty")}</strong><p>{t("calendar.emptyHint")}</p></div></div>
+            <Surface className="calendar-agenda__empty" variant="inset">
+              <div className="feature-empty feature-empty--compact"><span className="feature-empty__rule" /><div><strong>{t("calendar.empty")}</strong><p>{t("calendar.emptyHint")}</p></div></div>
+            </Surface>
           ) : (
             <div className="agenda-list">
               {selectedRegionalDates.map((item) => (
@@ -291,8 +395,8 @@ export function CalendarPage() {
               {selectedEvents.map((event) => (
                 <article className="agenda-item" key={event.id}>
                   <i style={{ backgroundColor: event.color }} />
-                  <button className="agenda-item__main" onClick={() => openEditForm(event)} type="button">
-                    <strong>{event.title}</strong><span>{event.type === "exam" ? `${t("calendar.exam")} · ` : ""}{event.allDay ? t("calendar.allDay") : new Intl.DateTimeFormat(i18n.language, { hour: "numeric", minute: "2-digit" }).format(new Date(event.startAt))}{event.description && ` · ${event.description}`}</span>
+                  <button aria-label={t("calendar.editEvent", { title: event.title })} className="agenda-item__main" onClick={() => openEditForm(event)} type="button">
+                    <strong>{event.title}</strong><span>{event.type === "exam" ? `${t("calendar.exam")} · ` : ""}{event.allDay ? t("calendar.allDay") : eventTimeFormatter.format(new Date(event.startAt))}{event.description && ` · ${event.description}`}</span>
                   </button>
                   <button aria-label={t("calendar.deleteEvent", { title: event.title })} className="icon-button icon-button--small" onClick={() => void deleteEvent(event)} type="button"><Trash2 size={13} /></button>
                 </article>
@@ -301,11 +405,11 @@ export function CalendarPage() {
             </div>
           )}
           <button className="button button--quiet calendar-agenda__add" onClick={openCreateForm} type="button"><Plus size={13} />{t("calendar.addEvent")}</button>
-        </aside>
+        </Surface>
       </div>
 
       {formOpen && (
-        <form className="feature-form calendar-event-form" onSubmit={(event) => void saveEvent(event)}>
+        <Surface as="form" className="feature-form calendar-event-form" onSubmit={(event) => void saveEvent(event)}>
           <div className="feature-form__heading"><h2>{t(editingId ? "calendar.edit" : "calendar.new")}</h2><button className="inline-button" onClick={() => setFormOpen(false)} type="button">{t("timetable.cancel")}</button></div>
           <div className="form-grid">
             <label className="form-grid__wide"><span>{t("calendar.title")}</span><input autoFocus maxLength={120} onChange={(event) => setTitle(event.target.value)} required value={title} /></label>
@@ -317,7 +421,7 @@ export function CalendarPage() {
           </div>
           {error && <p className="form-error" role="alert">{error}</p>}
           <div className="feature-form__actions"><button className="button button--quiet" onClick={() => setFormOpen(false)} type="button">{t("timetable.cancel")}</button><button className="button button--primary" type="submit">{t("timetable.save")}</button></div>
-        </form>
+        </Surface>
       )}
       {error && !formOpen && <p className="form-error" role="alert">{error}</p>}
     </section>

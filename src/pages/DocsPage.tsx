@@ -17,6 +17,7 @@ type SaveState = "saved" | "saving" | "error";
 
 export function DocsPage() {
   const { t, i18n } = useTranslation();
+  const documentLoadError = t("docs.loadError");
   const [searchParams, setSearchParams] = useSearchParams();
   const sectionParam = searchParams.get("section");
   const section = sectionParam === "notes" || sectionParam === "tasks" ? sectionParam : "documents";
@@ -86,12 +87,12 @@ export function DocsPage() {
       setStoredContent(content);
       setError("");
     }).catch(() => {
-      if (active) setError(t("docs.loadError"));
+      if (active) setError(documentLoadError);
     }).finally(() => {
       if (active) setLoadingContent(false);
     });
     return () => { active = false; };
-  }, [activeId, t]);
+  }, [activeId, documentLoadError]);
 
   useEffect(() => {
     document.title = `${t("appName")} — ${t("nav.docs")}`;
@@ -228,15 +229,17 @@ export function DocsPage() {
             <button key={value} type="button" aria-current={section === value ? "page" : undefined} className={section === value ? "is-active" : ""} onClick={() => selectSection(value)}>{t(`docs.section.${value}`)}</button>
           ))}
         </nav>
-        <label className="docs-subject-filter">
-          <span>{t("docs.subjectFilter")}</span>
-          <select aria-label={t("docs.subjectFilter")} value={subjectFilter} onChange={(event) => setSubjectFilter(event.target.value)}>
-            <option value="">{t("docs.allSubjects")}</option>
-            <option value="__no_subject__">{t("docs.noSubjectFilter")}</option>
-            {subjects.map((subject) => <option key={subject.id} value={subject.id}>{subject.name}</option>)}
-          </select>
-        </label>
-        <button type="button" className={`docs-subject-manage${subjectsOpen ? " is-active" : ""}`} aria-expanded={subjectsOpen} onClick={() => { setSubjectsOpen((open) => !open); setSubjectError(""); }}>{t("docs.manageSubjects")}</button>
+        <>
+          <label className="docs-subject-filter">
+            <span>{t("docs.subjectFilter")}</span>
+            <select aria-label={t("docs.subjectFilter")} value={subjectFilter} onChange={(event) => setSubjectFilter(event.target.value)}>
+              <option value="">{t("docs.allSubjects")}</option>
+              <option value="__no_subject__">{t("docs.noSubjectFilter")}</option>
+              {subjects.map((subject) => <option key={subject.id} value={subject.id}>{subject.name}</option>)}
+            </select>
+          </label>
+          <button type="button" className={`docs-subject-manage${subjectsOpen ? " is-active" : ""}`} aria-expanded={subjectsOpen} onClick={() => { setSubjectsOpen((open) => !open); setSubjectError(""); }}>{t("docs.manageSubjects")}</button>
+        </>
       </header>
       {subjectsOpen && (
         <section className="docs-subject-panel" aria-label={t("docs.manageSubjects")}>

@@ -1,4 +1,4 @@
-import { createId, db, type SchoolDocument, type SchoolDocumentContent } from "./db";
+import { createId, db, type DocsTemplate, type SchoolDocument, type SchoolDocumentContent } from "./db";
 
 export const EMPTY_DOCUMENT_CONTENT: Record<string, unknown> = {
   type: "doc",
@@ -37,17 +37,31 @@ export function createSchoolDocument(title: string, now = Date.now()): SchoolDoc
 }
 
 export async function createDocument(title: string): Promise<SchoolDocument> {
+  return createDocumentFromContent(title, EMPTY_DOCUMENT_CONTENT);
+}
+
+export async function createDocumentFromContent(title: string, value: Record<string, unknown>): Promise<SchoolDocument> {
   const document = createSchoolDocument(title);
   const content: SchoolDocumentContent = {
     id: document.id,
-    content: structuredClone(EMPTY_DOCUMENT_CONTENT),
-    plainText: "",
+    content: structuredClone(value),
+    plainText: extractDocumentText(value).trim(),
   };
   await db.transaction("rw", db.documents, db.documentContents, async () => {
     await db.documents.add(document);
     await db.documentContents.add(content);
   });
   return document;
+}
+
+export function isDocsTemplate(value: unknown): value is DocsTemplate {
+  if (!value || typeof value !== "object") return false;
+  const template = value as Partial<DocsTemplate>;
+  return typeof template.id === "string" && template.id.length > 0 &&
+    typeof template.name === "string" && template.name.trim().length > 0 &&
+    Boolean(template.content && typeof template.content === "object" && template.content.type === "doc") &&
+    typeof template.createdAt === "number" && Number.isFinite(template.createdAt) &&
+    typeof template.updatedAt === "number" && Number.isFinite(template.updatedAt);
 }
 
 export async function saveDocument(
@@ -92,24 +106,32 @@ export async function duplicateDocument(documentId: string, copySuffix: string):
 }
 
 export async function deleteDocument(documentId: string): Promise<void> {
-  await db.transaction("rw", db.documents, db.documentContents, db.documentImages, async () => {
+  await db.transaction("rw", db.documents, db.documentContents, db.docsTemplates, db.documentImages, async () => {
     await db.documents.delete(documentId);
     await db.documentContents.delete(documentId);
-    const remaining = await db.documentContents.toArray();
-    const referencedAssets = new Set<string>();
-    const visit = (value: unknown) => {
-      if (!value || typeof value !== "object") return;
-      const node = value as { type?: unknown; attrs?: { assetId?: unknown }; content?: unknown };
-      if (node.type === "documentImage" && typeof node.attrs?.assetId === "string") {
-        referencedAssets.add(node.attrs.assetId);
-      }
-      if (Array.isArray(node.content)) node.content.forEach(visit);
-    };
-    remaining.forEach((record) => visit(record.content));
-    const storedImages = await db.documentImages.toCollection().primaryKeys();
-    const orphanedImages = storedImages.filter((id) => !referencedAssets.has(String(id)));
-    await db.documentImages.bulkDelete(orphanedImages);
+    await removeUnreferencedDocumentImages();
   });
+}
+
+export async function removeUnreferencedDocumentImages(): Promise<void> {
+  const [remainingDocuments, remainingTemplates] = await Promise.all([
+    db.documentContents.toArray(),
+    db.docsTemplates.toArray(),
+  ]);
+  const referencedAssets = new Set<string>();
+  const visit = (value: unknown) => {
+    if (!value || typeof value !== "object") return;
+    const node = value as { type?: unknown; attrs?: { assetId?: unknown }; content?: unknown };
+    if (node.type === "documentImage" && typeof node.attrs?.assetId === "string") {
+      referencedAssets.add(node.attrs.assetId);
+    }
+    if (Array.isArray(node.content)) node.content.forEach(visit);
+  };
+  remainingDocuments.forEach((record) => visit(record.content));
+  remainingTemplates.forEach((template) => visit(template.content));
+  const storedImages = await db.documentImages.toCollection().primaryKeys();
+  const orphanedImages = storedImages.filter((id) => !referencedAssets.has(String(id)));
+  await db.documentImages.bulkDelete(orphanedImages);
 }
 
 export function isSchoolDocument(value: unknown): value is SchoolDocument {

@@ -66,7 +66,8 @@ describe("local data safety", () => {
     expect(await db.documents.count()).toBe(0);
     expect(await db.documentImages.count()).toBe(0);
     expect(await db.pdfProjects.count()).toBe(0);
-    expect(db.verno).toBe(8);
+    expect(await db.docsTemplates.count()).toBe(0);
+    expect(db.verno).toBe(11);
   });
 
   it("exports data and merges without overwriting colliding local records", async () => {
@@ -316,6 +317,13 @@ describe("local data safety", () => {
       updatedAt: 13,
       annotations: [{ id: "annotation-one", page: 1, type: "text", color: "#222222", x: 0.1, y: 0.2, text: "Answer" }],
     });
+    await db.docsTemplates.add({
+      id: "template-one",
+      name: "Study layout",
+      content: { type: "doc", content: [{ type: "paragraph", content: [{ type: "text", text: "Review" }] }] },
+      createdAt: 14,
+      updatedAt: 14,
+    });
     localStorage.setItem("kxnodesk-ui", JSON.stringify({
       state: { appearance: { ...defaultAppearance, accent: "#112233" } },
       version: 3,
@@ -328,7 +336,7 @@ describe("local data safety", () => {
       data: Record<string, Array<Record<string, unknown>>>;
       preferences: Record<string, string>;
     };
-    expect(exported.schemaVersion).toBe(8);
+    expect(exported.schemaVersion).toBe(11);
     expect(exported.data.subjects).toHaveLength(1);
     expect(exported.data.timetable).toHaveLength(1);
     expect(exported.data.exceptions).toHaveLength(1);
@@ -342,6 +350,9 @@ describe("local data safety", () => {
     expect(exported.data.documentContents).toHaveLength(1);
     expect(exported.data.documentImages[0].blobData).toBeDefined();
     expect(exported.data.pdfProjects).toHaveLength(1);
+    expect(exported.data.docsTemplates).toHaveLength(1);
+    expect(exported.data.codeProjects).toHaveLength(0);
+    expect(exported.data.codeLabProgress).toHaveLength(0);
     expect(exported.data.arcadeData.map((record) => record.id)).toEqual(expect.arrayContaining(gameRecords.map((record) => record.id)));
     expect(exported.preferences["kxnodesk-language"]).toBe("de");
 
@@ -351,6 +362,9 @@ describe("local data safety", () => {
       db.workspace,
       db.documents, db.documentContents, db.documentImages,
       db.pdfProjects,
+      db.docsTemplates,
+      db.codeProjects, db.codeLabProgress,
+      db.codeGardenState,
     ];
     await Promise.all(tables.map((table) => table.clear()));
     localStorage.clear();
@@ -378,6 +392,13 @@ describe("local data safety", () => {
     expect(restored.documentContents).toEqual({ added: 1, skipped: 0 });
     expect(restored.documentImages).toEqual({ added: 1, skipped: 0 });
     expect(restored.pdfProjects).toEqual({ added: 1, skipped: 0 });
+    expect(restored.docsTemplates).toEqual({ added: 1, skipped: 0 });
+    expect(restored.codeProjects).toEqual({ added: 0, skipped: 0 });
+    expect(restored.codeLabProgress).toEqual({ added: 0, skipped: 0 });
+    expect(await db.docsTemplates.get("template-one")).toMatchObject({
+      name: "Study layout",
+      content: { type: "doc" },
+    });
     expect(await db.pdfProjects.get("pdf-project-one")).toMatchObject({
       sourceFileId: "pdf-original-one",
       subjectId: "subject",
@@ -404,6 +425,8 @@ describe("local data safety", () => {
       preferences: Record<string, string>;
     };
     delete parsed.data.documents[0].subjectId;
+    parsed.schemaVersion = 8;
+    delete parsed.data.docsTemplates;
 
     await db.documents.clear();
     const restored = await importDataBackup(blobAsFile(new Blob([JSON.stringify(parsed)], { type: "application/json" })));
@@ -411,6 +434,75 @@ describe("local data safety", () => {
     expect(restored.documents).toEqual({ added: 1, skipped: 0 });
     expect(await db.documents.get(parsed.data.documents[0].id as string)).toMatchObject({ title: "Legacy document" });
     expect((await db.documents.get(parsed.data.documents[0].id as string))?.subjectId).toBeUndefined();
+  });
+
+  it("round-trips Code Lab and Code Garden progress while accepting schema 9 backups", async () => {
+    await db.open();
+    const project = {
+      id: "code-project",
+      name: "Local practice",
+      html: "<h1>Local</h1>",
+      css: "h1 { color: black; }",
+      javascript: "",
+      createdAt: 10,
+      updatedAt: 11,
+    };
+    const progress = {
+      id: "default" as const,
+      currentLessonId: "headings-and-paragraphs",
+      completedLessonIds: ["first-page"],
+      lessonCode: { "first-page": { html: "<h1>Local</h1>", css: "", javascript: "" } },
+      updatedAt: 12,
+    };
+    const garden = {
+      id: "default" as const,
+      activeMissionId: "solar-relay",
+      completedMissionIds: ["first-harvest", "repeat-the-row", "read-the-ground", "garden-routine", "seed-cycle"],
+      resources: { plants: 4, wood: 2, stone: 1, seeds: 3, energy: 15 },
+      upgrades: ["storehouse", "solar-coil"],
+      programs: { "solar-relay": "wait()" },
+      bestResults: {
+        "solar-relay": { instructions: 9, harvested: 4, collected: 0, energyConsumed: 4, energyGenerated: 2 },
+      },
+      updatedAt: 13,
+    };
+    await db.codeProjects.add(project);
+    await db.codeLabProgress.add(progress);
+    await db.codeGardenState.add(garden);
+
+    const backup = await exportDataBackup();
+    const snapshot = JSON.parse(await blobAsFile(backup).text()) as {
+      schemaVersion: number;
+      data: Record<string, Array<Record<string, unknown>>>;
+    };
+    expect(snapshot.schemaVersion).toBe(11);
+    expect(snapshot.data.codeProjects).toEqual([project]);
+    expect(snapshot.data.codeLabProgress).toEqual([progress]);
+    expect(snapshot.data.codeGardenState).toEqual([garden]);
+
+    await db.codeProjects.clear();
+    await db.codeLabProgress.clear();
+    await db.codeGardenState.clear();
+    const restored = await importDataBackup(blobAsFile(backup));
+    expect(restored.codeProjects).toEqual({ added: 1, skipped: 0 });
+    expect(restored.codeLabProgress).toEqual({ added: 1, skipped: 0 });
+    expect(restored.codeGardenState).toEqual({ added: 1, skipped: 0 });
+    expect(await db.codeProjects.get(project.id)).toEqual(project);
+    expect(await db.codeLabProgress.get("default")).toEqual(progress);
+    expect(await db.codeGardenState.get("default")).toEqual(garden);
+
+    await db.codeProjects.clear();
+    await db.codeLabProgress.clear();
+    await db.codeGardenState.clear();
+    snapshot.schemaVersion = 9;
+    delete snapshot.data.codeProjects;
+    delete snapshot.data.codeLabProgress;
+    delete snapshot.data.codeGardenState;
+    const legacy = blobAsFile(new Blob([JSON.stringify(snapshot)], { type: "application/json" }));
+    const legacyResult = await importDataBackup(legacy);
+    expect(legacyResult.codeProjects).toEqual({ added: 0, skipped: 0 });
+    expect(legacyResult.codeLabProgress).toEqual({ added: 0, skipped: 0 });
+    expect(legacyResult.codeGardenState).toEqual({ added: 0, skipped: 0 });
   });
 
   it("rejects invalid backups before changing existing local records", async () => {

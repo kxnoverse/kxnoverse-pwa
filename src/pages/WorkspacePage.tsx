@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ChangeEvent, type PointerEvent as ReactPointerEvent, type WheelEvent as ReactWheelEvent } from "react";
 import { useLiveQuery } from "dexie-react-hooks";
 import { useNavigate } from "react-router-dom";
-import { BookOpen, Clock3, Download, FileText, Image, LayoutTemplate, Link2, Plus, Share2, Trash2, X } from "lucide-react";
+import { BookOpen, Download, FileText, Image, LayoutTemplate, Link2, Plus, Share2, Trash2, X } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { createId, db, type LocalFile, type SchoolDocument, type SchoolDocumentContent, type SchoolNote, type WorkspaceElement, type WorkspaceState } from "../data/db";
 import { addWorkspaceTemplate, connectWorkspaceElements, DEFAULT_WORKSPACE, isWorkspaceState, removeWorkspaceConnection, removeWorkspaceElement, saveWorkspace, WORKSPACE_FONT_SIZES, type WorkspaceTemplateCopy, type WorkspaceTemplateId } from "../data/workspace";
@@ -630,7 +630,6 @@ export function WorkspacePage() {
         </div>
         </div>
         <time className="home-clock workspace-clock" aria-label={formattedTime}>
-          <Clock3 size={17} aria-hidden="true" />
           <span>{formattedTime}</span>
         </time>
       </div>

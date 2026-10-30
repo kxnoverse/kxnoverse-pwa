@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ChangeEvent, type ClipboardEvent, type DragEvent, type FormEvent, type KeyboardEvent } from "react";
 import { useLiveQuery } from "dexie-react-hooks";
-import { ArrowUp, Copy, FileText, Paperclip, MessageSquarePlus, Pencil, Plus, Settings2, Square, Trash2, X } from "lucide-react";
+import { ArrowUp, Copy, FileText, PanelLeftClose, PanelLeftOpen, Paperclip, MessageSquarePlus, Pencil, Plus, Settings2, Square, Trash2, X } from "lucide-react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { useTranslation } from "react-i18next";
@@ -98,6 +98,7 @@ export function AssistantPage() {
   const [draft, setDraft] = useState("");
   const [draftFiles, setDraftFiles] = useState<Array<{ file: File; mimeType: AssistantAttachmentMimeType }>>([]);
   const [presetModalOpen, setPresetModalOpen] = useState(false);
+  const [isHistoryCollapsed, setIsHistoryCollapsed] = useState(false);
   const [isSending, setIsSending] = useState(false);
   const [presetDraft, setPresetDraft] = useState<AiPreset>();
   const [error, setError] = useState("");
@@ -502,9 +503,21 @@ export function AssistantPage() {
     <section className="assistant-page">
       <header className="assistant-heading">
         <div><h1>{t("assistant.title")}</h1><p>{t("assistant.subtitle")}</p></div>
+        <button
+          aria-controls="assistant-history"
+          aria-expanded={!isHistoryCollapsed}
+          aria-label={t(isHistoryCollapsed ? "assistant.expandHistory" : "assistant.collapseHistory")}
+          className="button button--quiet assistant-history-toggle"
+          onClick={() => setIsHistoryCollapsed((collapsed) => !collapsed)}
+          title={t(isHistoryCollapsed ? "assistant.expandHistory" : "assistant.collapseHistory")}
+          type="button"
+        >
+          {isHistoryCollapsed ? <PanelLeftOpen size={16} /> : <PanelLeftClose size={16} />}
+          <span>{t(isHistoryCollapsed ? "assistant.expandHistory" : "assistant.collapseHistory")}</span>
+        </button>
       </header>
-      <div className="assistant-workspace">
-        <aside className="assistant-history">
+      <div className={`assistant-workspace${isHistoryCollapsed ? " assistant-workspace--history-collapsed" : ""}`}>
+        <aside aria-label={t("assistant.history")} className="assistant-history" hidden={isHistoryCollapsed} id="assistant-history">
           <div className="assistant-history__heading">
             <span>{t("assistant.history")}</span>
             <button className="icon-button icon-button--small" aria-label={t("assistant.newConversation")} onClick={() => void createConversation()} type="button"><MessageSquarePlus size={14} /></button>
@@ -528,7 +541,6 @@ export function AssistantPage() {
               </select>
             </label>
             <button className="button button--quiet assistant-preset-manage" onClick={() => setPresetModalOpen(true)} type="button"><Settings2 size={13} />{t("assistant.presets")}</button>
-            <span className="status-pill">{endpoint && cloudEnabled ? "OpenRouter · Free" : t("assistant.cloudDisabledStatus")}</span>
           </div>
           {endpoint && cloudEnabled && turnstileSiteKey && (
             <div className="assistant-thread__verification">

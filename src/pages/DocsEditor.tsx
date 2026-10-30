@@ -24,11 +24,19 @@ import { countDocumentWords, extractDocumentText, saveDocument } from "../data/d
 import { downloadBlob, exportDocumentDocx, exportDocumentText, safeFilename } from "../data/docs-export";
 import { createDocumentPrintFrame } from "../data/docs-print";
 import { DocumentFontSize, DocumentImage, DocumentIndent, DocumentPageBreak, DocumentParagraphSpacing } from "./docs-extensions";
+import { createWidgetNode, DOC_WIDGET_KINDS, DocumentWidget, type DocWidgetKind } from "./docs-widgets";
 
 const MAX_IMAGE_BYTES = 15 * 1024 * 1024;
 const IMAGE_TYPES = ["image/png", "image/jpeg", "image/gif", "image/bmp"] as const;
 type SaveState = "saved" | "saving" | "error";
 type JsonNode = { type?: string; text?: string; attrs?: Record<string, unknown>; content?: JsonNode[] };
+
+function snapWidgetPosition(x: number, y: number) {
+  return {
+    x: Math.max(0, Math.round(x / 8) * 8),
+    y: Math.max(0, Math.round(y / 16) * 16),
+  };
+}
 
 function documentParagraphCount(content: unknown): number {
   let count = 0;
@@ -92,9 +100,11 @@ export function DocsEditor({
   const documentRef = useRef(documentInfo);
   const editorRef = useRef<Editor | null>(null);
   const dirtyRef = useRef(false);
+  const draggedWidgetRef = useRef<DocWidgetKind | null>(null);
   const saveTimer = useRef<number | undefined>(undefined);
   const saveStateRef = useRef(onSaveState);
   const [titleDraft, setTitleDraft] = useState(documentInfo.title);
+  const [gridVisible, setGridVisible] = useState(false);
   const initialContent = useMemo(() => storedContent.content, [storedContent.id]);
 
   useEffect(() => { documentRef.current = documentInfo; }, [documentInfo]);
@@ -108,7 +118,8 @@ export function DocsEditor({
     if (saveTimer.current !== undefined) window.clearTimeout(saveTimer.current);
     saveTimer.current = undefined;
     try {
-      await saveDocument(documentRef.current, editor.getJSON() as unknown as Record<string, unknown>);
+      const content = editor.getJSON() as unknown as Record<string, unknown>;
+      await saveDocument(documentRef.current, content);
       saveStateRef.current("saved");
     } catch {
       dirtyRef.current = true;
@@ -147,6 +158,7 @@ export function DocsEditor({
       DocumentParagraphSpacing,
       DocumentImage,
       DocumentPageBreak,
+      DocumentWidget,
     ],
     onUpdate: () => scheduleSaveRef.current(),
     editorProps: {
@@ -169,7 +181,8 @@ export function DocsEditor({
   useEffect(() => () => {
     if (saveTimer.current !== undefined) window.clearTimeout(saveTimer.current);
     if (dirtyRef.current && editorRef.current) {
-      void saveDocument(documentRef.current, editorRef.current.getJSON() as unknown as Record<string, unknown>)
+      const content = editorRef.current.getJSON() as unknown as Record<string, unknown>;
+      void saveDocument(documentRef.current, content)
         .catch(() => saveStateRef.current("error"));
     }
   }, []);
@@ -369,6 +382,33 @@ export function DocsEditor({
 
       {exportError && <p className="docs-inline-error" role="alert">{exportError}</p>}
       <div className="docs-toolbar" role="toolbar" aria-label={t("docs.format")}>
+        <details className="docs-widget-library">
+          <summary>{t("docs.widget.library")}          </summary>
+          <div className="docs-menu-popover docs-widget-library__menu">
+          <p className="docs-widget-library__hint">{t("docs.widget.dragHint")}</p>
+          {DOC_WIDGET_KINDS.map((kind) => (
+            <button
+              key={kind}
+              type="button"
+              draggable
+                onDragStart={(event) => {
+                  draggedWidgetRef.current = kind;
+                  event.dataTransfer.setData("application/x-kxno-doc-widget", kind);
+                  event.dataTransfer.setData("text/plain", `kxno-doc-widget:${kind}`);
+                  event.dataTransfer.effectAllowed = "copy";
+                }}
+                onDragEnd={() => { draggedWidgetRef.current = null; }}
+                onClick={() => editor?.chain().focus().insertContent(createWidgetNode(kind as DocWidgetKind)).run()}
+              >
+                {t(`docs.widget.${kind}`)}
+              </button>
+            ))}
+            <label className="docs-widget-library__grid">
+              <input type="checkbox" checked={gridVisible} onChange={(event) => setGridVisible(event.target.checked)} />
+              {t("docs.widget.showGrid")}
+            </label>
+          </div>
+        </details>
         <div className="docs-toolbar__cluster docs-toolbar__cluster--history">
           <div className="docs-toolbar__group">
           <button type="button" className="docs-tool" aria-label={t("docs.undo")} title={t("docs.undo")} disabled={!editor?.can().undo()} onClick={() => editor?.chain().focus().undo().run()}><Undo2 /></button>
@@ -454,7 +494,29 @@ export function DocsEditor({
       )}
 
       <div className={`docs-page-viewport${darkPaper ? " docs-page-viewport--dark" : ""}`}>
-        <div className="docs-paper" style={{
+        <div
+          className={`docs-paper${gridVisible ? " docs-paper--grid" : ""}`}
+          onDragOverCapture={(event) => {
+            if (draggedWidgetRef.current) event.preventDefault();
+          }}
+          onDropCapture={(event) => {
+            const plainText = event.dataTransfer.getData("text/plain");
+            const transferredKind = event.dataTransfer.getData("application/x-kxno-doc-widget") ||
+              (plainText.startsWith("kxno-doc-widget:") ? plainText.slice("kxno-doc-widget:".length) : "");
+            const kind = draggedWidgetRef.current ?? transferredKind as DocWidgetKind;
+            const currentEditor = editorRef.current;
+            if (!kind || !currentEditor) return;
+            event.preventDefault();
+            event.stopPropagation();
+            const bounds = currentEditor.view.dom.getBoundingClientRect();
+            const { x, y } = snapWidgetPosition(event.clientX - bounds.left, event.clientY - bounds.top);
+            currentEditor.chain().focus().insertContentAt(
+              currentEditor.state.doc.content.size,
+              createWidgetNode(kind, { positioned: true, x, y }),
+            ).run();
+            draggedWidgetRef.current = null;
+          }}
+          style={{
           "--docs-margin-top": `${documentInfo.margins.top}mm`,
           "--docs-margin-right": `${documentInfo.margins.right}mm`,
           "--docs-margin-bottom": `${documentInfo.margins.bottom}mm`,

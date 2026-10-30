@@ -262,4 +262,34 @@ describe("PDF annotation workspace text boxes", () => {
     expect(await screen.findByRole("textbox", { name: "Text box on PDF page 1" }))
       .toHaveValue("Answer on the original page");
   });
+
+  it("shows all complete text boxes but only one drag handle per page", async () => {
+    const projectWithBoxes: PdfProject = {
+      ...project,
+      annotations: [
+        { id: "text-first", page: 1, type: "text", color: "#000000", x: 0.1, y: 0.2, text: "First annotation" },
+        { id: "text-latest", page: 1, type: "text", color: "#000000", x: 0.4, y: 0.5, text: "Latest annotation" },
+      ],
+    };
+    const view = render(
+      <PdfAnnotationWorkspace project={projectWithBoxes} subjects={[]} onProjectChange={vi.fn()} onBack={vi.fn()} />,
+    );
+    const annotationCanvas = await screen.findByLabelText("Editable PDF annotations");
+    await waitFor(() => expect((annotationCanvas as HTMLCanvasElement).style.width).not.toBe(""));
+
+    fireEvent.click(screen.getByRole("button", { name: "Text / select" }));
+
+    const boxes = view.container.querySelectorAll(".pdf-workspace__saved-text-box");
+    expect(boxes).toHaveLength(2);
+    expect(boxes[0]).toHaveTextContent("First annotation");
+    expect(boxes[1]).toHaveTextContent("Latest annotation");
+    for (const box of boxes) {
+      expect(Number.parseFloat((box as HTMLElement).style.width)).toBeGreaterThan(40);
+      expect(Number.parseFloat((box as HTMLElement).style.height)).toBeGreaterThan(20);
+      expect(box).toHaveClass("pdf-workspace__saved-text-box");
+    }
+
+    expect(view.container.querySelectorAll(".pdf-workspace__move-handle")).toHaveLength(1);
+    expect(screen.getByRole("button", { name: "Move text box on PDF page 1" })).toHaveAttribute("data-annotation-id", "text-latest");
+  });
 });

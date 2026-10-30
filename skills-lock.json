@@ -1,0 +1,11 @@
+{
+  "version": 1,
+  "skills": {
+    "dytschgo-design": {
+      "source": "Dytschgo/dytschgo-skills",
+      "sourceType": "github",
+      "skillPath": "skills/dytschgo-design/SKILL.md",
+      "computedHash": "134d8c83785817012b7893a8a9365175cf6de57ed6b3343ea7297983f8792854"
+    }
+  }
+}

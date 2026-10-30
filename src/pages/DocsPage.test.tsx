@@ -26,10 +26,21 @@ function renderDocsPage(initialEntry = "/docs") {
   return render(<MemoryRouter initialEntries={[initialEntry]}><DocsPage /></MemoryRouter>);
 }
 
+function findDocumentEditor() {
+  return screen.findByRole("textbox", { name: "Document editor" }, { timeout: 5000 });
+}
+
 describe("Kxno Docs editor", () => {
   beforeEach(async () => {
     await i18nReady;
     await i18n.changeLanguage("en");
+    vi.stubGlobal("PointerEvent", class extends MouseEvent {
+      pointerId: number;
+      constructor(type: string, init: MouseEventInit & { pointerId?: number } = {}) {
+        super(type, init);
+        this.pointerId = init.pointerId ?? 1;
+      }
+    });
     localStorage.clear();
     Object.defineProperty(document, "elementFromPoint", { configurable: true, value: () => null });
     Object.defineProperty(HTMLElement.prototype, "getClientRects", {
@@ -52,6 +63,7 @@ describe("Kxno Docs editor", () => {
 
   afterEach(async () => {
     cleanup();
+    vi.unstubAllGlobals();
     db.close();
     await db.delete();
     Reflect.deleteProperty(document, "elementFromPoint");
@@ -64,7 +76,7 @@ describe("Kxno Docs editor", () => {
     const document = await createDocument("Revision");
     const user = userEvent.setup();
     const view = renderDocsPage();
-    const editor = await screen.findByRole("textbox", { name: "Document editor" });
+    const editor = await findDocumentEditor();
     await user.type(editor, "Photosynthesis notes");
 
     await waitFor(async () => {
@@ -79,7 +91,7 @@ describe("Kxno Docs editor", () => {
       content: [{ type: "paragraph", content: [{ type: "text", text: "Photosynthesis notes" }] }],
     });
     renderDocsPage();
-    expect(await screen.findByRole("textbox", { name: "Document editor" })).toHaveTextContent("Photosynthesis notes");
+    expect(await findDocumentEditor()).toHaveTextContent("Photosynthesis notes");
   });
 
   it("keeps dark paper preview visual-only and leaves stored formatting unchanged", async () => {
@@ -113,7 +125,7 @@ describe("Kxno Docs editor", () => {
     });
     const user = userEvent.setup();
     renderDocsPage();
-    await screen.findByRole("textbox", { name: "Document editor" });
+    await findDocumentEditor();
     const pageStyle = globalThis.document.querySelector(".docs-paper style")?.textContent ?? "";
     expect(pageStyle).toContain("@page { size: A4 landscape; margin: 16mm 18mm 20mm 22mm");
 
@@ -130,7 +142,7 @@ describe("Kxno Docs editor", () => {
     await createDocument("History");
     const user = userEvent.setup();
     renderDocsPage();
-    expect(await screen.findByRole("textbox", { name: "Document editor" })).toBeInTheDocument();
+    expect(await findDocumentEditor()).toBeInTheDocument();
 
     const sidebar = screen.getByRole("complementary");
     expect(sidebar).toHaveTextContent("Docs");
@@ -173,7 +185,7 @@ describe("Kxno Docs editor", () => {
     await db.pdfProjects.add(project);
     vi.mocked(importPdfProject).mockResolvedValue(project);
     render(<MemoryRouter initialEntries={[`/docs?document=${existing.id}`]}><DocsPage /></MemoryRouter>);
-    await screen.findByRole("textbox", { name: "Document editor" });
+    await findDocumentEditor();
 
     const input = screen.getByLabelText("Import PDF", { selector: "input" });
     fireEvent.change(input, { target: { files: [new File(["%PDF-"], "worksheet.pdf", { type: "application/pdf" })] } });
@@ -216,7 +228,7 @@ describe("Kxno Docs editor", () => {
     renderDocsPage();
     expect(await screen.findAllByText("Your documents will appear here.")).not.toHaveLength(0);
     await user.click(screen.getAllByRole("button", { name: "New document" })[0]);
-    expect(await screen.findByRole("textbox", { name: "Document editor" })).toBeInTheDocument();
+    expect(await findDocumentEditor()).toBeInTheDocument();
     expect(await db.documents.count()).toBe(1);
     expect(await db.documentContents.count()).toBe(1);
   });
@@ -226,7 +238,7 @@ describe("Kxno Docs editor", () => {
     const user = userEvent.setup();
     vi.spyOn(window, "confirm").mockReturnValue(true);
     renderDocsPage();
-    await screen.findByRole("textbox", { name: "Document editor" });
+    await findDocumentEditor();
     await user.click(screen.getByRole("button", { name: "Delete document" }));
 
     await waitFor(async () => {
@@ -309,5 +321,76 @@ describe("Kxno Docs editor", () => {
     await user.type(screen.getByRole("textbox", { name: "Rename Chemistry" }), "Chemistry II");
     await user.click(screen.getByRole("button", { name: "Save" }));
     expect(await db.subjects.where("name").equals("Chemistry II").count()).toBe(1);
+  });
+
+  it("redirects legacy template section links to Documents without changing stored templates", async () => {
+    await db.docsTemplates.add({
+      id: "legacy-template",
+      name: "Saved template",
+      content: { type: "doc", content: [{ type: "paragraph" }] },
+      createdAt: 1,
+      updatedAt: 1,
+    });
+    const user = userEvent.setup();
+    renderDocsPage("/docs?section=templates");
+
+    expect(await screen.findByRole("button", { name: "Documents" })).toHaveAttribute("aria-current", "page");
+    expect(screen.queryByRole("button", { name: "Templates" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: "Templates" })).not.toBeInTheDocument();
+    expect(await db.docsTemplates.get("legacy-template")).toMatchObject({ name: "Saved template" });
+    await user.click(screen.getByRole("button", { name: "Notes" }));
+    expect(await screen.findByRole("heading", { name: "Notes" })).toBeInTheDocument();
+  });
+
+  it("supports snapping, dragging, resizing, styling, and persistence for document widgets", async () => {
+    const documentRecord = await createDocument("Existing notes");
+    const user = userEvent.setup();
+    const view = renderDocsPage(`/docs?document=${documentRecord.id}`);
+    await findDocumentEditor();
+
+    await user.click(screen.getByText("Widgets"));
+    const addCallout = screen.getByRole("button", { name: "Callout" });
+    expect(addCallout).toHaveAttribute("draggable", "true");
+    await user.click(addCallout);
+
+    const widget = globalThis.document.querySelector<HTMLElement>(".docs-widget--callout");
+    await user.click(widget!.querySelector(".docs-widget__drag")!);
+    expect(await screen.findByRole("slider", { name: "Widget width" })).toBeInTheDocument();
+    const dragHandle = widget!.querySelector<HTMLElement>(".docs-widget__drag")!;
+    fireEvent.pointerDown(dragHandle, { pointerId: 1, button: 0, clientX: 10, clientY: 10 });
+    fireEvent.pointerMove(dragHandle, { pointerId: 1, clientX: 23, clientY: 34 });
+    fireEvent.pointerUp(dragHandle, { pointerId: 1, clientX: 23, clientY: 34 });
+    fireEvent.change(screen.getByRole("slider", { name: "Widget width" }), { target: { value: "75" } });
+    fireEvent.change(within(globalThis.document.querySelector(".docs-widget__controls")!).getByLabelText("Text color"), { target: { value: "#123456" } });
+    await user.click(screen.getByRole("checkbox", { name: "Show alignment grid" }));
+    expect(globalThis.document.querySelector(".docs-paper--grid")).toBeInTheDocument();
+    await waitFor(async () => {
+      expect((await db.documentContents.get(documentRecord.id))?.content).toMatchObject({
+        type: "doc",
+        content: expect.arrayContaining([expect.objectContaining({
+          type: "documentWidget",
+          attrs: expect.objectContaining({ kind: "callout", positioned: true, x: 16, y: 32, width: 75, textColor: "#123456" }),
+        })]),
+      });
+    }, { timeout: 5000 });
+    view.unmount();
+
+    renderDocsPage(`/docs?document=${documentRecord.id}`);
+    await findDocumentEditor();
+    expect(globalThis.document.querySelector(".docs-widget--callout")).toHaveClass("docs-widget--positioned");
+    expect(await db.documentContents.get(documentRecord.id)).toMatchObject({
+      content: { content: expect.arrayContaining([expect.objectContaining({ attrs: expect.objectContaining({ x: 16, y: 32, width: 75 }) })]) },
+    });
+    const reopenedWidget = globalThis.document.querySelector<HTMLElement>(".docs-widget--callout")!;
+    await user.type(reopenedWidget.querySelector(".docs-widget__content")!, "Saved widget text");
+    await waitFor(async () => {
+      expect((await db.documentContents.get(documentRecord.id))?.plainText).toContain("Saved widget text");
+    }, { timeout: 5000 });
+    await user.click(reopenedWidget.querySelector(".docs-widget__drag")!);
+    await user.click(screen.getByRole("button", { name: "Remove widget" }));
+    await waitFor(async () => {
+      expect((await db.documentContents.get(documentRecord.id))?.content)
+        .not.toMatchObject({ content: expect.arrayContaining([expect.objectContaining({ type: "documentWidget" })]) });
+    }, { timeout: 5000 });
   });
 });

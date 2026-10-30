@@ -113,10 +113,16 @@ export function resolveEntries(
     .sort((left, right) => minutesOfDay(left.start) - minutesOfDay(right.start));
 }
 
-export function mergeConsecutiveLessons(entries: ResolvedEntry[]): ResolvedEntry[] {
+export function mergeConsecutiveLessons(
+  entries: ResolvedEntry[],
+  maxGapMinutes = 0,
+): ResolvedEntry[] {
   const merged: ResolvedEntry[] = [];
   for (const entry of entries) {
     const previous = merged.at(-1);
+    const gapMinutes = previous
+      ? minutesOfDay(entry.start) - minutesOfDay(previous.end)
+      : Number.POSITIVE_INFINITY;
     if (
       previous?.kind === "lesson" &&
       entry.kind === "lesson" &&
@@ -125,7 +131,9 @@ export function mergeConsecutiveLessons(entries: ResolvedEntry[]): ResolvedEntry
       previous.teacherId === entry.teacherId &&
       previous.room === entry.room &&
       previous.weekType === entry.weekType &&
-      previous.end === entry.start
+      previous.color === entry.color &&
+      gapMinutes >= 0 &&
+      gapMinutes <= maxGapMinutes
     ) {
       merged[merged.length - 1] = { ...previous, end: entry.end };
     } else {

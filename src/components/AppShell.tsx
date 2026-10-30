@@ -1,4 +1,4 @@
-import { Suspense, useEffect, useState } from "react";
+import { Suspense, useEffect, useRef, useState } from "react";
 import { Link, NavLink, Outlet, useLocation } from "react-router-dom";
 import {
   CalendarDays,
@@ -14,6 +14,7 @@ import {
   PanelsTopLeft,
   ChevronLeft,
   ChevronRight,
+  Code2,
 } from "lucide-react";
 import { useLiveQuery } from "dexie-react-hooks";
 import { useTranslation } from "react-i18next";
@@ -22,6 +23,11 @@ import { defaultAppearance, useUiStore } from "../stores/ui-store";
 import { BrandMark } from "./BrandMark";
 import { BackgroundLayer } from "./BackgroundLayer";
 import { PwaUpdateNotice } from "./PwaUpdateNotice";
+import {
+  ScreensaverOverlay,
+  ScreensaverProvider,
+  useScreensaver,
+} from "./Screensaver";
 
 const navigation = [
   { key: "home", path: "/", icon: House },
@@ -31,23 +37,38 @@ const navigation = [
   { key: "calendar", path: "/calendar", icon: CalendarDays },
   { key: "timer", path: "/timer", icon: Timer },
   { key: "docs", path: "/docs", icon: FileText },
+  { key: "codeLab", path: "/code-lab", icon: Code2 },
   { key: "minigames", path: "/minigames", icon: Gamepad2 },
   { key: "calculator", path: "/calculator", icon: Calculator },
   { key: "translate", path: "/translate", icon: Languages },
 ] as const;
 
 export function AppShell() {
+  return (
+    <ScreensaverProvider>
+      <AppShellLayout />
+    </ScreensaverProvider>
+  );
+}
+
+function AppShellLayout() {
   const { t, i18n } = useTranslation();
   const location = useLocation();
+  const { isActive: isScreensaverActive, dismiss } = useScreensaver();
+  const isHome = location.pathname === "/";
   const isWorkspace = location.pathname === "/workspace";
   const [workspaceSidebarCollapsed, setWorkspaceSidebarCollapsed] = useState(false);
+  const previousPath = useRef(location.pathname);
   const appearance = useUiStore((state) => state.appearance);
+  const homeTypography = useUiStore((state) => state.homeTypography);
   const image = useLiveQuery(() => db.settings.get("backgroundImage"), [], undefined)?.value;
   const pageName =
     location.pathname === "/settings"
       ? "settings"
       : location.pathname === "/solve"
         ? "solve"
+      : location.pathname === "/code-lab"
+        ? "codeLab"
       : location.pathname === "/files"
         ? "files"
         : location.pathname.startsWith("/minigames")
@@ -58,11 +79,19 @@ export function AppShell() {
     document.title = `${t("appName")} — ${t(`nav.${pageName}`)}`;
   }, [i18n.language, pageName, t]);
 
+  useEffect(() => {
+    if (previousPath.current !== location.pathname && isScreensaverActive) {
+      dismiss();
+    }
+    previousPath.current = location.pathname;
+  }, [dismiss, isScreensaverActive, location.pathname]);
+
   return (
     <div
-      className={`app-frame${isWorkspace ? " app-frame--workspace" : ""}${isWorkspace && workspaceSidebarCollapsed ? " app-frame--workspace-collapsed" : ""}`}
+      className={`app-frame${isHome ? " app-frame--home" : ""}${isWorkspace ? " app-frame--workspace" : ""}${isWorkspace && workspaceSidebarCollapsed ? " app-frame--workspace-collapsed" : ""}${isScreensaverActive ? " app-frame--screensaver" : ""}`}
       data-theme={appearance.mode}
       data-performance-mode={appearance.performanceMode}
+      data-home-typography={homeTypography}
       style={
         {
           "--accent": appearance.accent,
@@ -100,8 +129,8 @@ export function AppShell() {
         spacing={appearance.gridSpacing}
         style={appearance.backgroundStyle}
       />
-      <aside className="sidebar">
-        {!isWorkspace || !workspaceSidebarCollapsed ? (
+      <aside className="sidebar glass">
+        {!isWorkspace || !workspaceSidebarCollapsed || isScreensaverActive ? (
           <>
             <Link className="sidebar__brand" to="/" aria-label={t("appName")}>
               <BrandMark />
@@ -112,7 +141,7 @@ export function AppShell() {
                 <NavLink
                   aria-label={t(`nav.${key}`)}
                   className={({ isActive }) =>
-                    `nav-link${isActive ? " nav-link--active" : ""}`
+                    `nav-link${isActive ? " nav-link--active nm-inset" : ""}`
                   }
                   end={path === "/"}
                   key={path}
@@ -127,7 +156,7 @@ export function AppShell() {
             <div className="sidebar__bottom">
               <NavLink
                 aria-label={t("nav.settings")}
-                className={({ isActive }) => `nav-link${isActive ? " nav-link--active" : ""}`}
+                className={({ isActive }) => `nav-link${isActive ? " nav-link--active nm-inset" : ""}`}
                 title={t("nav.settings")}
                 to="/settings"
               >
@@ -137,7 +166,7 @@ export function AppShell() {
             </div>
           </>
         ) : null}
-        {isWorkspace && (
+        {isWorkspace && !isScreensaverActive && (
           <button
             className="workspace-sidebar-toggle"
             type="button"
@@ -159,6 +188,7 @@ export function AppShell() {
           <footer className="app-footer">Kxno Desk · Made By Kxno (Shero)</footer>
         </div>
       </main>
+      <ScreensaverOverlay />
       <PwaUpdateNotice />
     </div>
   );

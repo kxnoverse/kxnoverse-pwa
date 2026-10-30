@@ -5,7 +5,11 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import App from "./App";
 import { db, localDateKey } from "./data/db";
 import { i18n, i18nReady } from "./i18n";
-import { defaultAppearance, useUiStore } from "./stores/ui-store";
+import {
+  defaultAppearance,
+  defaultHomeWidgets,
+  useUiStore,
+} from "./stores/ui-store";
 import { assistantClient } from "./data/ai-client";
 import { PDFDocument } from "pdf-lib";
 import { createColorClash, getPlayableClashCards } from "./data/phase6d/color-clash";
@@ -27,6 +31,7 @@ vi.mock("./components/TurnstileChallenge", async () => {
 
 beforeEach(async () => {
   localStorage.clear();
+  window.history.replaceState(null, "", "/");
   window.location.hash = "#/";
   await i18nReady;
   await i18n.changeLanguage("en");
@@ -51,8 +56,14 @@ beforeEach(async () => {
     db.documentContents.clear(),
     db.documentImages.clear(),
     db.pdfProjects.clear(),
+    db.codeProjects.clear(),
+    db.codeLabProgress.clear(),
+    db.codeGardenState.clear(),
   ]);
   useUiStore.getState().updateAppearance(defaultAppearance);
+  useUiStore.getState().setHomeTypography("pixel");
+  useUiStore.getState().setHomeDemoData(false);
+  useUiStore.getState().setHomeWidgets(defaultHomeWidgets);
   vi.spyOn(HTMLCanvasElement.prototype, "getContext").mockReturnValue(null);
 });
 
@@ -70,7 +81,11 @@ describe("Kxno Desk shell", () => {
     expect(i18n.hasResourceBundle("en", "translation")).toBe(true);
     expect(i18n.hasResourceBundle("de", "translation")).toBe(false);
     expect(screen.getByRole("link", { name: "Kxno Desk" })).toBeInTheDocument();
-    expect(await screen.findByRole("heading", { name: /^(Good (morning|afternoon|evening), User|Working late, User)$/ })).toBeInTheDocument();
+    expect(await screen.findByRole(
+      "heading",
+      { name: /^(Good (morning|afternoon|evening), User|Working late, User)$/ },
+      { timeout: 5000 },
+    )).toBeInTheDocument();
     expect(useUiStore.getState().appearance).toMatchObject({
       accent: "#8dbfd0",
       background: "#10161b",
@@ -78,16 +93,43 @@ describe("Kxno Desk shell", () => {
     });
 
     expect(document.querySelector(".background-layer--chrome")).toBeInTheDocument();
+    expect(document.querySelector(".app-frame")).toHaveClass("app-frame--home");
+    expect(document.querySelector(".app-frame")).toHaveAttribute("data-home-typography", "pixel");
+    expect(document.querySelector(".home-ref-top")).toBeInTheDocument();
+    expect(document.querySelector(".home-ref-schedule")).toBeInTheDocument();
+    expect(document.querySelector(".home-ref-stats")).toBeInTheDocument();
+    const homeShortcuts = within(screen.getByRole("navigation", { name: "Workspace" }));
+    expect(homeShortcuts.getByRole("link", { name: "Calendar" })).toBeInTheDocument();
+    expect(homeShortcuts.getByRole("link", { name: "Tasks" })).toBeInTheDocument();
+    expect(homeShortcuts.getByRole("link", { name: /Notes/ })).toBeInTheDocument();
+    expect(homeShortcuts.getByRole("link", { name: "Timer" })).toBeInTheDocument();
+    expect(screen.queryByText("Week A")).not.toBeInTheDocument();
+    expect(screen.queryByText("Week B")).not.toBeInTheDocument();
+    expect(document.querySelector(".home-dashboard")).not.toBeInTheDocument();
+    expect(
+      document.querySelector(".home-ref-stat .home-ref-stat-copy strong"),
+    ).toHaveTextContent("00");
     expect(screen.getByRole("time")).toBeInTheDocument();
+    expect(document.querySelector(".home-ref-eyebrow")).toHaveTextContent(
+      new Intl.DateTimeFormat("en", {
+        weekday: "long",
+        month: "long",
+        day: "numeric",
+      }).format(new Date()),
+    );
+    expect(document.querySelector(".home-ref-countdown small")).not.toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "Today’s schedule" })).toBeInTheDocument();
     expect(within(screen.getByRole("navigation", { name: "Main navigation" })).queryByRole("link", { name: "Files" })).not.toBeInTheDocument();
     expect(within(screen.getByRole("navigation", { name: "Main navigation" })).getByRole("link", { name: "Translate" })).toBeInTheDocument();
     expect(within(screen.getByRole("navigation", { name: "Main navigation" })).queryByRole("link", { name: "Kxno Solve" })).not.toBeInTheDocument();
     expect(within(screen.getByRole("navigation", { name: "Main navigation" })).getByRole("link", { name: "Workspace" })).toBeInTheDocument();
     expect(within(screen.getByRole("navigation", { name: "Main navigation" })).getByRole("link", { name: "Docs" })).toBeInTheDocument();
+    expect(within(screen.getByRole("navigation", { name: "Main navigation" })).getByRole("link", { name: "Code" })).toBeInTheDocument();
     expect(within(screen.getByRole("navigation", { name: "Main navigation" })).queryByRole("link", { name: "Kxno Docs" })).not.toBeInTheDocument();
     expect(screen.getByText("Kxno Desk · Made By Kxno (Shero)")).toBeInTheDocument();
 
+    await user.click(within(screen.getByRole("navigation", { name: "Main navigation" })).getByRole("link", { name: "Code" }));
+    expect(await screen.findByRole("heading", { name: "Create your first page" })).toBeInTheDocument();
     await user.click(
       within(screen.getByRole("navigation", { name: "Main navigation" })).getByRole(
         "link",
@@ -95,6 +137,259 @@ describe("Kxno Desk shell", () => {
       ),
     );
     expect(await screen.findByRole("heading", { name: "Timetable" }, { timeout: 5000 })).toBeInTheDocument();
+  });
+
+  it("opens and dismisses the screensaver without removing sidebar navigation", async () => {
+    const user = userEvent.setup();
+    render(<App />);
+
+    await user.click(await screen.findByRole(
+      "button",
+      { name: "Screensaver" },
+      { timeout: 5000 },
+    ));
+    expect(await screen.findByRole("group", { name: "Screensaver" })).toBeInTheDocument();
+    expect(document.querySelector(".app-frame")).toHaveClass("app-frame--screensaver");
+    expect(document.documentElement.style.overflow).toBe("hidden");
+    const navigation = within(screen.getByRole("navigation", { name: "Main navigation" }));
+    expect(navigation.getByRole("link", { name: "Home" })).toBeInTheDocument();
+    expect(navigation.getByRole("link", { name: "Calendar" })).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Settings" })).toBeInTheDocument();
+
+    await user.click(screen.getByRole("group", { name: "Screensaver" }));
+    await waitFor(() => {
+      expect(screen.queryByRole("group", { name: "Screensaver" })).not.toBeInTheDocument();
+      expect(document.querySelector(".app-frame")).not.toHaveClass("app-frame--screensaver");
+      expect(document.documentElement.style.overflow).toBe("");
+    });
+  });
+
+  it("shows timetable entries, tasks, and events in the new Home composition", async () => {
+    const now = new Date();
+    const startAt = new Date(now.getTime() + 60 * 60 * 1000);
+    await db.subjects.add({ id: "home-math", name: "Mathematics", color: "#ff5d56" });
+    await db.timetable.add({
+      id: "home-math-period",
+      subjectId: "home-math",
+      weekday: (now.getDay() + 6) % 7,
+      start: "08:00",
+      end: "08:45",
+      weekType: "all",
+      kind: "lesson",
+      room: "B204",
+    });
+    await db.tasks.add({
+      id: "home-physics-task",
+      title: "Physics worksheet",
+      description: "",
+      dueDate: localDateKey(now),
+      priority: "normal",
+      category: "",
+      tags: [],
+      subtasks: [],
+      completed: false,
+      createdAt: now.getTime(),
+      updatedAt: now.getTime(),
+    });
+    await db.calendarEvents.add({
+      id: "home-english-test",
+      type: "exam",
+      title: "English test",
+      description: "",
+      startAt: startAt.toISOString(),
+      endAt: new Date(startAt.getTime() + 60 * 60 * 1000).toISOString(),
+      allDay: false,
+      color: "#ff5d56",
+      createdAt: now.getTime(),
+      updatedAt: now.getTime(),
+    });
+
+    render(<App />);
+
+    expect(await screen.findByText("Mathematics", { selector: ".home-ref-lesson-copy strong" })).toBeInTheDocument();
+    expect(document.querySelectorAll(".home-ref-lesson")).toHaveLength(1);
+    expect(await screen.findByText("Physics worksheet")).toBeInTheDocument();
+    expect(await screen.findByText("English test")).toBeInTheDocument();
+  });
+
+  it("lets each Home widget cycle through persistent, distinct widget options", async () => {
+    const user = userEvent.setup();
+    render(<App />);
+
+    for (const [widget, heading, previousHeading] of [
+      ["workspace", "Workspace", "Tasks"],
+      ["assistant", "Assistant", "Workspace"],
+      ["docs", "Docs", "Assistant"],
+      ["minigames", "Minigames", "Docs"],
+      ["calculator", "Calculator", "Minigames"],
+      ["translate", "Translate", "Calculator"],
+    ]) {
+      await user.click(
+        await screen.findByRole("button", {
+          name: `Switch ${previousHeading} widget`,
+        }),
+      );
+      expect(await screen.findByRole("heading", { name: heading })).toBeInTheDocument();
+      expect(
+        document.querySelector(`.home-ref-widget-preview[data-widget="${widget}"]`),
+      ).toBeInTheDocument();
+      expect(useUiStore.getState().homeWidgets).toEqual([widget, "upcoming"]);
+      if (widget === "assistant") {
+        expect(screen.getByRole("link", { name: "Open Assistant" })).toHaveAttribute(
+          "href",
+          "#/assistant",
+        );
+      }
+    }
+
+    expect(
+      JSON.parse(localStorage.getItem("kxnodesk-ui") ?? "{}").state.homeWidgets,
+    ).toEqual(["translate", "upcoming"]);
+  });
+
+  it("renders the empty Home state without the former dashboard layout", async () => {
+    render(<App />);
+
+    expect(await screen.findByRole("heading", { name: /^(Good (morning|afternoon|evening), User|Working late, User)$/ })).toBeInTheDocument();
+    expect(document.querySelector(".home-ref-empty")).toBeInTheDocument();
+    expect(document.querySelector(".home-ref-hero")).toBeInTheDocument();
+    expect(document.querySelector(".home-ref-stats")).toBeInTheDocument();
+    expect(document.querySelector(".home-dashboard")).not.toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Add your first lesson" })).toHaveAttribute("href", "#/timetable");
+  });
+
+  it.each(["/?homePreview=timetable#/", "/#/?homePreview=timetable"])(
+    "shows timetable preview fixtures for %s without writing sample data to IndexedDB",
+    async (previewUrl) => {
+      window.history.replaceState(null, "", previewUrl);
+      render(<App />);
+
+      expect(
+        await screen.findByText("Mathematics", {
+          selector: ".home-ref-lesson-copy strong",
+        }),
+      ).toBeInTheDocument();
+      expect(await screen.findByText("Demo data · not saved")).toBeInTheDocument();
+      expect(document.querySelectorAll(".home-ref-lesson")).toHaveLength(4);
+      expect(
+        document.querySelectorAll(".home-ref-lesson-copy strong"),
+      ).toHaveLength(4);
+      expect(
+        [...document.querySelectorAll(".home-ref-lesson-copy strong")].map(
+          (subject) => subject.textContent,
+        ),
+      ).toEqual(["Check-in", "Mathematics", "German", "Sport"]);
+      expect(document.querySelector(".home-ref-lesson-time time")).toHaveTextContent(
+        "08:00",
+      );
+      expect(document.querySelector(".home-ref-lesson-time span")).toHaveTextContent(
+        "08:20",
+      );
+      expect(
+        document.querySelector(".home-ref-lesson.is-current .home-ref-lesson-copy strong"),
+      ).toHaveTextContent("German");
+      expect(
+        document.querySelectorAll(".home-ref-lesson:not(.is-past):not(.is-current)"),
+      ).toHaveLength(1);
+      expect(await screen.findByText("Physics worksheet")).toBeInTheDocument();
+      expect(await screen.findByText("English test")).toBeInTheDocument();
+      await expect(db.timetable.count()).resolves.toBe(0);
+      await expect(db.subjects.count()).resolves.toBe(0);
+      await expect(db.tasks.count()).resolves.toBe(0);
+      await expect(db.calendarEvents.count()).resolves.toBe(0);
+    },
+  );
+
+  it("keeps Home typography and demo data independent of saved data and themes", async () => {
+    const today = new Date();
+    const now = today.getTime();
+    const weekday = (today.getDay() + 6) % 7;
+    await db.subjects.add({ id: "real-subject", name: "Saved Biology", color: "#7396b5" });
+    await db.timetable.add({
+      id: "real-lesson",
+      subjectId: "real-subject",
+      weekday,
+      start: "08:00",
+      end: "08:45",
+      weekType: "all",
+      kind: "lesson",
+    });
+    await db.tasks.add({
+      id: "real-task",
+      title: "Saved task",
+      description: "",
+      dueDate: localDateKey(today),
+      priority: "normal",
+      category: "",
+      tags: [],
+      subtasks: [],
+      completed: false,
+      createdAt: now,
+      updatedAt: now,
+    });
+    const savedExamStart = new Date(
+      today.getFullYear(),
+      today.getMonth(),
+      today.getDate() + 1,
+      12,
+    );
+    await db.calendarEvents.add({
+      id: "real-event",
+      type: "exam",
+      title: "Saved exam",
+      description: "",
+      startAt: savedExamStart.toISOString(),
+      endAt: new Date(savedExamStart.getTime() + 60 * 60 * 1000).toISOString(),
+      allDay: false,
+      color: "#7396b5",
+      createdAt: now,
+      updatedAt: now,
+    });
+
+    render(<App />);
+    expect(await screen.findByText("Saved task")).toBeInTheDocument();
+    act(() => useUiStore.getState().setHomeTypography("pixel"));
+    expect(useUiStore.getState().homeDemoData).toBe(false);
+    act(() => {
+      useUiStore.getState().setHomeDemoData(true);
+      useUiStore.getState().updateAppearance({ ...defaultAppearance, accent: "#f56b63" });
+    });
+
+    expect(useUiStore.getState().homeTypography).toBe("pixel");
+    expect(useUiStore.getState().homeDemoData).toBe(true);
+    expect(useUiStore.getState().appearance.accent).toBe("#f56b63");
+    const persistedUi = JSON.parse(localStorage.getItem("kxnodesk-ui") ?? "{}") as {
+      state?: { homeTypography?: string; homeDemoData?: boolean };
+    };
+    expect(persistedUi.state).toMatchObject({
+      homeTypography: "pixel",
+      homeDemoData: true,
+    });
+
+    window.location.hash = "#/";
+    expect(await screen.findByText("Demo data · not saved")).toBeInTheDocument();
+    expect(await screen.findByText("German", { selector: ".home-ref-lesson-copy strong" })).toBeInTheDocument();
+    expect(document.querySelector(".app-frame")).toHaveAttribute("data-home-typography", "pixel");
+    expect(document.querySelectorAll(".home-ref-lesson")).toHaveLength(4);
+    expect(screen.queryByText("Saved task")).not.toBeInTheDocument();
+    expect(screen.queryByText("Saved exam")).not.toBeInTheDocument();
+    await expect(db.subjects.count()).resolves.toBe(1);
+    await expect(db.timetable.count()).resolves.toBe(1);
+    await expect(db.tasks.count()).resolves.toBe(1);
+    await expect(db.calendarEvents.count()).resolves.toBe(1);
+
+    act(() => useUiStore.getState().setHomeDemoData(false));
+    expect(useUiStore.getState().homeTypography).toBe("pixel");
+    act(() => useUiStore.getState().setHomeTypography("default"));
+
+    expect(await screen.findByText("Saved task")).toBeInTheDocument();
+    expect(await screen.findByText("Saved exam")).toBeInTheDocument();
+    expect(screen.queryByText("Demo data · not saved")).not.toBeInTheDocument();
+    expect(document.querySelector(".app-frame")).toHaveAttribute("data-home-typography", "default");
+    await expect(db.subjects.count()).resolves.toBe(1);
+    await expect(db.timetable.count()).resolves.toBe(1);
+    await expect(db.tasks.count()).resolves.toBe(1);
+    await expect(db.calendarEvents.count()).resolves.toBe(1);
   });
 
   it("keeps legacy task and note URLs working inside Docs", async () => {
@@ -922,13 +1217,30 @@ describe("Kxno Desk shell", () => {
 
     await user.click(screen.getByRole("link", { name: "Settings" }));
 
-    await user.selectOptions(await screen.findByRole("combobox", { name: "Language" }), "de");
+    const languageSelect = await screen.findByRole(
+      "combobox",
+      { name: "Language" },
+      { timeout: 5000 },
+    );
+    const homeTypographySelect = await screen.findByRole(
+      "combobox",
+      { name: "Typography" },
+      { timeout: 5000 },
+    );
+    await user.selectOptions(homeTypographySelect, "pixel");
+    expect(useUiStore.getState().homeTypography).toBe("pixel");
+    expect(useUiStore.getState().homeDemoData).toBe(false);
+    await user.click(screen.getByRole("checkbox", { name: "Use sample data on Home" }));
+    expect(useUiStore.getState().homeTypography).toBe("pixel");
+    expect(useUiStore.getState().homeDemoData).toBe(true);
+
+    await user.selectOptions(languageSelect, "de");
     expect(await screen.findByRole("heading", { name: "Einstellungen" })).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "Stundenplan" })).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "Assistent" })).toBeInTheDocument();
     expect(document.documentElement.lang).toBe("de");
 
-    await user.selectOptions(screen.getByRole("combobox", { name: "Modus" }), "light");
+    await user.click(screen.getByRole("button", { name: "Hell" }));
     expect(document.querySelector(".app-frame")).toHaveAttribute("data-theme", "light");
     expect(localStorage.getItem("kxnodesk-language")).toBe("de");
 
@@ -1003,6 +1315,27 @@ describe("Kxno Desk shell", () => {
       });
     });
     expect(await db.aiPresets.get("existing-custom")).toBeDefined();
+  });
+
+  it("can collapse and restore the assistant conversation history", async () => {
+    const user = userEvent.setup();
+    render(<App />);
+    await user.click(await screen.findByRole("link", { name: "Assistant" }));
+
+    const history = await screen.findByRole("complementary", { name: "History" });
+    expect(screen.queryByText("Cloud AI off")).not.toBeInTheDocument();
+    const collapseButton = await screen.findByRole("button", { name: "Hide history" });
+    expect(collapseButton).toHaveAttribute("aria-expanded", "true");
+    expect(collapseButton).toHaveAttribute("aria-controls", "assistant-history");
+
+    await user.click(collapseButton);
+    expect(screen.getByRole("button", { name: "Show history" })).toHaveAttribute("aria-expanded", "false");
+    expect(history).not.toBeVisible();
+    expect(document.querySelector(".assistant-workspace")).toHaveClass("assistant-workspace--history-collapsed");
+
+    await user.click(screen.getByRole("button", { name: "Show history" }));
+    expect(screen.getByRole("complementary", { name: "History" })).toBeVisible();
+    expect(screen.getByRole("button", { name: "Hide history" })).toHaveAttribute("aria-expanded", "true");
   });
 
   it("uses the authorized PDF pipeline and lets the user review and export a solved copy", async () => {
@@ -1140,8 +1473,8 @@ describe("Kxno Desk shell", () => {
     render(<App />);
     await user.click(within(screen.getByRole("navigation", { name: "Main navigation" })).getByRole("link", { name: "Calendar" }));
 
-    expect(await screen.findByText("Autumn break")).toBeInTheDocument();
-    expect(screen.getByText("School holiday")).toBeInTheDocument();
+    expect(await within(await screen.findByRole("complementary", { name: "Agenda" })).findByText("Autumn break")).toBeInTheDocument();
+    expect(await within(await screen.findByRole("complementary", { name: "Agenda" })).findByText("School holiday")).toBeInTheDocument();
     expect(fetchMock).toHaveBeenCalledTimes(2);
   });
 
@@ -1180,13 +1513,13 @@ describe("Kxno Desk shell", () => {
       render(<App />);
       const navigation = within(screen.getByRole("navigation", { name: "Main navigation" }));
       await userEvent.setup().click(navigation.getByRole("link", { name: "Calendar" }));
-      expect(await screen.findByText("Saved autumn break")).toBeInTheDocument();
+      expect(await within(await screen.findByRole("complementary", { name: "Agenda" })).findByText("Saved autumn break")).toBeInTheDocument();
       expect(screen.getByText(/Offline · showing saved holiday data/)).toBeInTheDocument();
       expect(fetchMock).not.toHaveBeenCalled();
 
       Object.defineProperty(window.navigator, "onLine", { configurable: true, value: true });
       window.dispatchEvent(new Event("online"));
-      expect(await screen.findByText("Updated autumn break")).toBeInTheDocument();
+      expect(await within(await screen.findByRole("complementary", { name: "Agenda" })).findByText("Updated autumn break")).toBeInTheDocument();
       await waitFor(async () => {
         const saved = await db.settings.get(cacheKey);
         expect(JSON.parse(saved!.value)).toMatchObject({
@@ -1227,7 +1560,7 @@ describe("Kxno Desk shell", () => {
         within(screen.getByRole("navigation", { name: "Main navigation" })).getByRole("link", { name: "Calendar" }),
       );
       expect(await screen.findByRole("heading", { name: "Calendar", level: 1 })).toBeInTheDocument();
-      expect(await screen.findByText("Local study session")).toBeInTheDocument();
+      expect(await within(await screen.findByRole("complementary", { name: "Agenda" })).findByText("Local study session")).toBeInTheDocument();
       expect(await screen.findByText(/holiday data is unavailable/)).toBeInTheDocument();
       expect(fetchMock).not.toHaveBeenCalled();
     } finally {
@@ -1495,6 +1828,14 @@ describe("Kxno Desk shell", () => {
     await user.selectOptions(screen.getByRole("combobox", { name: "Type" }), "exam");
     await user.click(screen.getByRole("button", { name: "Save" }));
     expect(await db.calendarEvents.toCollection().first()).toMatchObject({ title: "Biology exam", type: "exam" });
+    await user.click(await screen.findByRole("button", { name: "Edit Biology exam" }));
+    await user.clear(screen.getByRole("textbox", { name: "Title" }));
+    await user.type(screen.getByRole("textbox", { name: "Title" }), "Biology exam review");
+    await user.click(screen.getByRole("button", { name: "Save" }));
+    await waitFor(async () => expect(await db.calendarEvents.toCollection().first()).toMatchObject({ title: "Biology exam review" }));
+    vi.spyOn(window, "confirm").mockReturnValue(true);
+    await user.click(await screen.findByRole("button", { name: "Delete Biology exam review" }));
+    await waitFor(async () => expect(await db.calendarEvents.count()).toBe(0));
 
     await user.click(within(screen.getByRole("navigation", { name: "Main navigation" })).getByRole("link", { name: "Docs" }));
     await user.click(await screen.findByRole("button", { name: "Notes" }));

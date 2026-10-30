@@ -116,6 +116,29 @@ describe("timetable schedule calculations", () => {
     expect(merged[1]).toMatchObject({ id: "math-3", start: "10:40", end: "11:25" });
   });
 
+  it("can merge matching lessons separated by a passing period", () => {
+    const subject: Subject = { id: "math", name: "Mathematics", color: "#228855" };
+    const resolved = resolveEntries(
+      [
+        { ...entries[0], start: "09:00", end: "09:45" },
+        { ...entries[0], id: "math-2", start: "09:50", end: "10:35" },
+        { ...entries[0], id: "math-3", start: "10:50", end: "11:35" },
+      ],
+      [subject],
+      [],
+      0,
+      monday,
+      [],
+      anchor,
+      "A",
+    );
+
+    const merged = mergeConsecutiveLessons(resolved, 10);
+    expect(merged).toHaveLength(2);
+    expect(merged[0]).toMatchObject({ id: "math", start: "09:00", end: "10:35" });
+    expect(merged[1]).toMatchObject({ id: "math-3", start: "10:50", end: "11:35" });
+  });
+
   it("includes one-off lessons in the date-specific schedule", () => {
     const added: ScheduleException = {
       id: "extra",

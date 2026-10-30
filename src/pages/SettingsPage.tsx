@@ -4,8 +4,7 @@ import { ImagePlus, RotateCcw } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { db } from "../data/db";
 import { BackgroundLayer } from "../components/BackgroundLayer";
-import { BrandMark } from "../components/BrandMark";
-import { defaultAppearance, useUiStore, type Appearance } from "../stores/ui-store";
+import { defaultAppearance, useUiStore, type Appearance, type HomeTypography } from "../stores/ui-store";
 import { builtInThemes, type ThemePreset } from "../data/theme-presets";
 import { createId } from "../data/db";
 import { Link } from "react-router-dom";
@@ -73,6 +72,10 @@ export function SettingsPage() {
   const { t, i18n } = useTranslation();
   const appearance = useUiStore((state) => state.appearance);
   const setAppearance = useUiStore((state) => state.setAppearance);
+  const homeTypography = useUiStore((state) => state.homeTypography);
+  const setHomeTypography = useUiStore((state) => state.setHomeTypography);
+  const homeDemoData = useUiStore((state) => state.homeDemoData);
+  const setHomeDemoData = useUiStore((state) => state.setHomeDemoData);
   const image = useLiveQuery(() => db.settings.get("backgroundImage"), [], undefined)?.value;
   const profile = useLiveQuery(() => db.settings.get("profileName"), [], undefined);
   const daysSetting = useLiveQuery(() => db.settings.get("schoolDays"), [], undefined);
@@ -560,295 +563,140 @@ export function SettingsPage() {
     );
   };
 
+  function updateAppearanceMode(mode: "dark" | "light") {
+    if (
+      mode === "light" &&
+      appearance.background === defaultAppearance.background &&
+      appearance.surface === defaultAppearance.surface
+    ) {
+      useUiStore.getState().updateAppearance({
+        mode,
+        background: "#f0f1f3",
+        surface: "#f7f8fa",
+      });
+    } else if (
+      mode === "dark" &&
+      appearance.background === "#f0f1f3" &&
+      appearance.surface === "#f7f8fa"
+    ) {
+      useUiStore.getState().updateAppearance({
+        mode,
+        background: defaultAppearance.background,
+        surface: defaultAppearance.surface,
+      });
+    } else {
+      setAppearance("mode", mode);
+    }
+  }
+
+  const activeTheme = [...builtInThemes, ...customThemes].find((theme) => theme.id === selectedTheme);
+  const previewDate = new Intl.DateTimeFormat(i18n.language, {
+    weekday: "short",
+    month: "short",
+    day: "2-digit",
+  }).format(new Date());
+  const previewTime = new Intl.DateTimeFormat(i18n.language, {
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: appearance.hourFormat === "12",
+  }).format(new Date());
+
   return (
     <section className="settings-page">
-      <div className="settings-heading">
-        <h1>{t("settings.title")}</h1>
-        <button className="icon-button" onClick={() => useUiStore.getState().updateAppearance(defaultAppearance)} title={t("settings.reset")} aria-label={t("settings.reset")} type="button">
+      <header className="settings-heading">
+        <div>
+          <p className="settings-kicker"><span />{t("settings.preferences")}</p>
+          <h1>{t("settings.title")}</h1>
+        </div>
+        <button className="icon-button settings-reset" onClick={() => useUiStore.getState().updateAppearance(defaultAppearance)} title={t("settings.reset")} aria-label={t("settings.reset")} type="button">
           <RotateCcw size={15} />
         </button>
-      </div>
+      </header>
 
-      <section className="settings-section settings-section--profile">
-        <h2>{t("settings.profile")}</h2>
-        <label className="setting-row">
-          <span>{t("settings.displayName")}</span>
-          <input
-            aria-label={t("settings.displayName")}
-            maxLength={60}
-            value={nameDraft}
-            onChange={(event) => setNameDraft(event.target.value)}
-            onBlur={() => void db.settings.put({ key: "profileName", value: nameDraft.trim() }).catch(() => setError("saveError"))}
-          />
-        </label>
-      </section>
-
-      <section className="settings-section settings-section--language">
-        <h2>{t("settings.language")}</h2>
-        <label className="setting-row">
-          <span>{t("settings.language")}</span>
-          <select
-            aria-label={t("settings.language")}
-            onChange={(event) => void i18n.changeLanguage(event.target.value)}
-            value={i18n.language.startsWith("de") ? "de" : "en"}
-          >
-            <option value="en">{t("settings.english")}</option>
-            <option value="de">{t("settings.german")}</option>
-          </select>
-        </label>
-        <label className="setting-row">
-          <span>{t("settings.timeFormat")}</span>
-          <select aria-label={t("settings.timeFormat")} value={appearance.hourFormat} onChange={(event) => setAppearance("hourFormat", event.target.value as "12" | "24")}>
-            <option value="24">{t("settings.hour24")}</option>
-            <option value="12">{t("settings.hour12")}</option>
-          </select>
-        </label>
-      </section>
-
-      <section className="settings-section settings-section--themes">
-        <h2>{t("settings.themes")}</h2>
-        <div className="theme-strip">
-          {[...builtInThemes, ...customThemes].map((theme) => (
-            <button
-              aria-pressed={selectedTheme === theme.id}
-              className={`theme-chip${selectedTheme === theme.id ? " theme-chip--selected" : ""}`}
-              key={theme.id}
-              onClick={() => void applyTheme(theme)}
-              type="button"
-            >
-              <span className="theme-chip__swatches" style={{ "--theme-bg": theme.appearance.background ?? appearance.background, "--theme-surface": theme.appearance.surface ?? appearance.surface, "--theme-accent": theme.appearance.accent ?? appearance.accent } as React.CSSProperties}><i /><i /><i /></span>
-              <span>{theme.name}</span>
-            </button>
-          ))}
-        </div>
-        <div className="theme-tools">
-          <input aria-label={t("settings.themeName")} maxLength={32} value={themeNameDraft} onChange={(event) => setThemeNameDraft(event.target.value)} />
-          <button className="button button--quiet" onClick={() => void saveCurrentTheme()} type="button">{t("settings.saveCustomTheme")}</button>
-          <button className="button button--quiet" disabled={!customThemes.some((theme) => theme.id === selectedTheme)} onClick={() => void renameSelectedTheme()} type="button">{t("settings.renameTheme")}</button>
-          <button className="button button--quiet" onClick={() => void duplicateSelectedTheme()} type="button">{t("settings.duplicateTheme")}</button>
-          <button className="button button--quiet" disabled={!customThemes.some((theme) => theme.id === selectedTheme)} onClick={() => void deleteSelectedTheme()} type="button">{t("settings.deleteTheme")}</button>
-          <button className="button button--quiet" onClick={() => void restoreThemeDefaults()} type="button">{t("settings.restoreThemeDefaults")}</button>
-        </div>
-      </section>
-
-      <section className="settings-section settings-section--timetable">
-        <h2>{t("settings.timetable")}</h2>
-        <label className="setting-row">
-          <span>{t("settings.schoolStartTime")}</span>
-          <input
-            aria-label={t("settings.schoolStartTime")}
-            max="23:00"
-            min="00:00"
-            onChange={(event) => void updateSchoolStartTime(event.target.value)}
-            type="time"
-            value={schoolStartSetting?.value && /^(?:[01]\d|2[0-3]):[0-5]\d$/.test(schoolStartSetting.value) && schoolStartSetting.value <= "23:00" ? schoolStartSetting.value : "08:15"}
-          />
-          <output>{schoolStartSetting?.value ?? "08:15"}</output>
-        </label>
-        <div className="school-days">
-          {(["monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"] as const).map((day, index) => (
-            <label key={day}>
-              <input aria-label={t(`weekdays.${day}`)} checked={schoolDays[index]} onChange={(event) => void updateSchoolDay(index, event.target.checked)} type="checkbox" />
-              {t(`weekdays.${day}`).slice(0, 3)}
-            </label>
-          ))}
-        </div>
-        <p className="setting-hint">{t("settings.lessonPeriodAvailability")}</p>
-        <div className="school-days">
-          {[7, 8].filter((index) => index < lessonGrid.durations.length).map((index) => (
-            <label key={index}>
+      <div className="settings-board">
+        <div className="settings-column settings-column--primary">
+          <section className="settings-section settings-section--profile">
+            <h2>{t("settings.profile")}</h2>
+            <div className="settings-profile-row">
+              <span className="settings-profile-avatar" aria-hidden="true">{nameDraft.trim().slice(0, 1).toUpperCase() || "U"}</span>
+              <label htmlFor="settings-display-name">
+                {t("settings.displayName")}
+                <small>{t("settings.displayNameHint")}</small>
+              </label>
               <input
-                aria-label={t("settings.lessonPeriodEnabled", { number: index })}
-                checked={lessonGrid.enabledPeriods[index] !== false}
-                onChange={(event) => void updateLessonPeriod(index, event.target.checked)}
-                type="checkbox"
+                id="settings-display-name"
+                aria-label={t("settings.displayName")}
+                maxLength={60}
+                value={nameDraft}
+                onChange={(event) => setNameDraft(event.target.value)}
+                onBlur={() => void db.settings.put({ key: "profileName", value: nameDraft.trim() }).catch(() => setError("saveError"))}
               />
-              {t("settings.lessonPeriodEnabled", { number: index })}
-            </label>
-          ))}
-        </div>
-        {error === "periodInUse" && <p className="form-error" role="alert">{t("settings.periodInUse")}</p>}
-      </section>
+            </div>
+          </section>
 
-      <section className="settings-section settings-section--region">
-        <h2>{t("settings.schoolCalendar")}</h2>
-        <label className="setting-row">
-          <span>{t("settings.federalState")}</span>
-          <select
-            aria-label={t("settings.federalState")}
-            onChange={(event) => void updateSchoolState(event.target.value)}
-            value={germanStates.includes(schoolStateSetting?.value as (typeof germanStates)[number]) ? schoolStateSetting?.value : ""}
-          >
-            <option value="">{t("settings.selectFederalState")}</option>
-            {germanStates.map((state) => <option key={state} value={state}>{t(`settings.states.${state}`)}</option>)}
-          </select>
-        </label>
-        <p className="settings-hint">{t("settings.schoolCalendarHint")}</p>
-      </section>
-
-      <section className="settings-section settings-section--ai">
-        <h2>{t("settings.ai")}</h2>
-        <div className="ai-settings-row">
-          <span>{t("settings.backendStatus")}</span>
-          <span className="status-pill">{aiCloudEnabled ? t("settings.aiEnabled") : t("settings.aiDisabled")}</span>
-          <Link className="button button--quiet" to="/assistant">{t("settings.openAssistant")}</Link>
-        </div>
-        <label className="ai-endpoint-field">
-          <span>{t("settings.aiEndpoint")}</span>
-          <input autoComplete="off" maxLength={300} onChange={(event) => { setAiEndpointDraft(event.target.value); setAiEndpointSaved(false); }} placeholder="https://your-worker.example.com" spellCheck={false} type="url" value={aiEndpointDraft} />
-        </label>
-        <div className="ai-endpoint-actions">
-          <button className="button button--quiet" onClick={() => void saveAiEndpoint()} type="button">{t("settings.saveEndpoint")}</button>
-          <span aria-live="polite">{aiEndpointSaved ? t("settings.aiEndpointSaved") : t("settings.aiEndpointHint")}</span>
-        </div>
-        <label className="ai-endpoint-field">
-          <span>{t("settings.turnstileSiteKey")}</span>
-          <input autoComplete="off" maxLength={128} onChange={(event) => { setTurnstileSiteKeyDraft(event.target.value); setTurnstileSiteKeySaved(false); }} placeholder={t("settings.turnstileSiteKeyPlaceholder")} spellCheck={false} type="text" value={turnstileSiteKeyDraft} />
-        </label>
-        <div className="ai-endpoint-actions">
-          <button className="button button--quiet" onClick={() => void saveTurnstileSiteKey()} type="button">{t("settings.saveTurnstileSiteKey")}</button>
-          <span aria-live="polite">{turnstileSiteKeySaved ? t("settings.turnstileSiteKeySaved") : t("settings.turnstileSiteKeyHint")}</span>
-        </div>
-        <label className="ai-cloud-toggle">
-          <input checked={aiCloudEnabled} onChange={(event) => void setAiCloudEnabled(event.target.checked)} type="checkbox" />
-          <span>{t("settings.enableCloudAi")}</span>
-        </label>
-        <label className="ai-cloud-toggle">
-          <input checked={aiCloudConsent} disabled={!aiEndpointSetting?.value} onChange={(event) => void setAiCloudConsent(event.target.checked)} type="checkbox" />
-          <span>{t("settings.aiCloudConsent")}</span>
-        </label>
-        <p className="settings-hint">{t("settings.aiCloudConsentHint")}</p>
-        {aiCloudEnabled && turnstileSiteKeySetting?.value && (
-          <TurnstileChallenge
-            action="test"
-            onError={rejectTurnstileToken}
-            onToken={receiveTurnstileToken}
-            requestId={turnstileVersion}
-            siteKey={turnstileSiteKeySetting.value}
-          />
-        )}
-        <div className="ai-endpoint-actions">
-          <button className="button button--quiet" disabled={!aiCloudEnabled || !aiCloudConsent || !aiEndpointSetting?.value || !turnstileSiteKeySetting?.value || aiConnectionState === "testing"} onClick={() => void testAiConnection()} type="button">
-            {aiConnectionState === "testing" ? t("settings.testingAi") : t("settings.testAiConnection")}
-          </button>
-          <span>{t(aiConnectionState === "connected" ? "settings.aiConnection.connected" : aiConnectionState === "error" ? "settings.aiConnection.requestFailed" : "settings.aiConnectionHint")}</span>
-        </div>
-        {aiEndpointError && <p className="form-error" role="alert">{t(`settings.${aiEndpointError}`)}</p>}
-      </section>
-
-      <section className="settings-section settings-section--appearance">
-        <div className="settings-section__heading">
-          <h2>{t("settings.appearance")}</h2>
-        </div>
-        <div className="appearance-layout">
-          <div className="settings-controls">
-            <label className="setting-row">
-              <span>{t("settings.mode")}</span>
-              <select
-                aria-label={t("settings.mode")}
-                value={appearance.mode}
-                onChange={(event) => {
-                  const mode = event.target.value as "dark" | "light";
-                  if (
-                    mode === "light" &&
-                    appearance.background === defaultAppearance.background &&
-                    appearance.surface === defaultAppearance.surface
-                  ) {
-                    useUiStore.getState().updateAppearance({
-                      mode,
-                      background: "#f0f1f3",
-                      surface: "#f7f8fa",
-                    });
-                  } else if (
-                    mode === "dark" &&
-                    appearance.background === "#f0f1f3" &&
-                    appearance.surface === "#f7f8fa"
-                  ) {
-                    useUiStore.getState().updateAppearance({
-                      mode,
-                      background: defaultAppearance.background,
-                      surface: defaultAppearance.surface,
-                    });
-                  } else {
-                    setAppearance("mode", mode);
-                  }
-                }}
-              >
-                <option value="dark">{t("settings.dark")}</option>
-                <option value="light">{t("settings.light")}</option>
-              </select>
-            </label>
-            {color(t("settings.accent"), "accent")}
-            {color(t("settings.background"), "background")}
-            {color(t("settings.surface"), "surface")}
-            {range(t("settings.textContrast"), "textContrast", 0.7, 1.4, 0.05)}
-            {range(t("settings.borderIntensity"), "borderIntensity", 0, 1, 0.05)}
-            {range(t("settings.cornerRadius"), "cornerRadius", 0, 12, 1)}
-            {range(t("settings.uiScale"), "uiScale", 0.8, 1.4, 0.05)}
-            {error && <p className="form-error" role="alert">{t(`settings.${error}`)}</p>}
-          </div>
-        </div>
-      </section>
-
-      <section className="settings-section settings-section--background">
-        <h2>{t("settings.backgroundSection")}</h2>
-        <div className="appearance-layout">
-          <div className="settings-controls">
-            <label className="setting-row">
-              <span>{t("settings.backgroundStyle")}</span>
-              <select aria-label={t("settings.backgroundStyle")} value={appearance.backgroundStyle} onChange={(event) => setAppearance("backgroundStyle", event.target.value as Appearance["backgroundStyle"])}>
-                {styles.map((style) => <option key={style} value={style}>{t(`settings.${style}`)}</option>)}
-              </select>
-            </label>
-            {appearance.backgroundStyle !== "solid" && (
-              <>
-                {range(t("settings.intensity"), "intensity", 0, 1, 0.02)}
-                {range(t("settings.opacity"), "opacity", 0, 0.7, 0.02)}
-                {appearance.backgroundStyle === "chrome" && (
-                  <>
-                    {range(t("settings.animationSpeed"), "animationSpeed", 0, 1, 0.05)}
-                    {range(t("settings.reflectionStrength"), "reflectionStrength", 0, 1, 0.05)}
-                    {range(t("settings.accentInfluence"), "accentInfluence", 0, 1, 0.05)}
-                  </>
-                )}
-                {appearance.backgroundStyle === "grid" && range(t("settings.spacing"), "gridSpacing", 16, 80, 2)}
-                {toggle(t("settings.highlights"), "highlights")}
-                {toggle(t("settings.cursorReactive"), "cursorReactive")}
-                {toggle(t("settings.animate"), "animateBackground")}
-                {toggle(t("settings.performance"), "performanceMode")}
-              </>
-            )}
-            {appearance.backgroundStyle === "custom" && (
-              <>
-                <div className="setting-row setting-row--file">
-                  <span>{t("settings.custom")}</span>
-                  <button className="button button--quiet" onClick={() => fileInput.current?.click()} type="button">
-                    <ImagePlus size={14} /> {t("settings.chooseImage")}
-                  </button>
-                  <input accept="image/*" hidden onChange={(event) => void selectImage(event)} ref={fileInput} type="file" />
+          <section className="settings-section settings-section--appearance">
+            <h2>{t("settings.appearance")}</h2>
+            <div className="settings-controls">
+              <div className="setting-row setting-row--mode">
+                <span>{t("settings.mode")}</span>
+                <div className="settings-mode-switch" role="group" aria-label={t("settings.mode")}>
+                  {(["dark", "light"] as const).map((mode) => (
+                    <button
+                      aria-pressed={appearance.mode === mode}
+                      className={appearance.mode === mode ? "is-selected" : ""}
+                      key={mode}
+                      onClick={() => updateAppearanceMode(mode)}
+                      type="button"
+                    >
+                      {appearance.mode === mode && <i aria-hidden="true" />}
+                      {t(`settings.${mode}`)}
+                    </button>
+                  ))}
                 </div>
-                <label className="setting-row">
-                  <span>{t("settings.imagePosition")}</span>
-                  <select value={appearance.imagePosition} onChange={(event) => setAppearance("imagePosition", event.target.value)}>
-                    {["center", "top", "bottom", "left", "right"].map((position) => <option key={position} value={position}>{t(`settings.position.${position}`)}</option>)}
-                  </select>
-                </label>
-                <label className="setting-row">
-                  <span>{t("settings.fit")}</span>
-                  <select value={appearance.imageFit} onChange={(event) => setAppearance("imageFit", event.target.value as "cover" | "contain")}>
-                    <option value="cover">{t("settings.cover")}</option>
-                    <option value="contain">{t("settings.contain")}</option>
-                  </select>
-                </label>
-                {range(t("settings.blur"), "imageBlur", 0, 20, 1)}
-                {range(t("settings.overlay"), "imageOverlay", 0, 0.9, 0.05)}
-              </>
-            )}
-            {error && <p className="form-error" role="alert">{t(`settings.${error}`)}</p>}
-          </div>
-          <div className="appearance-preview">
-            <div className="appearance-preview__label">{t("settings.preview")}</div>
-            <div className="appearance-preview__screen" style={{ "--accent": appearance.accent } as React.CSSProperties}>
+              </div>
+              {color(t("settings.accent"), "accent")}
+              {color(t("settings.background"), "background")}
+              {color(t("settings.surface"), "surface")}
+              {range(t("settings.textContrast"), "textContrast", 0.7, 1.4, 0.05)}
+              {range(t("settings.borderIntensity"), "borderIntensity", 0, 1, 0.05)}
+              {error && <p className="form-error" role="alert">{t(`settings.${error}`)}</p>}
+            </div>
+          </section>
+
+          <section className="settings-section settings-section--themes">
+            <h2>{t("settings.themes")}</h2>
+            <div className="theme-strip">
+              {[...builtInThemes, ...customThemes].map((theme) => (
+                <button
+                  aria-pressed={selectedTheme === theme.id}
+                  className={`theme-chip${selectedTheme === theme.id ? " theme-chip--selected" : ""}`}
+                  key={theme.id}
+                  onClick={() => void applyTheme(theme)}
+                  type="button"
+                >
+                  <span className="theme-chip__swatches" style={{ "--theme-bg": theme.appearance.background ?? appearance.background, "--theme-surface": theme.appearance.surface ?? appearance.surface, "--theme-accent": theme.appearance.accent ?? appearance.accent } as React.CSSProperties}><i /><i /><i /></span>
+                  <span>{theme.name}</span>
+                </button>
+              ))}
+            </div>
+            <div className="theme-tools">
+              <input aria-label={t("settings.themeName")} maxLength={32} value={themeNameDraft} onChange={(event) => setThemeNameDraft(event.target.value)} />
+              <button className="button button--quiet" onClick={() => void saveCurrentTheme()} type="button">{t("settings.saveCustomTheme")}</button>
+              <button className="button button--quiet" disabled={!customThemes.some((theme) => theme.id === selectedTheme)} onClick={() => void renameSelectedTheme()} type="button">{t("settings.renameTheme")}</button>
+              <button className="button button--quiet" onClick={() => void duplicateSelectedTheme()} type="button">{t("settings.duplicateTheme")}</button>
+              <button className="button button--quiet" disabled={!customThemes.some((theme) => theme.id === selectedTheme)} onClick={() => void deleteSelectedTheme()} type="button">{t("settings.deleteTheme")}</button>
+              <button className="button button--quiet" onClick={() => void restoreThemeDefaults()} type="button">{t("settings.restoreThemeDefaults")}</button>
+            </div>
+          </section>
+        </div>
+
+        <div className="settings-column settings-column--secondary">
+          <section className="settings-preview-panel">
+            <div className="settings-panel-heading">
+              <h2>{t("settings.livePreview")}</h2>
+              <span className="settings-preview-theme"><i />{activeTheme?.name ?? t("settings.customTheme")}</span>
+            </div>
+            <div className="appearance-preview__screen settings-preview-screen" style={{ "--accent": appearance.accent } as React.CSSProperties}>
               <BackgroundLayer
                 accent={appearance.accent}
                 accentInfluence={appearance.accentInfluence}
@@ -867,27 +715,231 @@ export function SettingsPage() {
                 spacing={appearance.gridSpacing}
                 style={appearance.backgroundStyle}
               />
-              <div className="preview-content">
-                <div className="preview-content__mark"><BrandMark /></div>
-                <span>{t("home.title")}</span>
-                <div><span /></div>
+              <div className="settings-preview-content">
+                <div className="settings-preview-rail" aria-hidden="true"><i /><i /><i /></div>
+                <div className="settings-preview-main">
+                  <div className="settings-preview-meta"><span>{previewDate}</span><time>{previewTime}</time></div>
+                  <strong>{nameDraft.trim() || t("settings.displayName")}</strong>
+                  <div className="settings-preview-next"><i /><span>{t("settings.preview")}<b /></span></div>
+                  <div className="settings-preview-lines" aria-hidden="true"><i /><i /></div>
+                </div>
               </div>
             </div>
-          </div>
-        </div>
-      </section>
+          </section>
 
-      <section className="settings-section settings-section--data">
-        <h2>{t("settings.data")}</h2>
-        <div className="ai-settings-row"><span>{t("settings.dataRecords")}</span><span className="status-pill">{t("settings.recordCount", { count: localRecordCount })}</span></div>
-        <p className="backup-hint">{t("settings.backupHint")}</p>
-        <div className="backup-actions">
-          <button className="button button--quiet" onClick={() => void exportBackup()} type="button">{t("settings.exportBackup")}</button>
-          <button className="button button--quiet" onClick={() => backupInput.current?.click()} type="button">{t("settings.importBackup")}</button>
-          <input accept="application/json,.json" hidden onChange={(event) => void restoreBackup(event)} ref={backupInput} type="file" />
+          <section className="settings-section settings-section--shape">
+            <h2>{t("settings.shapeDepth")}</h2>
+            <div className="settings-controls">
+              {range(t("settings.cornerRadius"), "cornerRadius", 0, 12, 1)}
+              {range(t("settings.uiScale"), "uiScale", 0.8, 1.4, 0.05)}
+            </div>
+          </section>
+
+          <section className="settings-section settings-section--background">
+            <h2>{t("settings.backgroundSection")}</h2>
+            <div className="settings-controls">
+              <label className="setting-row">
+                <span>{t("settings.backgroundStyle")}</span>
+                <select aria-label={t("settings.backgroundStyle")} value={appearance.backgroundStyle} onChange={(event) => setAppearance("backgroundStyle", event.target.value as Appearance["backgroundStyle"])}>
+                  {styles.map((style) => <option key={style} value={style}>{t(`settings.${style}`)}</option>)}
+                </select>
+              </label>
+              {appearance.backgroundStyle !== "solid" && (
+                <>
+                  {range(t("settings.intensity"), "intensity", 0, 1, 0.02)}
+                  {range(t("settings.opacity"), "opacity", 0, 0.7, 0.02)}
+                  {appearance.backgroundStyle === "chrome" && (
+                    <>
+                      {range(t("settings.animationSpeed"), "animationSpeed", 0, 1, 0.05)}
+                      {range(t("settings.reflectionStrength"), "reflectionStrength", 0, 1, 0.05)}
+                      {range(t("settings.accentInfluence"), "accentInfluence", 0, 1, 0.05)}
+                    </>
+                  )}
+                  {appearance.backgroundStyle === "grid" && range(t("settings.spacing"), "gridSpacing", 16, 80, 2)}
+                  {toggle(t("settings.highlights"), "highlights")}
+                  {toggle(t("settings.cursorReactive"), "cursorReactive")}
+                  {toggle(t("settings.animate"), "animateBackground")}
+                  {toggle(t("settings.performance"), "performanceMode")}
+                </>
+              )}
+              {appearance.backgroundStyle === "custom" && (
+                <>
+                  <div className="setting-row setting-row--file">
+                    <span>{t("settings.custom")}</span>
+                    <button className="button button--quiet" onClick={() => fileInput.current?.click()} type="button">
+                      <ImagePlus size={14} /> {t("settings.chooseImage")}
+                    </button>
+                    <input accept="image/*" hidden onChange={(event) => void selectImage(event)} ref={fileInput} type="file" />
+                  </div>
+                  <label className="setting-row">
+                    <span>{t("settings.imagePosition")}</span>
+                    <select value={appearance.imagePosition} onChange={(event) => setAppearance("imagePosition", event.target.value)}>
+                      {["center", "top", "bottom", "left", "right"].map((position) => <option key={position} value={position}>{t(`settings.position.${position}`)}</option>)}
+                    </select>
+                  </label>
+                  <label className="setting-row">
+                    <span>{t("settings.fit")}</span>
+                    <select value={appearance.imageFit} onChange={(event) => setAppearance("imageFit", event.target.value as "cover" | "contain")}>
+                      <option value="cover">{t("settings.cover")}</option>
+                      <option value="contain">{t("settings.contain")}</option>
+                    </select>
+                  </label>
+                  {range(t("settings.blur"), "imageBlur", 0, 20, 1)}
+                  {range(t("settings.overlay"), "imageOverlay", 0, 0.9, 0.05)}
+                </>
+              )}
+              {error && <p className="form-error" role="alert">{t(`settings.${error}`)}</p>}
+            </div>
+          </section>
         </div>
-        {backupNotice && <p aria-live="polite" className="backup-notice">{backupNotice}</p>}
-      </section>
+      </div>
+
+      <div className="settings-more">
+        <section className="settings-section settings-section--home">
+          <h2>{t("settings.homeDisplay")}</h2>
+          <label className="setting-row">
+            <span>{t("settings.homeTypography")}</span>
+            <select
+              aria-label={t("settings.homeTypography")}
+              value={homeTypography}
+              onChange={(event) => setHomeTypography(event.target.value as HomeTypography)}
+            >
+              <option value="default">{t("settings.defaultTypography")}</option>
+              <option value="pixel">{t("settings.pixelTypography")}</option>
+            </select>
+          </label>
+          <p className="settings-hint">{t("settings.homeTypographyHint")}</p>
+          <label className="setting-row setting-row--toggle">
+            <span>{t("settings.homeDemoData")}</span>
+            <input aria-label={t("settings.homeDemoData")} checked={homeDemoData} onChange={(event) => setHomeDemoData(event.target.checked)} type="checkbox" />
+          </label>
+          <p className="settings-hint">{t("settings.homeDemoDataHint")}</p>
+        </section>
+
+        <section className="settings-section settings-section--timetable">
+          <h2>{t("settings.timetable")}</h2>
+          <label className="setting-row">
+            <span>{t("settings.schoolStartTime")}</span>
+            <input
+              aria-label={t("settings.schoolStartTime")}
+              max="23:00"
+              min="00:00"
+              onChange={(event) => void updateSchoolStartTime(event.target.value)}
+              type="time"
+              value={schoolStartSetting?.value && /^(?:[01]\d|2[0-3]):[0-5]\d$/.test(schoolStartSetting.value) && schoolStartSetting.value <= "23:00" ? schoolStartSetting.value : "08:15"}
+            />
+            <output>{schoolStartSetting?.value ?? "08:15"}</output>
+          </label>
+          <div className="school-days">
+            {(["monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"] as const).map((day, index) => (
+              <label key={day}>
+                <input aria-label={t(`weekdays.${day}`)} checked={schoolDays[index]} onChange={(event) => void updateSchoolDay(index, event.target.checked)} type="checkbox" />
+                {t(`weekdays.${day}`).slice(0, 3)}
+              </label>
+            ))}
+          </div>
+          <p className="setting-hint">{t("settings.lessonPeriodAvailability")}</p>
+          <div className="school-days">
+            {[7, 8].filter((index) => index < lessonGrid.durations.length).map((index) => (
+              <label key={index}>
+                <input aria-label={t("settings.lessonPeriodEnabled", { number: index })} checked={lessonGrid.enabledPeriods[index] !== false} onChange={(event) => void updateLessonPeriod(index, event.target.checked)} type="checkbox" />
+                {t("settings.lessonPeriodEnabled", { number: index })}
+              </label>
+            ))}
+          </div>
+          {error === "periodInUse" && <p className="form-error" role="alert">{t("settings.periodInUse")}</p>}
+        </section>
+
+        <section className="settings-section settings-section--region">
+          <h2>{t("settings.schoolCalendar")}</h2>
+          <label className="setting-row">
+            <span>{t("settings.federalState")}</span>
+            <select
+              aria-label={t("settings.federalState")}
+              onChange={(event) => void updateSchoolState(event.target.value)}
+              value={germanStates.includes(schoolStateSetting?.value as (typeof germanStates)[number]) ? schoolStateSetting?.value : ""}
+            >
+              <option value="">{t("settings.selectFederalState")}</option>
+              {germanStates.map((state) => <option key={state} value={state}>{t(`settings.states.${state}`)}</option>)}
+            </select>
+          </label>
+          <p className="settings-hint">{t("settings.schoolCalendarHint")}</p>
+        </section>
+
+        <section className="settings-section settings-section--language">
+          <h2>{t("settings.language")}</h2>
+          <label className="setting-row">
+            <span>{t("settings.language")}</span>
+            <select aria-label={t("settings.language")} onChange={(event) => void i18n.changeLanguage(event.target.value)} value={i18n.language.startsWith("de") ? "de" : "en"}>
+              <option value="en">{t("settings.english")}</option>
+              <option value="de">{t("settings.german")}</option>
+            </select>
+          </label>
+          <label className="setting-row">
+            <span>{t("settings.timeFormat")}</span>
+            <select aria-label={t("settings.timeFormat")} value={appearance.hourFormat} onChange={(event) => setAppearance("hourFormat", event.target.value as "12" | "24")}>
+              <option value="24">{t("settings.hour24")}</option>
+              <option value="12">{t("settings.hour12")}</option>
+            </select>
+          </label>
+        </section>
+
+        <section className="settings-section settings-section--ai">
+          <h2>{t("settings.ai")}</h2>
+          <div className="ai-settings-row">
+            <span>{t("settings.backendStatus")}</span>
+            <span className="status-pill">{aiCloudEnabled ? t("settings.aiEnabled") : t("settings.aiDisabled")}</span>
+            <Link className="button button--quiet" to="/assistant">{t("settings.openAssistant")}</Link>
+          </div>
+          <label className="ai-endpoint-field">
+            <span>{t("settings.aiEndpoint")}</span>
+            <input autoComplete="off" maxLength={300} onChange={(event) => { setAiEndpointDraft(event.target.value); setAiEndpointSaved(false); }} placeholder="https://your-worker.example.com" spellCheck={false} type="url" value={aiEndpointDraft} />
+          </label>
+          <div className="ai-endpoint-actions">
+            <button className="button button--quiet" onClick={() => void saveAiEndpoint()} type="button">{t("settings.saveEndpoint")}</button>
+            <span aria-live="polite">{aiEndpointSaved ? t("settings.aiEndpointSaved") : t("settings.aiEndpointHint")}</span>
+          </div>
+          <label className="ai-endpoint-field">
+            <span>{t("settings.turnstileSiteKey")}</span>
+            <input autoComplete="off" maxLength={128} onChange={(event) => { setTurnstileSiteKeyDraft(event.target.value); setTurnstileSiteKeySaved(false); }} placeholder={t("settings.turnstileSiteKeyPlaceholder")} spellCheck={false} type="text" value={turnstileSiteKeyDraft} />
+          </label>
+          <div className="ai-endpoint-actions">
+            <button className="button button--quiet" onClick={() => void saveTurnstileSiteKey()} type="button">{t("settings.saveTurnstileSiteKey")}</button>
+            <span aria-live="polite">{turnstileSiteKeySaved ? t("settings.turnstileSiteKeySaved") : t("settings.turnstileSiteKeyHint")}</span>
+          </div>
+          <label className="ai-cloud-toggle">
+            <input checked={aiCloudEnabled} onChange={(event) => void setAiCloudEnabled(event.target.checked)} type="checkbox" />
+            <span>{t("settings.enableCloudAi")}</span>
+          </label>
+          <label className="ai-cloud-toggle">
+            <input checked={aiCloudConsent} disabled={!aiEndpointSetting?.value} onChange={(event) => void setAiCloudConsent(event.target.checked)} type="checkbox" />
+            <span>{t("settings.aiCloudConsent")}</span>
+          </label>
+          <p className="settings-hint">{t("settings.aiCloudConsentHint")}</p>
+          {aiCloudEnabled && turnstileSiteKeySetting?.value && (
+            <TurnstileChallenge action="test" onError={rejectTurnstileToken} onToken={receiveTurnstileToken} requestId={turnstileVersion} siteKey={turnstileSiteKeySetting.value} />
+          )}
+          <div className="ai-endpoint-actions">
+            <button className="button button--quiet" disabled={!aiCloudEnabled || !aiCloudConsent || !aiEndpointSetting?.value || !turnstileSiteKeySetting?.value || aiConnectionState === "testing"} onClick={() => void testAiConnection()} type="button">
+              {aiConnectionState === "testing" ? t("settings.testingAi") : t("settings.testAiConnection")}
+            </button>
+            <span>{t(aiConnectionState === "connected" ? "settings.aiConnection.connected" : aiConnectionState === "error" ? "settings.aiConnection.requestFailed" : "settings.aiConnectionHint")}</span>
+          </div>
+          {aiEndpointError && <p className="form-error" role="alert">{t(`settings.${aiEndpointError}`)}</p>}
+        </section>
+
+        <section className="settings-section settings-section--data">
+          <h2>{t("settings.data")}</h2>
+          <div className="ai-settings-row"><span>{t("settings.dataRecords")}</span><span className="status-pill">{t("settings.recordCount", { count: localRecordCount })}</span></div>
+          <p className="backup-hint">{t("settings.backupHint")}</p>
+          <div className="backup-actions">
+            <button className="button button--quiet" onClick={() => void exportBackup()} type="button">{t("settings.exportBackup")}</button>
+            <button className="button button--quiet" onClick={() => backupInput.current?.click()} type="button">{t("settings.importBackup")}</button>
+            <input accept="application/json,.json" hidden onChange={(event) => void restoreBackup(event)} ref={backupInput} type="file" />
+          </div>
+          {backupNotice && <p aria-live="polite" className="backup-notice">{backupNotice}</p>}
+        </section>
+      </div>
     </section>
   );
 }

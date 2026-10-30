@@ -8,6 +8,7 @@ export interface ThemePreset {
 }
 
 export const defaultThemePresets: ThemePreset[] = [
+  { id: "signal", name: "Signal", builtIn: true, appearance: { mode: "dark", background: "#15171b", surface: "#1b1e23", accent: "#ff4d42", backgroundStyle: "glow", intensity: 0.32, opacity: 0.22 } },
   { id: "obsidian", name: "Obsidian", builtIn: true, appearance: { mode: "dark", background: "#101316", surface: "#191e23", accent: "#9bb9d0", backgroundStyle: "solid", intensity: 0.45, opacity: 0.28 } },
   { id: "amethyst", name: "Amethyst", builtIn: true, appearance: { mode: "dark", background: "#111014", surface: "#1b1920", accent: "#a58bd4", backgroundStyle: "glow", intensity: 0.34, opacity: 0.26 } },
   { id: "arctic", name: "Arctic", builtIn: true, appearance: { mode: "dark", background: "#10161b", surface: "#192229", accent: "#8dbfd0", backgroundStyle: "chrome", intensity: 0.26, opacity: 0.22 } },

@@ -22,7 +22,19 @@ function alignment(value: unknown, library: DocxLibrary) {
   return library.AlignmentType.LEFT;
 }
 
-async function inlineChildren(children: JsonNode[], library: DocxLibrary): Promise<ParagraphChild[]> {
+interface WidgetStyle {
+  textColor: string;
+  backgroundColor: string;
+  borderColor: string;
+  fontSize: number;
+  spacing: number;
+}
+
+function docxColor(value: string): string {
+  return value.replace(/^#/, "").toUpperCase().slice(0, 6);
+}
+
+async function inlineChildren(children: JsonNode[], library: DocxLibrary, widgetStyle?: WidgetStyle): Promise<ParagraphChild[]> {
   const result: ParagraphChild[] = [];
   for (const child of children) {
     if (child.type === "text") {
@@ -37,10 +49,10 @@ async function inlineChildren(children: JsonNode[], library: DocxLibrary): Promi
         italics: marks.some((mark) => mark.type === "italic"),
         underline: marks.some((mark) => mark.type === "underline") ? { color: "000000" } : undefined,
         strike: marks.some((mark) => mark.type === "strike"),
-        color: typeof colorMark === "string" ? colorMark.replace(/^#/, "") : undefined,
+        color: typeof colorMark === "string" ? colorMark.replace(/^#/, "") : widgetStyle?.textColor,
         shading: typeof highlight === "string" ? { fill: highlight.replace(/^#/, "") } : undefined,
         font: typeof textStyle.fontFamily === "string" ? textStyle.fontFamily : undefined,
-        size: Number(textStyle.fontSize) ? Math.round(Number(textStyle.fontSize) * 1.5) : undefined,
+        size: Number(textStyle.fontSize) ? Math.round(Number(textStyle.fontSize) * 1.5) : widgetStyle ? Math.round(widgetStyle.fontSize * 1.5) : undefined,
       });
       result.push(typeof link === "string" && /^https?:\/\//i.test(link)
         ? new library.ExternalHyperlink({ link, children: [run] })
@@ -71,7 +83,12 @@ async function imageRun(item: JsonNode, library: DocxLibrary): Promise<ImageRun>
   });
 }
 
-async function renderBlocks(children: JsonNode[], library: DocxLibrary, list?: "bullet" | "number"): Promise<Array<Paragraph | Table>> {
+async function renderBlocks(
+  children: JsonNode[],
+  library: DocxLibrary,
+  list?: "bullet" | "number",
+  widgetStyle?: WidgetStyle,
+): Promise<Array<Paragraph | Table>> {
   const result: Array<Paragraph | Table> = [];
   for (const child of children) {
     const content = child.content ?? [];
@@ -80,7 +97,7 @@ async function renderBlocks(children: JsonNode[], library: DocxLibrary, list?: "
       const heading = child.type === "heading"
         ? (Number(attrs.level) === 1 ? library.HeadingLevel.HEADING_1 : Number(attrs.level) === 2 ? library.HeadingLevel.HEADING_2 : library.HeadingLevel.HEADING_3)
         : undefined;
-      const runs = await inlineChildren(content, library);
+      const runs = await inlineChildren(content, library, widgetStyle);
       result.push(new library.Paragraph({
         children: runs.length ? runs : [new library.TextRun("")],
         heading,
@@ -92,9 +109,10 @@ async function renderBlocks(children: JsonNode[], library: DocxLibrary, list?: "
           after: attrs.paragraphSpacing === undefined ? 120 : Math.max(0, Number(attrs.paragraphSpacing) * 15),
           line: Math.round((Number(attrs.lineSpacing) || 1.15) * 240),
         },
+        shading: widgetStyle ? { fill: docxColor(widgetStyle.backgroundColor) } : undefined,
       }));
       if (child.type === "listItem") {
-        const nested = await renderBlocks(content, library, list);
+        const nested = await renderBlocks(content, library, list, widgetStyle);
         result.splice(result.length - 1, 1, ...nested);
       }
     } else if (child.type === "bulletList" || child.type === "orderedList") {
@@ -104,7 +122,7 @@ async function renderBlocks(children: JsonNode[], library: DocxLibrary, list?: "
       for (const row of content) {
         const cells: TableCell[] = [];
         for (const cell of row.content ?? []) {
-          const paragraphs = await renderBlocks(cell.content ?? [], library);
+          const paragraphs = await renderBlocks(cell.content ?? [], library, undefined, widgetStyle);
           cells.push(new library.TableCell({
             children: paragraphs.length ? paragraphs.filter((item): item is Paragraph => item instanceof library.Paragraph) : [new library.Paragraph("")],
             width: { size: 100 / Math.max(1, (row.content ?? []).length), type: library.WidthType.PERCENTAGE },
@@ -117,6 +135,47 @@ async function renderBlocks(children: JsonNode[], library: DocxLibrary, list?: "
       result.push(new library.Paragraph({ children: [await imageRun(child, library)] }));
     } else if (child.type === "pageBreak") {
       result.push(new library.Paragraph({ children: [new library.PageBreak()] }));
+    } else if (child.type === "documentWidget") {
+      const attrs = child.attrs ?? {};
+      const style: WidgetStyle = {
+        textColor: typeof attrs.textColor === "string" ? attrs.textColor : "#111111",
+        backgroundColor: typeof attrs.backgroundColor === "string" ? attrs.backgroundColor : "#ffffff",
+        borderColor: typeof attrs.borderColor === "string" ? attrs.borderColor : "#d5d9de",
+        fontSize: Math.max(8, Math.min(48, Number(attrs.fontSize) || 14)),
+        spacing: Math.max(0, Math.min(40, Number(attrs.spacing) || 0)),
+      };
+      const blocks = await renderBlocks(content, library, undefined, style);
+      const table = blocks.find((item) => item instanceof library.Table);
+      if (attrs.kind === "table" && table) {
+        result.push(table);
+      } else {
+        const paragraphs = blocks.filter((item): item is Paragraph => item instanceof library.Paragraph);
+        if (paragraphs.length) {
+          const border = {
+            style: library.BorderStyle.SINGLE,
+            size: 4,
+            color: docxColor(style.borderColor),
+            space: 4,
+          };
+          if (attrs.kind === "divider") {
+            result.push(new library.Paragraph({ children: [], border: { bottom: border } }));
+          } else {
+            result.push(new library.Table({
+              width: { size: Math.max(30, Math.min(100, Number(attrs.width) || 100)), type: library.WidthType.PERCENTAGE },
+              borders: { top: border, bottom: border, left: border, right: border },
+              rows: [new library.TableRow({
+                children: [new library.TableCell({
+                  width: { size: 100, type: library.WidthType.PERCENTAGE },
+                  shading: { fill: docxColor(style.backgroundColor) },
+                  borders: { top: border, bottom: border, left: border, right: border },
+                  margins: { top: style.spacing * 15, bottom: style.spacing * 15, left: style.spacing * 15, right: style.spacing * 15 },
+                  children: paragraphs,
+                })],
+              })],
+            }));
+          }
+        }
+      }
     }
   }
   return result;

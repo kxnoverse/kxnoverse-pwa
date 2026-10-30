@@ -112,6 +112,37 @@ describe("document exports", () => {
     expect(relationshipsXml).not.toContain("footer");
   });
 
+  it("exports widget content and supported widget styling into editable DOCX", async () => {
+    const blob = await buildDocx({ ...documentInfo, header: "", footer: "" }, {
+      type: "doc",
+      content: [{
+        type: "documentWidget",
+        attrs: {
+          kind: "callout",
+          positioned: true,
+          x: 72,
+          y: 80,
+          width: 70,
+          fontSize: 16,
+          spacing: 12,
+          textColor: "#223344",
+          backgroundColor: "#eaf2f8",
+          borderColor: "#6688aa",
+        },
+        content: [{ type: "paragraph", content: [{ type: "text", text: "Widget content" }] }],
+      }],
+    });
+    const files = unzipSync(new Uint8Array(await blob.arrayBuffer()));
+    const documentXml = strFromU8(files["word/document.xml"]);
+
+    expect(documentXml).toContain("Widget content");
+    expect(documentXml).toContain('w:fill="EAF2F8"');
+    expect(documentXml).toContain('w:color="6688AA"');
+    expect(documentXml).toContain('w:val="223344"');
+    expect(documentXml).toContain("<w:tbl>");
+    expect(documentXml).not.toContain("Widget library");
+  });
+
   it("rejects a DOCX export when a referenced image is missing instead of silently dropping it", async () => {
     await expect(buildDocx(documentInfo, {
       type: "doc",

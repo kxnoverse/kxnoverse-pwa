@@ -232,6 +232,14 @@ export interface SchoolDocumentContent {
   plainText: string;
 }
 
+export interface DocsTemplate {
+  id: string;
+  name: string;
+  content: Record<string, unknown>;
+  createdAt: number;
+  updatedAt: number;
+}
+
 export interface SchoolDocumentImage {
   id: string;
   name: string;
@@ -268,6 +276,51 @@ export interface PdfProject {
   annotations: PdfAnnotation[];
 }
 
+export interface CodeProject {
+  id: string;
+  name: string;
+  html: string;
+  css: string;
+  javascript: string;
+  createdAt: number;
+  updatedAt: number;
+}
+
+export interface CodeLabProgress {
+  id: "default";
+  currentLessonId: string;
+  completedLessonIds: string[];
+  lessonCode: Record<string, { html: string; css: string; javascript: string }>;
+  updatedAt: number;
+}
+
+export interface CodeGardenState {
+  id: "default";
+  activeMissionId: string;
+  completedMissionIds: string[];
+  resources: { plants: number; wood: number; stone: number; seeds: number; energy: number };
+  upgrades: string[];
+  programs?: Record<string, string>;
+  bestResults?: Record<string, {
+    instructions: number;
+    harvested: number;
+    collected: number;
+    energyConsumed: number;
+    energyGenerated: number;
+  }>;
+  activeRun?: {
+    missionId: string;
+    robot: { x: number; y: number; direction: string };
+    tiles: Array<{ x: number; y: number; kind: string; growth?: number }>;
+    harvested: number;
+    collected: number;
+    steps: number;
+    completed: boolean;
+    storageCapacity: number;
+  };
+  updatedAt: number;
+}
+
 class KxnoDatabase extends Dexie {
   subjects!: EntityTable<Subject, "id">;
   teachers!: EntityTable<Teacher, "id">;
@@ -287,8 +340,12 @@ class KxnoDatabase extends Dexie {
   workspace!: EntityTable<WorkspaceRecord, "id">;
   documents!: EntityTable<SchoolDocument, "id">;
   documentContents!: EntityTable<SchoolDocumentContent, "id">;
+  docsTemplates!: EntityTable<DocsTemplate, "id">;
   documentImages!: EntityTable<SchoolDocumentImage, "id">;
   pdfProjects!: EntityTable<PdfProject, "id">;
+  codeProjects!: EntityTable<CodeProject, "id">;
+  codeLabProgress!: EntityTable<CodeLabProgress, "id">;
+  codeGardenState!: EntityTable<CodeGardenState, "id">;
 
   constructor() {
     super("KxnoDesk");
@@ -417,6 +474,80 @@ class KxnoDatabase extends Dexie {
       documentContents: "id",
       documentImages: "id, type, createdAt",
       pdfProjects: "id, updatedAt, sourceFileId",
+    });
+    this.version(9).stores({
+      subjects: "id, name",
+      teachers: "id, name",
+      timetable: "id, weekday, subjectId, teacherId, weekType",
+      exceptions: "id, date, type, entryId",
+      settings: "key",
+      aiPresets: "id, name",
+      aiConversations: "id, updatedAt",
+      aiMessages: "id, conversationId, createdAt",
+      aiAttachments: "id, messageId, createdAt",
+      tasks: "id, dueDate, completed, subjectId, priority, updatedAt",
+      calendarEvents: "id, startAt, endAt, taskId",
+      notes: "id, updatedAt, pinned, folder, subjectId",
+      focusSessions: "id, startedAt, endedAt, kind, taskId",
+      files: "id, name, category, subjectId, noteId, modifiedAt",
+      arcadeData: "id, updatedAt",
+      workspace: "id",
+      documents: "id, updatedAt",
+      documentContents: "id",
+      documentImages: "id, type, createdAt",
+      pdfProjects: "id, updatedAt, sourceFileId",
+      docsTemplates: "id, updatedAt",
+    });
+    this.version(10).stores({
+      subjects: "id, name",
+      teachers: "id, name",
+      timetable: "id, weekday, subjectId, teacherId, weekType",
+      exceptions: "id, date, type, entryId",
+      settings: "key",
+      aiPresets: "id, name",
+      aiConversations: "id, updatedAt",
+      aiMessages: "id, conversationId, createdAt",
+      aiAttachments: "id, messageId, createdAt",
+      tasks: "id, dueDate, completed, subjectId, priority, updatedAt",
+      calendarEvents: "id, startAt, endAt, taskId",
+      notes: "id, updatedAt, pinned, folder, subjectId",
+      focusSessions: "id, startedAt, endedAt, kind, taskId",
+      files: "id, name, category, subjectId, noteId, modifiedAt",
+      arcadeData: "id, updatedAt",
+      workspace: "id",
+      documents: "id, updatedAt",
+      documentContents: "id",
+      documentImages: "id, type, createdAt",
+      pdfProjects: "id, updatedAt, sourceFileId",
+      docsTemplates: "id, updatedAt",
+      codeProjects: "id, updatedAt",
+      codeLabProgress: "id",
+    });
+    this.version(11).stores({
+      subjects: "id, name",
+      teachers: "id, name",
+      timetable: "id, weekday, subjectId, teacherId, weekType",
+      exceptions: "id, date, type, entryId",
+      settings: "key",
+      aiPresets: "id, name",
+      aiConversations: "id, updatedAt",
+      aiMessages: "id, conversationId, createdAt",
+      aiAttachments: "id, messageId, createdAt",
+      tasks: "id, dueDate, completed, subjectId, priority, updatedAt",
+      calendarEvents: "id, startAt, endAt, taskId",
+      notes: "id, updatedAt, pinned, folder, subjectId",
+      focusSessions: "id, startedAt, endedAt, kind, taskId",
+      files: "id, name, category, subjectId, noteId, modifiedAt",
+      arcadeData: "id, updatedAt",
+      workspace: "id",
+      documents: "id, updatedAt",
+      documentContents: "id",
+      documentImages: "id, type, createdAt",
+      pdfProjects: "id, updatedAt, sourceFileId",
+      docsTemplates: "id, updatedAt",
+      codeProjects: "id, updatedAt",
+      codeLabProgress: "id",
+      codeGardenState: "id",
     });
   }
 }

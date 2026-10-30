@@ -61,7 +61,7 @@ export default defineConfig(({ mode }) => {
           clientsClaim: true,
           cleanupOutdatedCaches: false,
           navigateFallback: "index.html",
-          globPatterns: ["**/*.{js,css,html,svg,ico,png,json,txt,webmanifest,wasm,mjs}"],
+          globPatterns: ["**/*.{js,css,html,svg,ico,png,json,txt,webmanifest,wasm,mjs,woff2}"],
           maximumFileSizeToCacheInBytes: 30 * 1024 * 1024,
         },
         devOptions: {

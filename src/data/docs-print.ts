@@ -42,7 +42,7 @@ export function createDocumentPrintFrame(
     @page { size: A4 ${orientation}; margin: ${top}mm ${right}mm ${bottom}mm ${left}mm; }
     html, body { margin: 0; padding: 0; background: #fff; color: #24292d; }
     body { font: 12px/1.15 Arial, sans-serif; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
-    .docs-prose { min-height: 0; margin: 0; outline: 0; color: #24292d; font: 12px/1.15 Arial, sans-serif; overflow-wrap: anywhere; }
+    .docs-prose { position: relative; min-height: 0; margin: 0; outline: 0; color: #24292d; font: 12px/1.15 Arial, sans-serif; overflow-wrap: anywhere; }
     .docs-prose > * { margin-top: 0; }
     .docs-prose p { margin: 0 0 8px; }
     .docs-prose h1 { margin: 0 0 14px; font-size: 24px; line-height: 1.2; }
@@ -55,6 +55,9 @@ export function createDocumentPrintFrame(
     .docs-prose [data-doc-page-break] { height: 0; margin: 0; border: 0; break-before: page; page-break-before: always; color: transparent; }
     .docs-prose [data-doc-page-break] span, .docs-image-node input { display: none !important; }
     .docs-prose tr, .docs-prose img { break-inside: avoid; page-break-inside: avoid; }
+    .docs-widget { box-sizing: border-box; margin: 0 0 8px; border: 1px solid; break-inside: avoid; page-break-inside: avoid; }
+    .docs-widget__header, .docs-widget__controls { display: none !important; }
+    .docs-widget__content > * { margin-top: 0; }
     .docs-print-header, .docs-print-footer { position: fixed; right: 0; left: 0; color: #555; font: 9pt Arial, sans-serif; }
     .docs-print-header { top: -${top}mm; }
     .docs-print-footer { bottom: -${bottom}mm; }
@@ -66,6 +69,7 @@ export function createDocumentPrintFrame(
   clone.removeAttribute("spellcheck");
   clone.classList.remove("ProseMirror-focused");
   clone.querySelectorAll("input, button, [contenteditable]").forEach((element) => element.remove());
+  clone.querySelectorAll(".docs-widget__header, .docs-widget__controls").forEach((element) => element.remove());
   clone.querySelectorAll("[data-doc-page-break] span").forEach((element) => element.remove());
   clone.querySelectorAll(".is-selected, .ProseMirror-selectednode").forEach((element) => {
     element.classList.remove("is-selected", "ProseMirror-selectednode");

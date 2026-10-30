@@ -36,6 +36,7 @@ function drawAnnotations(
   page: number,
   selectedId: string,
   scale: number,
+  showText = true,
   draft?: { type: "highlight" | "draw"; points: Point[]; color: string },
 ): void {
   const context = canvas.getContext("2d");
@@ -111,7 +112,7 @@ function drawAnnotations(
     }
     context.restore();
   };
-  annotations.filter((annotation) => annotation.page === page).forEach(drawOne);
+  annotations.filter((annotation) => annotation.page === page && (showText || annotation.type !== "text")).forEach(drawOne);
   if (draft && draft.points.length) {
     const color = draft.color;
     if (draft.type === "draw" && draft.points.length > 1) {
@@ -301,13 +302,14 @@ export function PdfAnnotationWorkspace({ project, subjects, onProjectChange, onB
       }
       return { ...annotation, x: clamp(original.x + dx), y: clamp(original.y + dy) };
     });
-    drawAnnotations(canvas, annotations, page, selectedId, size.scale, draft);
-  }, [localProject.annotations, page, selectedId, size, draft, dragPreview]);
+    drawAnnotations(canvas, annotations, page, selectedId, size.scale, !placingTextBox, draft);
+  }, [localProject.annotations, page, selectedId, size, draft, dragPreview, placingTextBox]);
 
   const pageAnnotations = useMemo(
     () => localProject.annotations.filter((annotation) => annotation.page === page),
     [localProject.annotations, page],
   );
+  const latestPageTextId = [...pageAnnotations].reverse().find((annotation) => annotation.type === "text")?.id;
   const selectedAnnotation = localProject.annotations.find((annotation) => annotation.id === selectedId);
 
   async function persist(next: PdfProject) {
@@ -593,7 +595,43 @@ export function PdfAnnotationWorkspace({ project, subjects, onProjectChange, onB
               onPointerUp={pointerUp}
               onPointerCancel={pointerUp}
             />
-            {placingTextBox && size && pageAnnotations.filter((annotation) => annotation.type === "text").map((annotation) => (
+            {placingTextBox && size && pageAnnotations.filter((annotation) =>
+              annotation.type === "text" && annotation.id !== editingTextId
+            ).map((annotation) => {
+              const measuredWidth = measureTextBoxWidth(
+                annotation.text ?? "",
+                annotation.fontSize ?? 12,
+                size.scale,
+                size.width,
+                annotation.x,
+              );
+              const width = Math.min(
+                Math.max(annotation.width ?? 0, measuredWidth / size.width),
+                1 - annotation.x,
+              );
+              const fontSize = (annotation.fontSize ?? 12) * size.scale;
+              return (
+                <div
+                  key={annotation.id}
+                  className="pdf-workspace__saved-text-box"
+                  aria-label={t("docs.pdfTextBoxPage", { page })}
+                  style={{
+                    left: `${annotation.x * size.width}px`,
+                    top: `${annotation.y * size.height}px`,
+                    width: `${width * size.width}px`,
+                    height: `${Math.max(24, fontSize * 1.3 + 4)}px`,
+                    fontSize: `${fontSize}px`,
+                    lineHeight: `${fontSize * 1.3}px`,
+                    color: annotation.color,
+                  }}
+                >
+                  {annotation.text}
+                </div>
+              );
+            })}
+            {placingTextBox && size && pageAnnotations.filter((annotation) =>
+              annotation.type === "text" && annotation.id === latestPageTextId
+            ).map((annotation) => (
               <button
                 key={annotation.id}
                 type="button"
@@ -639,8 +677,22 @@ export function PdfAnnotationWorkspace({ project, subjects, onProjectChange, onB
                 style={{
                   left: `${annotation.x * size.width}px`,
                   top: `${annotation.y * size.height}px`,
-                  width: `${Math.min(annotation.width ?? 0.05, 1 - annotation.x) * size.width}px`,
+                  width: `${Math.min(
+                    Math.max(
+                      annotation.width ?? 0,
+                      measureTextBoxWidth(
+                        annotation.text ?? "",
+                        annotation.fontSize ?? 12,
+                        size.scale,
+                        size.width,
+                        annotation.x,
+                      ) / size.width,
+                    ),
+                    1 - annotation.x,
+                  ) * size.width}px`,
+                  height: `${Math.max(24, (annotation.fontSize ?? 12) * size.scale * 1.3 + 4)}px`,
                   fontSize: `${(annotation.fontSize ?? 12) * size.scale}px`,
+                  lineHeight: `${(annotation.fontSize ?? 12) * size.scale * 1.3}px`,
                   color: annotation.color,
                 }}
               />
