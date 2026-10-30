@@ -1,7 +1,7 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type ChangeEvent } from "react";
+import { Suspense, lazy, useCallback, useEffect, useMemo, useRef, useState, type ChangeEvent } from "react";
 import {
   AlignCenter, AlignJustify, AlignLeft, AlignRight, Bold, Check, ChevronRight, ClipboardList, Copy, Download,
-  FileText, Highlighter, ImagePlus, Italic, Link, List, ListOrdered, Minus, MoreHorizontal, Redo2,
+  FileText, Highlighter, ImagePlus, Italic, Link, List, ListOrdered, Minus, MoreHorizontal, Redo2, SpellCheck,
   Search, Strikethrough, Table2, Trash2, Underline, Undo2, X,
 } from "lucide-react";
 import { EditorContent, useEditor, type Editor } from "@tiptap/react";
@@ -23,8 +23,14 @@ import { createId, db } from "../data/db";
 import { countDocumentWords, extractDocumentText, saveDocument } from "../data/docs";
 import { downloadBlob, exportDocumentDocx, exportDocumentText, safeFilename } from "../data/docs-export";
 import { createDocumentPrintFrame } from "../data/docs-print";
+import type { SpellLanguage } from "../data/docs-spellcheck";
 import { DocumentFontSize, DocumentImage, DocumentIndent, DocumentPageBreak, DocumentParagraphSpacing } from "./docs-extensions";
 import { createWidgetNode, DOC_WIDGET_KINDS, DocumentWidget, type DocWidgetKind } from "./docs-widgets";
+
+const DocsSpellcheckPanel = lazy(async () => {
+  const module = await import("./docs-spellcheck-panel");
+  return { default: module.DocsSpellcheckPanel };
+});
 
 const MAX_IMAGE_BYTES = 15 * 1024 * 1024;
 const IMAGE_TYPES = ["image/png", "image/jpeg", "image/gif", "image/bmp"] as const;
@@ -89,8 +95,12 @@ export function DocsEditor({
   onSaveState: (state: SaveState) => void;
   subjects: Subject[];
 }) {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   const [findOpen, setFindOpen] = useState(false);
+  const [spellcheckOpen, setSpellcheckOpen] = useState(false);
+  const [spellLanguage, setSpellLanguage] = useState<SpellLanguage>(
+    (i18n.resolvedLanguage ?? i18n.language).startsWith("de") ? "de" : "en",
+  );
   const [findQuery, setFindQuery] = useState("");
   const [replaceQuery, setReplaceQuery] = useState("");
   const [matchIndex, setMatchIndex] = useState(0);
@@ -162,7 +172,7 @@ export function DocsEditor({
     ],
     onUpdate: () => scheduleSaveRef.current(),
     editorProps: {
-      attributes: { class: "docs-prose", spellcheck: "true", "aria-label": t("docs.editor") },
+      attributes: { class: "docs-prose", spellcheck: "false", "aria-label": t("docs.editor") },
       handleKeyDown: (_view, event) => {
         if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "f") {
           event.preventDefault();
@@ -477,9 +487,30 @@ export function DocsEditor({
             <label>{t("docs.footer")}<input value={documentInfo.footer} maxLength={120} onChange={(event) => onDocumentChange({ ...documentInfo, footer: event.target.value })} /></label>
           </div>
         </details>
+        <button
+          className={`docs-tool docs-spellcheck-toggle${spellcheckOpen ? " is-active" : ""}`}
+          type="button"
+          aria-label={t("docs.spellcheckTitle")}
+          aria-pressed={spellcheckOpen}
+          title={t("docs.spellcheckTitle")}
+          onClick={() => setSpellcheckOpen((open) => !open)}
+        >
+          <SpellCheck />
+        </button>
         <button className="docs-tool docs-find-toggle" type="button" aria-label={t("docs.findReplace")} title={t("docs.findReplace")} onClick={() => setFindOpen((open) => !open)}><Search /></button>
       </div>
       <p className="docs-shortcut-hint">{t("docs.shortcutHint")}</p>
+
+      {spellcheckOpen && editor && (
+        <Suspense fallback={<p className="docs-spellcheck-panel__message" role="status">{t("docs.spellcheckLoading")}</p>}>
+          <DocsSpellcheckPanel
+            editor={editor}
+            language={spellLanguage}
+            onLanguageChange={setSpellLanguage}
+            onClose={() => setSpellcheckOpen(false)}
+          />
+        </Suspense>
+      )}
 
       {findOpen && (
         <div className="docs-find-panel">

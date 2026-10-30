@@ -143,6 +143,14 @@ export function HomePage() {
       )
     : undefined;
   const focusLesson = activeLesson ?? schedule.next;
+  const focusLessonBlock = focusLesson
+    ? lessonEntries.find(
+        (entry) =>
+          entry.subjectId === focusLesson.subjectId &&
+          minutesOfDay(entry.start) <= minutesOfDay(focusLesson.start) &&
+          minutesOfDay(entry.end) >= minutesOfDay(focusLesson.end),
+      ) ?? focusLesson
+    : undefined;
   const activeIndex = activeBlock
     ? lessonEntries.findIndex((entry) => entry.id === activeBlock.id)
     : -1;
@@ -203,17 +211,17 @@ export function HomePage() {
               : schedule.dayType === "holiday"
                 ? t("home.holiday")
                 : t("home.noSchedule"));
-  const remainingLessonMinutes =
-    activeLesson && schedule.endMinute !== undefined
-      ? Math.max(0, schedule.endMinute - schedule.nowMinute)
-      : 0;
-  const currentRemaining = activeLesson
+  const activeTimerBlock = activeLesson ? activeBlock ?? activeLesson : undefined;
+  const remainingLessonMinutes = activeTimerBlock
+    ? Math.max(0, minutesOfDay(activeTimerBlock.end) - schedule.nowMinute)
+    : 0;
+  const currentRemaining = activeTimerBlock
     ? formatDuration(remainingLessonMinutes)
     : undefined;
-  const activeLessonMinutes = activeLesson
+  const activeLessonMinutes = activeTimerBlock
     ? Math.max(
         1,
-        minutesOfDay(activeLesson.end) - minutesOfDay(activeLesson.start),
+        minutesOfDay(activeTimerBlock.end) - minutesOfDay(activeTimerBlock.start),
       )
     : 0;
   const nextLessonIn = schedule.next
@@ -529,17 +537,17 @@ export function HomePage() {
                 ? t("home.previewLoading")
                 : headline}
             </h2>
-            {focusLesson && (
+            {focusLesson && focusLessonBlock && (
               <>
                 <div className="home-ref-hero-meta">
                   <span>
                     <Clock3 size={12} aria-hidden="true" />
-                    {focusLesson.start} – {focusLesson.end}
+                    {focusLessonBlock.start} – {focusLessonBlock.end}
                   </span>
-                  {focusLesson.room && (
+                  {focusLessonBlock.room && (
                     <span>
                       <MapPin size={12} aria-hidden="true" />
-                      {t("home.room", { room: focusLesson.room })}
+                      {t("home.room", { room: focusLessonBlock.room })}
                     </span>
                   )}
                   <span>

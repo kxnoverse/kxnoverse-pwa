@@ -139,6 +139,21 @@ describe("Kxno Desk shell", () => {
     expect(await screen.findByRole("heading", { name: "Timetable" }, { timeout: 5000 })).toBeInTheDocument();
   });
 
+  it("counts a merged lesson block through the end of both lessons", async () => {
+    vi.setSystemTime(new Date(2026, 9, 26, 9, 30));
+    await db.subjects.add({ id: "math", name: "Mathematics", color: "#228855" });
+    await db.timetable.bulkAdd([
+      { id: "math-1", subjectId: "math", weekday: 0, start: "09:00", end: "09:45", weekType: "all", kind: "lesson", room: "A1" },
+      { id: "math-2", subjectId: "math", weekday: 0, start: "09:50", end: "10:35", weekType: "all", kind: "lesson", room: "A1" },
+    ]);
+
+    render(<App />);
+
+    expect(await screen.findByText("1h 5m")).toBeInTheDocument();
+    expect(document.querySelector(".home-ref-countdown strong")).toHaveTextContent("1h 5m");
+    expect(document.querySelector(".home-ref-hero-meta")).toHaveTextContent("09:00 – 10:35");
+  });
+
   it("opens and dismisses the screensaver without removing sidebar navigation", async () => {
     const user = userEvent.setup();
     render(<App />);

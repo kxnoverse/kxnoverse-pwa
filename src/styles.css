@@ -3131,6 +3131,30 @@ h1 { color: var(--text); }
 .docs-find-count { min-width: 34px; color: var(--text-muted); font-size: 9px; text-align: center; }
 .docs-find-action { min-height: 25px; padding: 0 7px; border: 1px solid var(--line); border-radius: 4px; background: transparent; color: var(--text-dim); font-size: 9px; white-space: nowrap; cursor: pointer; }
 .docs-find-action:hover { border-color: var(--accent); color: var(--text); }
+.docs-spellcheck-panel { z-index: 3; display: flex; max-height: min(34vh, 300px); flex: 0 0 auto; flex-direction: column; border-bottom: 1px solid var(--line); background: color-mix(in srgb, var(--surface-1) 92%, transparent); color: var(--text); }
+.docs-spellcheck-panel__header { display: flex; min-height: 38px; flex: 0 0 auto; align-items: center; gap: 8px; padding: 4px 10px; border-bottom: 1px solid var(--line); }
+.docs-spellcheck-panel__identity { display: flex; min-width: 0; flex: 1; align-items: baseline; gap: 9px; }
+.docs-spellcheck-panel__identity strong { font-size: 10px; font-weight: 650; }
+.docs-spellcheck-panel__summary, .docs-spellcheck-panel__navigation { color: var(--text-muted); font-size: 9px; }
+.docs-spellcheck-panel__language { display: flex; align-items: center; gap: 5px; color: var(--text-muted); font-size: 9px; }
+.docs-spellcheck-panel__language select { max-width: 110px; height: 26px; padding: 0 6px; border: 1px solid var(--line); border-radius: 5px; background: var(--surface-0); color: var(--text); font-size: 9px; }
+.docs-spellcheck-panel__navigation { display: flex; align-items: center; gap: 2px; }
+.docs-spellcheck-panel__message, .docs-spellcheck-panel__error { margin: 0; padding: 12px; color: var(--text-muted); font-size: 10px; }
+.docs-spellcheck-panel__error { color: var(--danger, #c45c58); }
+.docs-spellcheck-panel__issues { min-height: 0; margin: 0; padding: 4px 10px; overflow: auto; list-style: none; }
+.docs-spellcheck-panel__issues li { display: flex; min-height: 34px; align-items: center; gap: 8px; padding: 3px 5px; border-bottom: 1px solid color-mix(in srgb, var(--line) 55%, transparent); }
+.docs-spellcheck-panel__issues li.is-active { background: color-mix(in srgb, var(--accent) 8%, transparent); }
+.docs-spellcheck-panel__word { flex: 0 0 auto; padding: 3px 5px; border: 0; border-radius: 3px; background: transparent; color: var(--text); font-size: 10px; font-weight: 650; text-decoration: underline wavy color-mix(in srgb, var(--accent) 75%, #d45952); text-underline-offset: 3px; cursor: pointer; }
+.docs-spellcheck-panel__suggestions { display: flex; min-width: 0; flex: 1; flex-wrap: wrap; gap: 4px; }
+.docs-spellcheck-panel__suggestions button, .docs-spellcheck-panel__ignore { min-height: 24px; padding: 2px 7px; border: 1px solid var(--line); border-radius: 4px; background: var(--surface-0); color: var(--text-dim); font-size: 9px; cursor: pointer; }
+.docs-spellcheck-panel__suggestions button:hover { border-color: var(--accent); color: var(--text); }
+.docs-spellcheck-panel__suggestions span { align-self: center; color: var(--text-muted); font-size: 9px; }
+.docs-spellcheck-panel__ignore { flex: 0 0 auto; background: transparent; }
+.docs-spellcheck-panel__footer { display: flex; flex: 0 0 auto; justify-content: flex-end; padding: 5px 10px; border-top: 1px solid var(--line); }
+.docs-spellcheck-panel__footer button { display: inline-flex; min-height: 27px; align-items: center; gap: 5px; padding: 0 9px; border: 1px solid color-mix(in srgb, var(--accent) 40%, var(--line)); border-radius: 5px; background: color-mix(in srgb, var(--accent) 9%, var(--surface-0)); color: var(--text); font-size: 9px; cursor: pointer; }
+.docs-spellcheck-panel button:disabled { opacity: .45; cursor: default; }
+.docs-spellcheck-spin { animation: docs-spellcheck-rotate 900ms linear infinite; }
+@keyframes docs-spellcheck-rotate { to { transform: rotate(360deg); } }
 .docs-page-viewport { display: flex; min-height: 0; flex: 1; justify-content: center; overflow: auto; padding: 22px 24px 28px; background: color-mix(in srgb, var(--surface-0) 72%, #7d858b 28%); }
 .docs-page-viewport--dark { background: color-mix(in srgb, var(--surface-0) 88%, black); }
 .docs-paper { position: relative; width: var(--docs-page-width, 210mm); min-width: min(var(--docs-page-width, 210mm), 100%); min-height: var(--docs-page-height, 297mm); flex: 0 0 auto; padding: var(--docs-margin-top, 25mm) var(--docs-margin-right, 25mm) var(--docs-margin-bottom, 25mm) var(--docs-margin-left, 25mm); background: #fff; box-shadow: 0 5px 28px rgb(0 0 0 / 23%); color: #24292d; transition: background 160ms ease, color 160ms ease; }
@@ -3198,6 +3222,11 @@ h1 { color: var(--text); }
   .docs-sidebar { width: 180px; min-width: 180px; }
   .docs-document-header { gap: 5px; padding: 0 8px; }
   .docs-toolbar { flex-wrap: wrap; }
+  .docs-spellcheck-panel { max-height: 40vh; }
+  .docs-spellcheck-panel__header { flex-wrap: wrap; }
+  .docs-spellcheck-panel__identity { flex-basis: 100%; }
+  .docs-spellcheck-panel__issues li { flex-wrap: wrap; }
+  .docs-spellcheck-panel__suggestions { flex-basis: 100%; }
 }
 @media (max-width: 650px) {
   .docs-unified-page { min-height: calc(100dvh - 16px); }
@@ -3239,6 +3268,9 @@ h1 { color: var(--text); }
   .docs-print-header, .docs-print-footer { position: fixed; right: 0; left: 0; display: block; color: #555; font: 9pt Arial, sans-serif; }
   .docs-print-header { top: -15mm; }
   .docs-print-footer { bottom: -15mm; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .docs-spellcheck-spin { animation: none; }
 }
 .docs-document-header {
   min-height: 58px;

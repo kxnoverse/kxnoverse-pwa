@@ -1,8 +1,8 @@
 Offline Word Guess data
 =======================
 
-The bundled word lists are filtered from the Hunspell dictionaries distributed
-by wooorm/dictionaries:
+The bundled Word Guess lists are filtered from the Hunspell dictionaries
+distributed by wooorm/dictionaries:
 - English: https://github.com/wooorm/dictionaries/tree/main/dictionaries/en
   The source dictionary is SCOWL-derived and is covered by the MIT and BSD
   terms described in LICENSE-en.txt.
@@ -25,5 +25,19 @@ Current list counts (valid guesses / solutions):
   English: 4 letters 2,916 / 2,306; 5 letters 4,564 / 3,387; 6 letters 6,497 / 4,183.
   German:  4 letters 1,249 /   963; 5 letters 1,969 / 1,445; 6 letters 3,269 / 2,069.
 
-The JSON files are dynamically bundled under src/data/word-lists and included
-in the production service-worker precache; no dictionary network request occurs.
+Docs offline spell checking
+===========================
+
+Docs uses the unmodified Hunspell affix and dictionary files from:
+- English: dictionary-en 4.0.0, SCOWL-derived; see LICENSE-en.txt for MIT/BSD
+  copyright and redistribution terms.
+- German: dictionary-de 3.0.0, igerman98; see LICENSE-de.txt and the included
+  GPL-2.0/GPL-3.0 texts.
+
+The Hunspell engine is nspell 2.1.5, MIT licensed; see LICENSE-nspell.txt.
+Dictionary bytes and the engine are lazy-loaded from the installed packages,
+bundled with the application, and precached by the production service worker.
+No spell-check text or dictionary data is sent to a remote service.
+
+The Word Guess JSON files are dynamically bundled under src/data/word-lists
+and included in the production service-worker precache.
