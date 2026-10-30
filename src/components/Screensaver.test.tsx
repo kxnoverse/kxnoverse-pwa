@@ -2,9 +2,12 @@ import { act, cleanup, fireEvent, render, screen } from "@testing-library/react"
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { MemoryRouter } from "react-router-dom";
 import {
+  ScreensaverOverlay,
   ScreensaverProvider,
   useScreensaver,
 } from "./Screensaver";
+import { createMusicTrack } from "../data/music";
+import { useMusicStore } from "../stores/music-store";
 
 function ScreensaverProbe() {
   const { isActive, activate } = useScreensaver();
@@ -17,10 +20,11 @@ function ScreensaverProbe() {
   );
 }
 
-function renderProvider(path = "/") {
+function renderProvider(path = "/", includeOverlay = false) {
   return render(
     <MemoryRouter initialEntries={[path]}>
       <ScreensaverProvider>
+        {includeOverlay && <ScreensaverOverlay />}
         <ScreensaverProbe />
       </ScreensaverProvider>
     </MemoryRouter>,
@@ -31,6 +35,16 @@ const hiddenDescriptor = Object.getOwnPropertyDescriptor(document, "hidden");
 
 afterEach(() => {
   cleanup();
+  useMusicStore.setState({
+    tracks: [],
+    queue: [],
+    queueIndex: -1,
+    currentTrackId: null,
+    isPlaying: false,
+    currentTime: 0,
+    duration: 0,
+    error: null,
+  });
   vi.useRealTimers();
   if (hiddenDescriptor) {
     Object.defineProperty(document, "hidden", hiddenDescriptor);
@@ -91,6 +105,33 @@ describe("screensaver inactivity handling", () => {
 
     act(() => vi.advanceTimersByTime(6 * 60 * 1000));
     expect(screen.getByText("inactive")).toBeInTheDocument();
+  });
+
+  it("shows playback controls in the screensaver and keeps their clicks from dismissing it", async () => {
+    const track = await createMusicTrack(
+      new File(["audio"], "Current song.wav", { type: "audio/wav" }),
+    );
+    const togglePlayback = vi.fn(async () => undefined);
+    useMusicStore.setState({
+      tracks: [track],
+      currentTrackId: track.id,
+      isPlaying: true,
+      togglePlayback,
+    });
+    const { container } = renderProvider("/", true);
+
+    fireEvent.click(screen.getByRole("button", { name: "Activate manually" }));
+
+    const musicPlayer = container.querySelector(".screensaver__music");
+    expect(musicPlayer).toBeInTheDocument();
+    expect(musicPlayer).toHaveTextContent("Current song");
+    const playbackButton = musicPlayer?.querySelector(".screensaver__music-controls button:nth-child(2)");
+    expect(playbackButton).toBeInTheDocument();
+    await act(async () => {
+      fireEvent.click(playbackButton!);
+    });
+    expect(togglePlayback).toHaveBeenCalledOnce();
+    expect(screen.getByText("active")).toBeInTheDocument();
   });
 
   it("suspends activation while the browser tab is hidden and restarts on return", () => {

@@ -18,6 +18,7 @@ const TranslatePage = lazy(() => import("./pages/TranslatePage").then((module) =
 const WorkspacePage = lazy(() => import("./pages/WorkspacePage").then((module) => ({ default: module.WorkspacePage })));
 const SolvePage = lazy(() => import("./pages/SolvePage").then((module) => ({ default: module.SolvePage })));
 const CodeLabPage = lazy(() => import("./pages/CodeLabPage").then((module) => ({ default: module.CodeLabPage })));
+const MusicPage = lazy(() => import("./pages/MusicPage").then((module) => ({ default: module.MusicPage })));
 
 export default function App() {
   return (
@@ -41,6 +42,7 @@ export default function App() {
           <Route path="workspace" element={<WorkspacePage />} />
           <Route path="solve" element={<SolvePage />} />
           <Route path="code-lab" element={<CodeLabPage />} />
+          <Route path="music" element={<MusicPage />} />
           <Route path=":module" element={<ModulePage />} />
           <Route path="*" element={<Navigate to="/" replace />} />
         </Route>

@@ -239,7 +239,7 @@ export async function exportDataBackup(): Promise<Blob> {
   }
   return new Blob([JSON.stringify({
     format: BACKUP_FORMAT,
-    schemaVersion: 11,
+    schemaVersion: 12,
     exportedAt: new Date().toISOString(),
     data,
     preferences,
@@ -254,7 +254,7 @@ export async function importDataBackup(file: File): Promise<BackupImportSummary>
   } catch {
     throw new Error("The selected file is not valid backup JSON.");
   }
-  if (!isRecord(parsed) || parsed.format !== BACKUP_FORMAT || typeof parsed.schemaVersion !== "number" || parsed.schemaVersion < 2 || parsed.schemaVersion > 11 || !isRecord(parsed.data)) {
+  if (!isRecord(parsed) || parsed.format !== BACKUP_FORMAT || typeof parsed.schemaVersion !== "number" || parsed.schemaVersion < 2 || parsed.schemaVersion > 12 || !isRecord(parsed.data)) {
     throw new Error("This file is not a supported Kxno Desk backup.");
   }
 

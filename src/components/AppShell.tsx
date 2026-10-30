@@ -15,6 +15,7 @@ import {
   ChevronLeft,
   ChevronRight,
   Code2,
+  Music2,
 } from "lucide-react";
 import { useLiveQuery } from "dexie-react-hooks";
 import { useTranslation } from "react-i18next";
@@ -23,11 +24,13 @@ import { defaultAppearance, useUiStore } from "../stores/ui-store";
 import { BrandMark } from "./BrandMark";
 import { BackgroundLayer } from "./BackgroundLayer";
 import { PwaUpdateNotice } from "./PwaUpdateNotice";
+import { disposeMusicPlayer } from "../stores/music-store";
 import {
   ScreensaverOverlay,
   ScreensaverProvider,
   useScreensaver,
 } from "./Screensaver";
+import { MusicMiniPlayer } from "./MusicMiniPlayer";
 
 const navigation = [
   { key: "home", path: "/", icon: House },
@@ -38,6 +41,7 @@ const navigation = [
   { key: "timer", path: "/timer", icon: Timer },
   { key: "docs", path: "/docs", icon: FileText },
   { key: "codeLab", path: "/code-lab", icon: Code2 },
+  { key: "music", path: "/music", icon: Music2 },
   { key: "minigames", path: "/minigames", icon: Gamepad2 },
   { key: "calculator", path: "/calculator", icon: Calculator },
   { key: "translate", path: "/translate", icon: Languages },
@@ -75,6 +79,8 @@ function AppShellLayout() {
         : location.pathname.startsWith("/minigames")
           ? "minigames"
           : navigation.find((item) => item.path === location.pathname)?.key ?? "home";
+
+  useEffect(() => () => disposeMusicPlayer(), []);
 
   useEffect(() => {
     document.title = `${t("appName")} — ${t(`nav.${pageName}`)}`;
@@ -189,6 +195,7 @@ function AppShellLayout() {
           <footer className="app-footer">Kxno Desk · Made By Kxno (Shero)</footer>
         </div>
       </main>
+      <MusicMiniPlayer hidden={isScreensaverActive} />
       <ScreensaverOverlay />
       <PwaUpdateNotice />
     </div>

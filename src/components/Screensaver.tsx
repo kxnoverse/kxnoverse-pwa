@@ -13,8 +13,11 @@ import {
 import { useLiveQuery } from "dexie-react-hooks";
 import { useTranslation } from "react-i18next";
 import { useLocation } from "react-router-dom";
+import { Pause, Play, SkipBack, SkipForward } from "lucide-react";
 import { db, localDateKey } from "../data/db";
 import { useUiStore } from "../stores/ui-store";
+import { useMusicStore } from "../stores/music-store";
+import { MusicArtwork } from "./MusicArtwork";
 import {
   calculateScheduleStatus,
   formatDuration,
@@ -247,6 +250,13 @@ function ActiveScreensaver() {
       undefined,
     )?.value.trim() || "User";
   const appearance = useUiStore((state) => state.appearance);
+  const musicTrack = useMusicStore((state) =>
+    state.tracks.find((track) => track.id === state.currentTrackId),
+  );
+  const isMusicPlaying = useMusicStore((state) => state.isPlaying);
+  const toggleMusicPlayback = useMusicStore((state) => state.togglePlayback);
+  const previousMusicTrack = useMusicStore((state) => state.previousTrack);
+  const nextMusicTrack = useMusicStore((state) => state.nextTrack);
 
   useEffect(() => {
     previousFocusRef.current =
@@ -435,10 +445,44 @@ function ActiveScreensaver() {
             )}
           </div>
         </section>
-        <footer className="screensaver__footer">
-          <span>{t("screensaver.exitHint")}</span>
-          <span>KXNO DESK · MADE BY KXNO (SHERO)</span>
-        </footer>
+        <div className="screensaver__utility">
+          {musicTrack && isMusicPlaying && (
+            <section
+              aria-label={t("screensaver.musicPlayer")}
+              className="screensaver__music"
+              onClick={(event) => event.stopPropagation()}
+              onKeyDown={(event) => {
+                if (event.key !== "Escape") event.stopPropagation();
+              }}
+            >
+              <MusicArtwork
+                artwork={musicTrack.artwork}
+                alt={t("music.coverFor", { title: musicTrack.title })}
+                className="screensaver__music-artwork"
+              />
+              <div className="screensaver__music-copy">
+                <span className="screensaver__eyebrow"><span className="screensaver__dot" />{t("music.nowPlaying")}</span>
+                <strong>{musicTrack.title}</strong>
+                <small>{musicTrack.artist || t("music.unknownArtist")}</small>
+              </div>
+              <div className="screensaver__music-controls">
+                <button type="button" aria-label={t("music.previous")} onClick={() => void previousMusicTrack()}>
+                  <SkipBack size={15} aria-hidden="true" />
+                </button>
+                <button type="button" aria-label={t("music.pause")} onClick={() => void toggleMusicPlayback()}>
+                  {isMusicPlaying ? <Pause size={15} aria-hidden="true" /> : <Play size={15} aria-hidden="true" />}
+                </button>
+                <button type="button" aria-label={t("music.next")} onClick={() => void nextMusicTrack()}>
+                  <SkipForward size={15} aria-hidden="true" />
+                </button>
+              </div>
+            </section>
+          )}
+          <footer className="screensaver__footer">
+            <span>{t("screensaver.exitHint")}</span>
+            <span>KXNO DESK · MADE BY KXNO (SHERO)</span>
+          </footer>
+        </div>
       </div>
     </section>
   );

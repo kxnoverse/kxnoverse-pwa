@@ -321,6 +321,27 @@ export interface CodeGardenState {
   updatedAt: number;
 }
 
+export interface MusicFileHandle {
+  kind: "file";
+  name: string;
+  getFile(): Promise<File>;
+}
+
+export interface MusicDirectoryHandle {
+  kind: "directory";
+  name: string;
+  queryPermission(options: { mode: "read" }): Promise<PermissionState>;
+  requestPermission(options: { mode: "read" }): Promise<PermissionState>;
+  values(): AsyncIterableIterator<MusicFileHandle | MusicDirectoryHandle>;
+}
+
+export interface MusicFolderSource {
+  id: "library";
+  name: string;
+  handle: MusicDirectoryHandle;
+  updatedAt: number;
+}
+
 class KxnoDatabase extends Dexie {
   subjects!: EntityTable<Subject, "id">;
   teachers!: EntityTable<Teacher, "id">;
@@ -346,6 +367,7 @@ class KxnoDatabase extends Dexie {
   codeProjects!: EntityTable<CodeProject, "id">;
   codeLabProgress!: EntityTable<CodeLabProgress, "id">;
   codeGardenState!: EntityTable<CodeGardenState, "id">;
+  musicSources!: EntityTable<MusicFolderSource, "id">;
 
   constructor() {
     super("KxnoDesk");
@@ -548,6 +570,33 @@ class KxnoDatabase extends Dexie {
       codeProjects: "id, updatedAt",
       codeLabProgress: "id",
       codeGardenState: "id",
+    });
+    this.version(12).stores({
+      subjects: "id, name",
+      teachers: "id, name",
+      timetable: "id, weekday, subjectId, teacherId, weekType",
+      exceptions: "id, date, type, entryId",
+      settings: "key",
+      aiPresets: "id, name",
+      aiConversations: "id, updatedAt",
+      aiMessages: "id, conversationId, createdAt",
+      aiAttachments: "id, messageId, createdAt",
+      tasks: "id, dueDate, completed, subjectId, priority, updatedAt",
+      calendarEvents: "id, startAt, endAt, taskId",
+      notes: "id, updatedAt, pinned, folder, subjectId",
+      focusSessions: "id, startedAt, endedAt, kind, taskId",
+      files: "id, name, category, subjectId, noteId, modifiedAt",
+      arcadeData: "id, updatedAt",
+      workspace: "id",
+      documents: "id, updatedAt",
+      documentContents: "id",
+      documentImages: "id, type, createdAt",
+      pdfProjects: "id, updatedAt, sourceFileId",
+      docsTemplates: "id, updatedAt",
+      codeProjects: "id, updatedAt",
+      codeLabProgress: "id",
+      codeGardenState: "id",
+      musicSources: "id",
     });
   }
 }

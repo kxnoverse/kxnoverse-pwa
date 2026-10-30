@@ -67,7 +67,7 @@ describe("local data safety", () => {
     expect(await db.documentImages.count()).toBe(0);
     expect(await db.pdfProjects.count()).toBe(0);
     expect(await db.docsTemplates.count()).toBe(0);
-    expect(db.verno).toBe(11);
+    expect(db.verno).toBe(12);
   });
 
   it("exports data and merges without overwriting colliding local records", async () => {
@@ -336,7 +336,7 @@ describe("local data safety", () => {
       data: Record<string, Array<Record<string, unknown>>>;
       preferences: Record<string, string>;
     };
-    expect(exported.schemaVersion).toBe(11);
+    expect(exported.schemaVersion).toBe(12);
     expect(exported.data.subjects).toHaveLength(1);
     expect(exported.data.timetable).toHaveLength(1);
     expect(exported.data.exceptions).toHaveLength(1);
@@ -475,7 +475,7 @@ describe("local data safety", () => {
       schemaVersion: number;
       data: Record<string, Array<Record<string, unknown>>>;
     };
-    expect(snapshot.schemaVersion).toBe(11);
+    expect(snapshot.schemaVersion).toBe(12);
     expect(snapshot.data.codeProjects).toEqual([project]);
     expect(snapshot.data.codeLabProgress).toEqual([progress]);
     expect(snapshot.data.codeGardenState).toEqual([garden]);
