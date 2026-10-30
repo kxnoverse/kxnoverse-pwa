@@ -312,8 +312,8 @@ button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible
 @media (max-width: 520px) {
   .pwa-update-notice { right: 10px; bottom: 10px; left: 10px; flex-wrap: wrap; }
 }
-.home-page--enter { animation: home-page-enter 220ms ease-out both; }
-@keyframes home-page-enter { from { opacity: 0; transform: translate3d(0, 4px, 0); } to { opacity: 1; transform: translate3d(0, 0, 0); } }
+.home-page--enter { animation: home-page-enter 320ms cubic-bezier(.2, .75, .3, 1) both; }
+@keyframes home-page-enter { from { opacity: 0; transform: translate3d(0, 12px, 0) scale(.99); } to { opacity: 1; transform: translate3d(0, 0, 0) scale(1); } }
 @media (prefers-reduced-motion: reduce) { .home-page--enter { animation: none; } }
 
 h1, h2, p { margin-top: 0; }
@@ -1148,7 +1148,7 @@ h1 { color: var(--text); }
 .feature-footer a { display: inline-flex; align-items: center; gap: 5px; color: var(--text-muted); font-size: 9px; }
 .feature-footer a:hover { color: var(--accent); }
 
-.main-column:has(.calendar-page) .page-scroll {
+.main-column:has(.calendar-page) {
   background-image:
     radial-gradient(ellipse 42rem 30rem at 88% 0%, color-mix(in srgb, var(--accent) 10%, transparent), transparent 70%),
     radial-gradient(ellipse 36rem 28rem at 0% 100%, color-mix(in srgb, var(--text) 4%, transparent), transparent 72%),
@@ -2658,7 +2658,7 @@ h1 { color: var(--text); }
 .app-frame--workspace .sidebar { transition: transform 190ms ease; }
 .app-frame--workspace .main-column { min-height: 100dvh; height: 100dvh; margin-left: var(--sidebar-width); overflow: hidden; transition: margin-left 190ms ease; }
 .app-frame--workspace-collapsed .sidebar { transform: translateX(calc(-100% - 10px)); }
-.app-frame.app-frame--workspace-collapsed[data-theme] .sidebar { overflow: visible; }
+.app-frame.app-frame--workspace[data-theme] .sidebar { overflow: visible; }
 .app-frame--workspace-collapsed .main-column { margin-left: 0; }
 .app-frame--workspace .page-scroll { width: 100%; min-height: 100dvh; height: 100dvh; padding: 0; overflow: hidden; }
 .app-frame--workspace .app-footer { display: none; }
@@ -5844,7 +5844,6 @@ h1 { color: var(--text); }
 .app-frame--home .home-ref-event-copy strong {
   font-size: 12px;
 }
-.app-frame--home .home-reference,
 .app-frame--home .nav-link {
   animation: none !important;
 }
@@ -7359,14 +7358,13 @@ h1 { color: var(--text); }
   }
 }
 
-.main-column:has(.settings-page) .page-scroll {
+.main-column:has(.settings-page) {
   background-image:
     radial-gradient(ellipse 42rem 30rem at 88% 0%, color-mix(in srgb, var(--accent) 10%, transparent), transparent 70%),
     radial-gradient(ellipse 36rem 28rem at 0% 100%, color-mix(in srgb, var(--text) 4%, transparent), transparent 72%),
     radial-gradient(color-mix(in srgb, var(--text) 5%, transparent) .7px, transparent .9px);
   background-position: center, center, 0 0;
   background-size: auto, auto, 22px 22px;
-  background-attachment: fixed;
 }
 .settings-page {
   display: flex;
@@ -7735,7 +7733,7 @@ h1 { color: var(--text); }
   .app-frame:has(.calendar-page) .nav-link--active::before { right: 3px; }
 }
 
-.main-column:has(.assistant-page) .page-scroll {
+.main-column:has(.assistant-page) {
   background-image:
     radial-gradient(ellipse 42rem 30rem at 88% 0%, color-mix(in srgb, var(--accent) 10%, transparent), transparent 70%),
     radial-gradient(ellipse 36rem 28rem at 0% 100%, color-mix(in srgb, var(--text) 4%, transparent), transparent 72%),
@@ -8846,7 +8844,7 @@ h1 { color: var(--text); }
   content: "";
 }
 
-.main-column:has(.translate-page) .page-scroll {
+.main-column:has(.translate-page) {
   background-image:
     radial-gradient(ellipse 42rem 30rem at 88% 0%, color-mix(in srgb, var(--accent) 10%, transparent), transparent 70%),
     radial-gradient(ellipse 36rem 28rem at 0% 100%, color-mix(in srgb, var(--text) 4%, transparent), transparent 72%),
@@ -9281,4 +9279,30 @@ h1 { color: var(--text); }
   font-variant-numeric: normal;
   font-weight: 450;
   letter-spacing: normal;
+}
+.app-frame--home .home-ref-hero-label {
+  font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  letter-spacing: normal;
+}
+.app-frame--home[data-home-typography="pixel"] .home-ref-hero-label {
+  font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+}
+.app-frame[data-theme]:not(.app-frame--workspace) .sidebar {
+  transition: width 620ms cubic-bezier(.22, 1, .36, 1);
+}
+.app-frame--workspace .sidebar {
+  transition: width 620ms cubic-bezier(.22, 1, .36, 1), transform 190ms ease;
+}
+.app-frame[data-theme] .main-column {
+  transition: margin-left 620ms cubic-bezier(.22, 1, .36, 1);
+}
+.app-frame--workspace .workspace-sidebar-toggle {
+  transition: right 190ms ease, color 140ms ease, background 140ms ease, border-color 140ms ease;
+}
+@media (prefers-reduced-motion: reduce) {
+  .app-frame[data-theme] .sidebar,
+  .app-frame[data-theme] .main-column,
+  .app-frame--workspace .workspace-sidebar-toggle {
+    transition: none;
+  }
 }
