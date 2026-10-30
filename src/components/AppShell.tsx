@@ -57,6 +57,7 @@ function AppShellLayout() {
   const { isActive: isScreensaverActive, dismiss } = useScreensaver();
   const isHome = location.pathname === "/";
   const isWorkspace = location.pathname === "/workspace";
+  const isCodeLab = location.pathname === "/code-lab";
   const [workspaceSidebarCollapsed, setWorkspaceSidebarCollapsed] = useState(false);
   const previousPath = useRef(location.pathname);
   const appearance = useUiStore((state) => state.appearance);
@@ -88,7 +89,7 @@ function AppShellLayout() {
 
   return (
     <div
-      className={`app-frame${isHome ? " app-frame--home" : ""}${isWorkspace ? " app-frame--workspace" : ""}${isWorkspace && workspaceSidebarCollapsed ? " app-frame--workspace-collapsed" : ""}${isScreensaverActive ? " app-frame--screensaver" : ""}`}
+      className={`app-frame${isHome ? " app-frame--home" : ""}${isWorkspace ? " app-frame--workspace" : ""}${isCodeLab ? " app-frame--code-lab" : ""}${isWorkspace && workspaceSidebarCollapsed ? " app-frame--workspace-collapsed" : ""}${isScreensaverActive ? " app-frame--screensaver" : ""}`}
       data-theme={appearance.mode}
       data-performance-mode={appearance.performanceMode}
       data-home-typography={homeTypography}

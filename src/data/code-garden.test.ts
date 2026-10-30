@@ -11,6 +11,7 @@ import {
   initializeCodeGarden,
   parseGardenProgram,
   researchGardenUpgrade,
+  saveCodeGardenProgram,
   saveCodeGardenState,
 } from "./code-garden";
 import { db } from "./db";
@@ -39,6 +40,36 @@ describe("Code Garden language and simulation", () => {
     expect(parseGardenProgram("let cycles = 2\nfunction harvest_row() { repeat(cycles) { move(east) } }")).toHaveLength(2);
     expect(() => parseGardenProgram("move(east")).toThrow(GardenLanguageError);
     expect(() => parseGardenProgram("move(sideways!)")).toThrow(GardenLanguageError);
+  });
+
+  it("saves editor changes without overwriting current garden progress", async () => {
+    const initial = await initializeCodeGarden();
+    const run = createGardenRun(GARDEN_MISSIONS[0]);
+    await saveCodeGardenState({
+      ...initial,
+      activeMissionId: GARDEN_MISSIONS[0].id,
+      completedMissionIds: [GARDEN_MISSIONS[0].id],
+      resources: { ...initial.resources, plants: 3, energy: 16 },
+      activeRun: {
+        missionId: run.missionId,
+        robot: run.robot,
+        tiles: run.tiles,
+        harvested: 1,
+        collected: 0,
+        steps: 3,
+        completed: true,
+        storageCapacity: run.storageCapacity,
+      },
+    });
+
+    await saveCodeGardenProgram(GARDEN_MISSIONS[1].id, "repeat(3) { harvest() }");
+
+    expect(await db.codeGardenState.get("default")).toMatchObject({
+      completedMissionIds: [GARDEN_MISSIONS[0].id],
+      resources: { plants: 3, energy: 16 },
+      activeRun: { missionId: GARDEN_MISSIONS[0].id, steps: 3, completed: true },
+      programs: { [GARDEN_MISSIONS[1].id]: "repeat(3) { harvest() }" },
+    });
   });
 
   it("executes movement and harvesting against the real mission world", () => {

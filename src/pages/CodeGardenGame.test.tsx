@@ -1,5 +1,5 @@
 import "fake-indexeddb/auto";
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { db } from "../data/db";
@@ -21,6 +21,11 @@ describe("playable Code Garden", () => {
     localStorage.removeItem("kxnodesk.code-layout.v1.garden");
     await db.codeGardenState.clear();
   });
+
+  async function addGardenPanel(user: ReturnType<typeof userEvent.setup>, name: string) {
+    await user.click(await screen.findByText("Add", { selector: "summary" }));
+    await user.click(screen.getByRole("menuitem", { name }));
+  }
 
   it("accepts command autocomplete, executes a mission, and unlocks the next one", async () => {
     const user = userEvent.setup();
@@ -54,8 +59,10 @@ describe("playable Code Garden", () => {
     await user.click(await screen.findByRole("button", { name: "Pause" }));
     expect(screen.getByText("Paused")).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "Reset run" }));
-    expect(await db.codeGardenState.get("default")).toMatchObject({
-      activeRun: { robot: { x: 0, y: 2, direction: "east" }, steps: 0 },
+    await waitFor(async () => {
+      expect(await db.codeGardenState.get("default")).toMatchObject({
+        activeRun: { robot: { x: 0, y: 2, direction: "east" }, steps: 0 },
+      });
     });
   });
 
@@ -92,6 +99,8 @@ describe("playable Code Garden", () => {
     });
     render(<CodeGardenGame />);
 
+    await addGardenPanel(user, "Workshop");
+    await addGardenPanel(user, "Resources & run stats");
     await user.click(await screen.findByRole("button", { name: "Research · 3 wood + 2 stone" }));
     await user.click(screen.getByRole("button", { name: /Solar relay/ }));
     const editor = await screen.findByRole("textbox", { name: "Robot program" }) as HTMLTextAreaElement;
@@ -121,6 +130,7 @@ describe("playable Code Garden", () => {
     });
     render(<CodeGardenGame />);
 
+    await addGardenPanel(user, "Mission instructions");
     expect(await screen.findByText("Scanner signals")).toBeInTheDocument();
     const editor = await screen.findByRole("textbox", { name: "Robot program" }) as HTMLTextAreaElement;
     fireEvent.change(editor, {
@@ -152,10 +162,37 @@ describe("playable Code Garden", () => {
     first.unmount();
 
     render(<CodeGardenGame />);
-    const windowMenu = await screen.findByText("Windows", { selector: "summary" });
+    const addMenu = await screen.findByText("Add", { selector: "summary" });
     expect(screen.queryByRole("textbox", { name: "Robot program" })).not.toBeInTheDocument();
-    await user.click(windowMenu);
-    await user.click(screen.getByRole("button", { name: "Robot program" }));
+    await user.click(addMenu);
+    await user.click(screen.getByRole("menuitem", { name: "Robot program" }));
     expect(await screen.findByRole("textbox", { name: "Robot program" })).toBeInTheDocument();
+  });
+
+  it("offers every garden panel as an independent workspace widget", async () => {
+    const user = userEvent.setup();
+    const workspaceBefore = await db.workspace.get("default");
+    render(<CodeGardenGame />);
+
+    await screen.findByRole("textbox", { name: "Robot program" });
+    await user.click(screen.getByText("Add", { selector: "summary" }));
+    const menu = screen.getByRole("menu", { name: "Add" });
+    for (const name of [
+      "Missions",
+      "Mission instructions",
+      "Garden world",
+      "Robot program",
+      "Workshop",
+      "Resources & run stats",
+      "Run output",
+      "Programming reference",
+    ]) {
+      expect(within(menu).getByRole("menuitem", { name })).toBeInTheDocument();
+    }
+
+    await user.click(within(menu).getByRole("menuitem", { name: "Mission instructions" }));
+    expect(await screen.findByText("Reach the ripe plant and harvest it.")).toBeInTheDocument();
+    expect(await db.workspace.get("default")).toEqual(workspaceBefore);
+    expect(await db.codeGardenState.get("default")).toMatchObject({ activeMissionId: "first-harvest" });
   });
 });

@@ -18,6 +18,7 @@ export default defineConfig(({ mode }) => {
     build: {
       rollupOptions: {
         output: {
+          onlyExplicitManualChunks: true,
           manualChunks(id: string) {
             if (id.includes("/node_modules/@tiptap/") || id.includes("/node_modules/prosemirror/")) {
               return "docs-editor-core";

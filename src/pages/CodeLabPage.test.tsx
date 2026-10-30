@@ -44,6 +44,23 @@ describe("Code Lab interface", () => {
     });
   });
 
+  it("uses a clean workspace toolbar for switching areas, adding windows, and showing time", async () => {
+    const user = userEvent.setup();
+    render(<CodeLabPage />);
+
+    await screen.findByRole("heading", { name: "Create your first page" });
+    expect(screen.queryByText("Learn, build, and automate in one programming workspace.")).not.toBeInTheDocument();
+    expect(screen.getByRole("navigation", { name: "Code" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Learn 0/5" })).toHaveAttribute("aria-current", "page");
+    expect(document.querySelector(".code-lab__clock")).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Add" }));
+    expect(screen.getByRole("menu", { name: "Add" })).toBeInTheDocument();
+    expect(screen.getByRole("menuitem", { name: "Balanced layout" })).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Playground" }));
+    expect(screen.getByRole("button", { name: "Playground" })).toHaveAttribute("aria-current", "page");
+  });
+
   it("runs project preview in a scripts-only iframe and persists edited code", async () => {
     const user = userEvent.setup();
     const first = render(<CodeLabPage />);

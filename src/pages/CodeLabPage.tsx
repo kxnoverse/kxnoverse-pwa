@@ -25,6 +25,7 @@ import {
   saveCodeProject,
 } from "../data/code-lab";
 import { db, type CodeLabProgress, type CodeProject } from "../data/db";
+import { useUiStore } from "../stores/ui-store";
 
 type Area = "learn" | "playground" | "garden";
 type CodeField = "html" | "css" | "javascript";
@@ -33,7 +34,8 @@ const EMPTY_CODE = { html: "", css: "", javascript: "" };
 const CodeGardenGame = lazy(() => import("./CodeGardenGame").then((module) => ({ default: module.CodeGardenGame })));
 
 export function CodeLabPage() {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
+  const appearance = useUiStore((state) => state.appearance);
   const previewRef = useRef<HTMLIFrameElement>(null);
   const lessonPreviewRef = useRef<HTMLIFrameElement>(null);
   const progressRef = useRef<CodeLabProgress | null>(null);
@@ -55,11 +57,17 @@ export function CodeLabPage() {
   const [saveState, setSaveState] = useState<"saved" | "dirty">("saved");
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState("");
+  const [now, setNow] = useState(() => new Date());
 
   const currentLesson = CODE_LESSONS.find((lesson) => lesson.id === selectedLessonId) ?? CODE_LESSONS[0];
   const currentLessonCode = lessonCode[currentLesson.id] ?? currentLesson.starter;
   const activeProject = projects.find((project) => project.id === activeProjectId) ?? null;
   const completedCount = progress?.completedLessonIds.length ?? 0;
+  const formattedTime = new Intl.DateTimeFormat(i18n.language, {
+    hour: appearance.hourFormat === "24" ? "2-digit" : "numeric",
+    minute: "2-digit",
+    hour12: appearance.hourFormat === "12",
+  }).format(now);
 
   useEffect(() => {
     let active = true;
@@ -87,6 +95,11 @@ export function CodeLabPage() {
     return () => {
       active = false;
     };
+  }, []);
+
+  useEffect(() => {
+    const interval = window.setInterval(() => setNow(new Date()), 15_000);
+    return () => window.clearInterval(interval);
   }, []);
 
   useEffect(() => {
@@ -254,7 +267,9 @@ export function CodeLabPage() {
   }
 
   const windowLabels = {
+    add: t("codeLab.addWidget"),
     windows: t("codeLab.windowMenu"),
+    layout: t("codeLab.layout"),
     reset: t("codeLab.resetLayout"),
     balanced: t("codeLab.layoutBalanced"),
     focus: t("codeLab.layoutFocus"),
@@ -265,7 +280,29 @@ export function CodeLabPage() {
     close: t("codeLab.windowClose"),
     openWindow: t("codeLab.windowOpen"),
     layoutError: t("codeLab.layoutError"),
+    empty: t("codeLab.workspaceEmpty"),
+    emptyHint: t("codeLab.workspaceEmptyHint"),
   };
+  const toolbarStart = (
+    <nav className="code-lab__area-tabs" aria-label={t("codeLab.title")} data-active={area}>
+      {(["learn", "playground", "garden"] as const).map((tab) => (
+        <button
+          aria-current={area === tab ? "page" : undefined}
+          key={tab}
+          onClick={() => setArea(tab)}
+          type="button"
+        >
+          {t(`codeLab.${tab}`)}
+          {tab === "learn" && <span>{completedCount}/{CODE_LESSONS.length}</span>}
+        </button>
+      ))}
+    </nav>
+  );
+  const toolbarEnd = (
+    <time className="home-clock workspace-clock code-lab__clock" aria-label={formattedTime}>
+      <span>{formattedTime}</span>
+    </time>
+  );
   const learnWindows = [
     {
       id: "lessons", title: t("codeLab.lessonList"), initial: { x: 0.01, y: 0.02, width: 0.19, height: 0.96 }, minWidth: 190,
@@ -364,43 +401,19 @@ export function CodeLabPage() {
   ];
 
   if (loading) {
-    return <section className="code-lab feature-page" aria-busy="true"><p className="route-loading">{t("app.loading")}</p></section>;
+    return <section className="code-lab code-lab--workspace feature-page" aria-busy="true"><p className="route-loading">{t("app.loading")}</p></section>;
   }
 
   return (
-    <section className="code-lab feature-page">
-      <header className="code-lab__heading">
-        <div>
-          <div className="code-lab__eyebrow"><Code2 size={14} />{t("codeLab.title")}</div>
-          <p>{t("codeLab.subtitle")}</p>
-        </div>
-        {area === "learn" && (
-          <div className="code-lab__progress">{t("codeLab.lessonProgress", { done: completedCount, total: CODE_LESSONS.length })}</div>
-        )}
-      </header>
-
-      <nav className="code-lab__tabs" aria-label={t("codeLab.title")}>
-        {(["learn", "playground", "garden"] as const).map((tab) => (
-          <button
-            aria-current={area === tab ? "page" : undefined}
-            className={area === tab ? "is-active" : ""}
-            key={tab}
-            onClick={() => setArea(tab)}
-            type="button"
-          >
-            {t(`codeLab.${tab}`)}
-          </button>
-        ))}
-      </nav>
-
+    <section className="code-lab code-lab--workspace feature-page">
       {loadError && <p className="code-lab__error" role="alert">{loadError}</p>}
 
-      {area === "learn" && <CodeWorkspace key="learn" mode="learn" windows={learnWindows} labels={windowLabels} />}
-      {area === "playground" && <CodeWorkspace key="playground" mode="playground" windows={playgroundWindows} labels={windowLabels} />}
+      {area === "learn" && <CodeWorkspace key="learn" mode="learn" toolbarStart={toolbarStart} toolbarEnd={toolbarEnd} workspaceStyle windows={learnWindows} labels={windowLabels} />}
+      {area === "playground" && <CodeWorkspace key="playground" mode="playground" toolbarStart={toolbarStart} toolbarEnd={toolbarEnd} workspaceStyle windows={playgroundWindows} labels={windowLabels} />}
 
       {area === "garden" && (
         <Suspense fallback={<p className="route-loading" role="status">{t("app.loading")}</p>}>
-          <CodeGardenGame />
+          <CodeGardenGame toolbarStart={toolbarStart} toolbarEnd={toolbarEnd} />
         </Suspense>
       )}
 

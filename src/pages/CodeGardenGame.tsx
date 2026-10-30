@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import {
   Bot,
   Check,
@@ -27,6 +27,7 @@ import {
   type GardenResearchId,
   initializeCodeGarden,
   researchGardenUpgrade,
+  saveCodeGardenProgram,
   saveCodeGardenState,
   type GardenAction,
   type GardenMission,
@@ -37,6 +38,11 @@ import type { CodeGardenState } from "../data/db";
 
 type RunStatus = "ready" | "running" | "paused";
 type ResourceName = "plants" | "wood" | "stone" | "seeds" | "energy";
+interface CodeGardenGameProps {
+  toolbarStart?: ReactNode;
+  toolbarEnd?: ReactNode;
+}
+
 function initialProgram(missionId: string): string {
   switch (missionId) {
     case "first-harvest": return "# Move to the ripe plant, then harvest it.\n";
@@ -79,7 +85,7 @@ function saveableRun(run: GardenRunState): NonNullable<CodeGardenState["activeRu
   };
 }
 
-export function CodeGardenGame() {
+export function CodeGardenGame({ toolbarStart, toolbarEnd }: CodeGardenGameProps) {
   const { t } = useTranslation();
   const [gameState, setGameState] = useState<CodeGardenState | null>(null);
   const [run, setRun] = useState<GardenRunState | null>(null);
@@ -128,14 +134,16 @@ export function CodeGardenGame() {
   useEffect(() => {
     if (!gameState) return;
     const timer = window.setTimeout(() => {
-      const current = gameStateRef.current;
-      if (!current) return;
-      void saveCodeGardenState({
-        ...current,
-        programs: { ...current.programs, [missionId]: source },
-      }).then((saved) => {
-        gameStateRef.current = saved;
-        setGameState(saved);
+      void saveCodeGardenProgram(missionId, source).then((saved) => {
+        const latest = gameStateRef.current;
+        if (latest) {
+          gameStateRef.current = { ...latest, programs: saved.programs, updatedAt: saved.updatedAt };
+        } else {
+          gameStateRef.current = saved;
+        }
+        setGameState((current) => current
+          ? { ...current, programs: saved.programs, updatedAt: saved.updatedAt }
+          : saved);
       }).catch((error: unknown) => {
         setLoadingError(error instanceof Error ? error.message : String(error));
       });
@@ -330,27 +338,15 @@ export function CodeGardenGame() {
 
   return (
     <section className="garden-game">
-      <header className="garden-game__header">
-        <div>
-          <div className="garden-game__kicker"><Sprout size={14} />{t("codeLab.garden")}</div>
-          <p>{t("codeLab.game.intro")}</p>
-        </div>
-        <div className="garden-game__progress" aria-label={t("codeLab.game.mission")}>
-          <span>{gameState.completedMissionIds.length}/{GARDEN_MISSIONS.length}</span>
-          <div>{GARDEN_MISSIONS.map((mission) => (
-            <i
-              aria-label={t(`codeLab.game.missionNames.${mission.id}.name`)}
-              className={gameState.completedMissionIds.includes(mission.id) ? "is-done" : ""}
-              key={mission.id}
-            />
-          ))}</div>
-        </div>
-      </header>
-
       <CodeWorkspace
         mode="garden"
+        workspaceStyle
+        toolbarStart={toolbarStart}
+        toolbarEnd={toolbarEnd}
         labels={{
+          add: t("codeLab.addWidget"),
           windows: t("codeLab.windowMenu"),
+          layout: t("codeLab.layout"),
           reset: t("codeLab.resetLayout"),
           balanced: t("codeLab.layoutBalanced"),
           focus: t("codeLab.layoutFocus"),
@@ -361,6 +357,8 @@ export function CodeGardenGame() {
           close: t("codeLab.windowClose"),
           openWindow: t("codeLab.windowOpen"),
           layoutError: t("codeLab.layoutError"),
+          empty: t("codeLab.workspaceEmpty"),
+          emptyHint: t("codeLab.workspaceEmptyHint"),
         }}
         windows={[
           {
@@ -369,6 +367,7 @@ export function CodeGardenGame() {
             initial: { x: 0.01, y: 0.015, width: 0.22, height: 0.43 },
             minWidth: 250,
             minHeight: 180,
+            openByDefault: true,
             content: (
               <div className="garden-game__missions">
                 <div className="garden-game__panel-heading"><span>{t("codeLab.game.mission")}</span><span>{gameState.completedMissionIds.length}/{GARDEN_MISSIONS.length}</span></div>
@@ -403,6 +402,7 @@ export function CodeGardenGame() {
             initial: { x: 0.01, y: 0.47, width: 0.22, height: 0.51 },
             minWidth: 250,
             minHeight: 180,
+            openByDefault: false,
             content: (
               <div className="garden-game__instructions">
                 <span className="garden-game__section-label">{t("codeLab.game.missionGoal")}</span>
@@ -503,6 +503,7 @@ export function CodeGardenGame() {
             initial: { x: 0.245, y: 0.69, width: 0.27, height: 0.3 },
             minWidth: 250,
             minHeight: 180,
+            openByDefault: false,
             content: (
               <div className="garden-game__upgrade">
             <div className="garden-game__upgrade-title"><Hammer size={13} /><span>{t("codeLab.game.research")}</span></div>
@@ -540,6 +541,7 @@ export function CodeGardenGame() {
             initial: { x: 0.525, y: 0.69, width: 0.2, height: 0.3 },
             minWidth: 250,
             minHeight: 180,
+            openByDefault: false,
             content: (
               <div className="garden-game__inventory-window">
                 <div className="garden-game__inventory" aria-label={t("codeLab.game.resources")}>

@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
-import { Maximize2, Minus, Plus, RotateCcw, Square, X } from "lucide-react";
+import { Check, Maximize2, Minus, Plus, RotateCcw, Square, X } from "lucide-react";
 import {
   applyCodeLayoutPreset,
   clampCodeWindow,
@@ -14,9 +14,14 @@ import {
 
 interface CodeWorkspaceProps {
   mode: string;
+  workspaceStyle?: boolean;
+  toolbarStart?: ReactNode;
+  toolbarEnd?: ReactNode;
   windows: Array<CodeWindowDefinition & { content: ReactNode }>;
   labels: {
+    add: string;
     windows: string;
+    layout: string;
     reset: string;
     balanced: string;
     focus: string;
@@ -27,6 +32,8 @@ interface CodeWorkspaceProps {
     close: string;
     openWindow: string;
     layoutError: string;
+    empty: string;
+    emptyHint: string;
   };
 }
 
@@ -41,7 +48,7 @@ interface Gesture {
 
 type CodeWindowRect = Pick<CodeWindowState, "x" | "y" | "width" | "height">;
 
-export function CodeWorkspace({ mode, windows, labels }: CodeWorkspaceProps) {
+export function CodeWorkspace({ mode, workspaceStyle = false, toolbarStart, toolbarEnd, windows, labels }: CodeWorkspaceProps) {
   const definitionSignature = JSON.stringify(windows.map(({ id, title, initial, minWidth, minHeight, openByDefault }) => ({ id, title, initial, minWidth, minHeight, openByDefault })));
   const definitions = useMemo(
     () => JSON.parse(definitionSignature) as CodeWindowDefinition[],
@@ -204,23 +211,36 @@ export function CodeWorkspace({ mode, windows, labels }: CodeWorkspaceProps) {
 
   const openWindows = layout.windows.filter((item) => item.open && !item.minimized);
   const minimized = layout.windows.filter((item) => item.open && item.minimized);
+  const activeWindow = openWindows.reduce<CodeWindowState | null>(
+    (active, item) => !active || item.zIndex > active.zIndex ? item : active,
+    null,
+  );
   return (
-    <div className="code-workspace">
+    <div className={`code-workspace${workspaceStyle ? " code-workspace--workspace" : ""}`}>
       <div className="code-workspace__toolbar">
-        <details className="code-workspace__menu">
-          <summary>{labels.windows}</summary>
-          <div className="code-workspace__menu-popover">
+        {toolbarStart}
+        <details aria-label={labels.windows} className="workspace-add-wrap code-workspace__add-wrap">
+          <summary aria-label={labels.add} className="workspace-add" role="button"><Plus size={19} />{labels.add}</summary>
+          <div aria-label={labels.add} className="workspace-add-menu" role="menu">
             <strong>{labels.openWindow}</strong>
             {layout.windows.map((item) => (
-              <button key={item.id} onClick={() => focusWindow(item.id)} type="button" aria-pressed={item.open && !item.minimized}>
+              <button
+                aria-pressed={item.open && !item.minimized}
+                key={item.id}
+                onClick={() => focusWindow(item.id)}
+                role="menuitem"
+                type="button"
+              >
+                {item.open && !item.minimized ? <Check size={13} /> : <Plus size={13} />}
                 {windowById.get(item.id)?.title ?? item.id}
               </button>
             ))}
             <hr />
-            <button onClick={() => setPreset("balanced")} type="button">{labels.balanced}</button>
-            <button onClick={() => setPreset("focus")} type="button">{labels.focus}</button>
-            <button onClick={() => setPreset("reference")} type="button">{labels.reference}</button>
-            <button onClick={() => setLayout(createDefaultCodeLayout(definitions))} type="button"><RotateCcw size={12} />{labels.reset}</button>
+            <strong>{labels.layout}</strong>
+            <button onClick={() => setPreset("balanced")} role="menuitem" type="button">{labels.balanced}</button>
+            <button onClick={() => setPreset("focus")} role="menuitem" type="button">{labels.focus}</button>
+            <button onClick={() => setPreset("reference")} role="menuitem" type="button">{labels.reference}</button>
+            <button onClick={() => setLayout(createDefaultCodeLayout(definitions))} role="menuitem" type="button"><RotateCcw size={12} />{labels.reset}</button>
           </div>
         </details>
         {layoutError && <span className="code-workspace__error" role="alert">{labels.layoutError}</span>}
@@ -229,8 +249,15 @@ export function CodeWorkspace({ mode, windows, labels }: CodeWorkspaceProps) {
             <button key={item.id} onClick={() => focusWindow(item.id)} type="button">{windowById.get(item.id)?.title ?? item.id}</button>
           ))}
         </div>
+        {toolbarEnd}
       </div>
       <div className="code-workspace__canvas" ref={containerRef}>
+        {layout.windows.every((item) => !item.open) && (
+          <div className="code-workspace__empty">
+            <p>{labels.empty}</p>
+            <span>{labels.emptyHint}</span>
+          </div>
+        )}
         {openWindows.map((item) => {
           const definition = windowById.get(item.id);
           const content = windowContentById.get(item.id);
@@ -238,7 +265,7 @@ export function CodeWorkspace({ mode, windows, labels }: CodeWorkspaceProps) {
           return (
             <section
               aria-label={definition.title}
-              className={`code-window${item.maximized ? " is-maximized" : ""}`}
+              className={`code-window${item.maximized ? " is-maximized" : ""}${item.id === activeWindow?.id ? " is-active" : ""}`}
               key={item.id}
               onPointerDown={() => focusWindow(item.id)}
               style={{ left: `${item.x * 100}%`, top: `${item.y * 100}%`, width: `${item.width * 100}%`, height: `${item.height * 100}%`, zIndex: item.zIndex }}

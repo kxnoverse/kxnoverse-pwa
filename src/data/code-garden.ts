@@ -665,6 +665,28 @@ export async function saveCodeGardenState(state: CodeGardenState): Promise<CodeG
   return saved;
 }
 
+export async function saveCodeGardenProgram(missionId: string, program: string): Promise<CodeGardenState> {
+  if (!GARDEN_MISSIONS.some((mission) => mission.id === missionId)) {
+    throw new Error("That Code Garden mission does not exist.");
+  }
+  if (program.length > 12_000) {
+    throw new Error("The robot program is too long to save.");
+  }
+  return db.transaction("rw", db.codeGardenState, async () => {
+    const current = await db.codeGardenState.get("default") ?? {
+      ...DEFAULT_GARDEN_STATE,
+      updatedAt: Date.now(),
+    };
+    const saved = {
+      ...current,
+      programs: { ...current.programs, [missionId]: program },
+      updatedAt: Date.now(),
+    };
+    await db.codeGardenState.put(saved);
+    return saved;
+  });
+}
+
 export async function researchGardenUpgrade(upgradeId: GardenResearchId): Promise<CodeGardenState> {
   const research = GARDEN_RESEARCH.find((entry) => entry.id === upgradeId);
   if (!research) throw new Error("That research is not available.");
