@@ -268,14 +268,19 @@ describe("Kxno Desk shell", () => {
   });
 
   it("renders the empty Home state without the former dashboard layout", async () => {
-    render(<App />);
+    vi.setSystemTime(new Date(2026, 9, 26, 9, 30));
+    try {
+      render(<App />);
 
-    expect(await screen.findByRole("heading", { name: /^(Good (morning|afternoon|evening), User|Working late, User)$/ })).toBeInTheDocument();
-    expect(document.querySelector(".home-ref-empty")).toBeInTheDocument();
-    expect(document.querySelector(".home-ref-hero")).toBeInTheDocument();
-    expect(document.querySelector(".home-ref-stats")).toBeInTheDocument();
-    expect(document.querySelector(".home-dashboard")).not.toBeInTheDocument();
-    expect(screen.getByRole("link", { name: "Add your first lesson" })).toHaveAttribute("href", "#/timetable");
+      expect(await screen.findByRole("heading", { name: /^(Good (morning|afternoon|evening), User|Working late, User)$/ })).toBeInTheDocument();
+      expect(document.querySelector(".home-ref-empty")).toBeInTheDocument();
+      expect(document.querySelector(".home-ref-hero")).toBeInTheDocument();
+      expect(document.querySelector(".home-ref-stats")).toBeInTheDocument();
+      expect(document.querySelector(".home-dashboard")).not.toBeInTheDocument();
+      expect(screen.getByRole("link", { name: "Add your first lesson" })).toHaveAttribute("href", "#/timetable");
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it.each(["/?homePreview=timetable#/", "/#/?homePreview=timetable"])(
