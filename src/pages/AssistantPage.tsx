@@ -16,6 +16,7 @@ import {
   validateAssistantAttachments,
   type AssistantAttachmentInput,
   type AssistantAttachmentMimeType,
+  type AssistantModelOption,
   SUPPORTED_ASSISTANT_MIME_TYPES,
 } from "../data/ai-client";
 
@@ -110,6 +111,9 @@ export function AssistantPage() {
   const [copyStatus, setCopyStatus] = useState("");
   const [turnstileVersion, setTurnstileVersion] = useState(0);
   const [remainingRequests, setRemainingRequests] = useState<number>();
+  const [availableModels, setAvailableModels] = useState<AssistantModelOption[]>([]);
+  const [defaultModel, setDefaultModel] = useState("openrouter/free");
+  const [modelsUnavailable, setModelsUnavailable] = useState(false);
   const pendingTurnstileToken = useRef<{ resolve: (token: string) => void; reject: (error: Error) => void } | undefined>(undefined);
   const usageRequestId = useRef(0);
 
@@ -136,6 +140,31 @@ export function AssistantPage() {
     };
   }, [refreshRemaining]);
 
+  useEffect(() => {
+    let active = true;
+    if (!endpoint) {
+      setAvailableModels([]);
+      setDefaultModel("openrouter/free");
+      setModelsUnavailable(false);
+      return () => { active = false; };
+    }
+    setAvailableModels([]);
+    setModelsUnavailable(false);
+    void assistantClient.getModels(endpoint).then(({ models, defaultModel: workerDefaultModel }) => {
+      if (!active) return;
+      setAvailableModels(models);
+      setDefaultModel(models.some((model) => model.id === workerDefaultModel)
+        ? workerDefaultModel
+        : models[0]?.id ?? workerDefaultModel);
+      setModelsUnavailable(false);
+    }).catch(() => {
+      if (!active) return;
+      setAvailableModels([]);
+      setModelsUnavailable(true);
+    });
+    return () => { active = false; };
+  }, [endpoint]);
+
   useEffect(() => () => {
     const pending = pendingTurnstileToken.current;
     pendingTurnstileToken.current = undefined;
@@ -152,11 +181,6 @@ export function AssistantPage() {
   }, [savedPresets]);
 
   useEffect(() => {
-    if (savedPresets === undefined || !savedPresets.some((preset) => preset.model !== "openrouter/free")) return;
-    void db.aiPresets.toCollection().modify({ model: "openrouter/free" }).catch(() => setError("saveError"));
-  }, [savedPresets]);
-
-  useEffect(() => {
     if (activeConversationId || !conversations.length) return;
     setActiveConversationId(conversations[0].id);
   }, [activeConversationId, conversations]);
@@ -165,6 +189,7 @@ export function AssistantPage() {
     () => presets.find((item) => item.id === activeConversation?.presetId) ?? presets.find((item) => item.isDefault) ?? presets[0],
     [activeConversation?.presetId, presets],
   );
+  const activeModel = availableModels.find((item) => item.id === activePreset?.model);
 
   const canSend = Boolean(activePreset && (draft.trim() || draftFiles.length)) && !isSending &&
     !(endpoint && (!cloudEnabled || !cloudConsent || !turnstileSiteKey || remainingRequests === 0));
@@ -259,12 +284,26 @@ export function AssistantPage() {
     contextMessages: AiMessage[],
   ) {
     const assistantMessageId = createId();
+    const requestPreset = presets.find((preset) => preset.id === conversation.presetId) ?? activePreset ?? starters[0];
+    const requestModel = requestPreset.model || "openrouter/free";
     if (!endpoint) {
       await saveAssistantError(conversation.id, t("assistant.backendUnavailable"), assistantMessageId);
       return;
     }
     if (!cloudEnabled) {
       await saveAssistantError(conversation.id, t("assistant.cloudDisabled"), assistantMessageId);
+      return;
+    }
+    const requestModelOption = availableModels.find((model) => model.id === requestModel);
+    let existingAttachments: number;
+    try {
+      existingAttachments = await db.aiAttachments.where("messageId").equals(userMessage.id).count();
+    } catch {
+      setError("saveError");
+      return;
+    }
+    if (existingAttachments > 0 && requestModelOption && !requestModelOption.supportsAttachments) {
+      await saveAssistantError(conversation.id, t("assistant.attachmentsUnsupported"), assistantMessageId);
       return;
     }
     setIsSending(true);
@@ -315,8 +354,8 @@ export function AssistantPage() {
         endpoint,
         turnstileToken: verificationToken,
         message: userMessage.content,
-        model: "openrouter/free",
-        preset: activePreset ?? starters[0],
+        model: requestModel,
+        preset: requestPreset,
         history,
         attachments: requestAttachments,
       }, {
@@ -357,6 +396,10 @@ export function AssistantPage() {
     const content = draft.trim() || t("assistant.attachmentsPrompt");
     if (endpoint && cloudEnabled && !cloudConsent) {
       setError("consentRequired");
+      return;
+    }
+    if (draftFiles.length && activeModel && !activeModel.supportsAttachments) {
+      setError("attachmentsUnsupported");
       return;
     }
     const conversation = activeConversation ?? {
@@ -458,7 +501,7 @@ export function AssistantPage() {
     try {
       await db.transaction("rw", db.aiPresets, async () => {
         if (presetDraft.isDefault) await db.aiPresets.toCollection().modify({ isDefault: false });
-        await db.aiPresets.put({ ...presetDraft, name: presetDraft.name.trim(), assistantName: presetDraft.assistantName.trim(), model: "openrouter/free" });
+        await db.aiPresets.put({ ...presetDraft, name: presetDraft.name.trim(), assistantName: presetDraft.assistantName.trim() });
       });
       setPresetModalOpen(false);
       setPresetDraft(undefined);
@@ -542,6 +585,9 @@ export function AssistantPage() {
             </label>
             <button className="button button--quiet assistant-preset-manage" onClick={() => setPresetModalOpen(true)} type="button"><Settings2 size={13} />{t("assistant.presets")}</button>
           </div>
+          {modelsUnavailable && <p className="assistant-cloud-notice" role="status">{t("assistant.modelsUnavailable")}</p>}
+          {draftFiles.length > 0 && activeModel && !activeModel.supportsAttachments &&
+            <p className="assistant-cloud-notice" role="status">{t("assistant.attachmentsUnsupported")}</p>}
           {endpoint && cloudEnabled && turnstileSiteKey && (
             <div className="assistant-thread__verification">
               <TurnstileChallenge
@@ -634,7 +680,7 @@ export function AssistantPage() {
             <div className="dialog-heading"><h2>{t("assistant.managePresets")}</h2><button className="icon-button" aria-label={t("assistant.close")} onClick={() => setPresetModalOpen(false)} type="button"><X size={15} /></button></div>
             <div className="preset-manager">
               <div className="preset-manager__list">
-                <button className="button button--quiet" onClick={() => { setPresetDraft({ id: createId(), name: "", assistantName: "", description: "", style: "", length: "medium", depth: "guided", language: "auto", instructions: "", model: "openrouter/free", isDefault: false }); }} type="button"><Plus size={13} />{t("assistant.createPreset")}</button>
+                <button className="button button--quiet" onClick={() => { setPresetDraft({ id: createId(), name: "", assistantName: "", description: "", style: "", length: "medium", depth: "guided", language: "auto", instructions: "", model: defaultModel, isDefault: false }); }} type="button"><Plus size={13} />{t("assistant.createPreset")}</button>
                 {presets.map((preset) => <div className="preset-manager__item" key={preset.id}>
                   <button onClick={() => setPresetDraft(preset)} type="button">{preset.name}{preset.isDefault && <small>{t("assistant.defaultPreset")}</small>}</button>
                   <button className="icon-button icon-button--small" aria-label={`${t("timetable.duplicate")} ${preset.name}`} onClick={() => void duplicatePreset(preset)} type="button"><Copy size={13} /></button>
@@ -646,6 +692,13 @@ export function AssistantPage() {
                 <label>{t("assistant.assistantName")}<input required maxLength={40} value={presetDraft.assistantName} onChange={(event) => setPresetDraft({ ...presetDraft, assistantName: event.target.value })} /></label>
                 <label>{t("assistant.description")}<input maxLength={90} value={presetDraft.description} onChange={(event) => setPresetDraft({ ...presetDraft, description: event.target.value })} /></label>
                 <label>{t("assistant.style")}<input maxLength={60} value={presetDraft.style} onChange={(event) => setPresetDraft({ ...presetDraft, style: event.target.value })} /></label>
+                <label className="preset-form__wide">{t("assistant.model")}
+                  <select value={presetDraft.model} onChange={(event) => setPresetDraft({ ...presetDraft, model: event.target.value })}>
+                    {!availableModels.some((model) => model.id === presetDraft.model) &&
+                      <option disabled value={presetDraft.model}>{presetDraft.model} ({t("assistant.modelUnavailable")})</option>}
+                    {availableModels.map((model) => <option key={model.id} value={model.id}>{model.id} ({t(`assistant.providers.${model.provider}`)})</option>)}
+                  </select>
+                </label>
                 <label>{t("assistant.length")}<select value={presetDraft.length} onChange={(event) => setPresetDraft({ ...presetDraft, length: event.target.value as AiPreset["length"] })}><option value="short">{t("assistant.short")}</option><option value="medium">{t("assistant.medium")}</option><option value="detailed">{t("assistant.detailed")}</option></select></label>
                 <label>{t("assistant.depth")}<select value={presetDraft.depth} onChange={(event) => setPresetDraft({ ...presetDraft, depth: event.target.value as AiPreset["depth"] })}><option value="basic">{t("assistant.basic")}</option><option value="guided">{t("assistant.guided")}</option><option value="advanced">{t("assistant.advanced")}</option></select></label>
                 <label>{t("assistant.language")}<select value={presetDraft.language} onChange={(event) => setPresetDraft({ ...presetDraft, language: event.target.value as AiPreset["language"] })}><option value="auto">{t("assistant.auto")}</option><option value="en">English</option><option value="de">Deutsch</option></select></label>

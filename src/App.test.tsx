@@ -3,6 +3,7 @@ import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testi
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import App from "./App";
+import { AssistantPage } from "./pages/AssistantPage";
 import { db, localDateKey } from "./data/db";
 import { i18n, i18nReady } from "./i18n";
 import {
@@ -1679,7 +1680,7 @@ describe("Kxno Desk shell", () => {
     expect(await db.aiMessages.count()).toBe(0);
   });
 
-  it("sends authorized assistant messages only through the OpenRouter worker", async () => {
+  it("keeps OpenRouter as the default for authorized assistant messages", async () => {
     await db.settings.bulkPut([
       { key: "aiBackendUrl", value: "https://worker.example.test" },
       { key: "aiCloudEnabled", value: "true" },
@@ -1735,6 +1736,42 @@ describe("Kxno Desk shell", () => {
     );
   });
 
+  it("saves the selected provider model in a preset and sends requests with it", async () => {
+    await db.settings.bulkPut([
+      { key: "aiBackendUrl", value: "https://worker.example.test" },
+      { key: "aiCloudEnabled", value: "true" },
+      { key: "turnstileSiteKey", value: "0x4AAAAAAAtestsitekey" },
+      { key: "aiCloudConsentEndpoint", value: "https://worker.example.test" },
+    ]);
+    vi.spyOn(assistantClient, "getModels").mockResolvedValue({
+      models: [
+        { id: "openrouter/free", provider: "openrouter", supportsAttachments: true },
+        { id: "openai/gpt-oss-120b", provider: "groq", supportsAttachments: false },
+      ],
+      defaultModel: "openrouter/free",
+    });
+    const sendSpy = vi.spyOn(assistantClient, "send").mockImplementation(async (_request, options) => {
+      options.onToken("Groq answer");
+    });
+    const user = userEvent.setup();
+    render(<AssistantPage />);
+    await screen.findByRole("option", { name: "Study Assistant" });
+    fireEvent.click(await screen.findByRole("button", { name: "Presets" }));
+    await user.click(await screen.findByRole("button", { name: /^Study Assistant\s+Default$/ }));
+    await user.selectOptions(await screen.findByRole("combobox", { name: "AI model" }), "openai/gpt-oss-120b");
+    await user.click(screen.getByRole("button", { name: "Save" }));
+
+    await waitFor(async () => expect(await db.aiPresets.get("study-assistant")).toMatchObject({
+      model: "openai/gpt-oss-120b",
+    }));
+    const composer = await screen.findByRole("textbox", { name: "Message" });
+    await user.type(composer, "Explain this");
+    await user.keyboard("{Enter}");
+    await waitFor(() => expect(sendSpy).toHaveBeenCalledOnce());
+    expect(sendSpy.mock.calls[0][0]).toMatchObject({ model: "openai/gpt-oss-120b" });
+    expect(await screen.findByText("Groq answer")).toBeInTheDocument();
+  });
+
   it("preserves saved assistant presets while loading the assistant", async () => {
     const savedPreset = {
       id: "study-assistant",
@@ -1756,7 +1793,7 @@ describe("Kxno Desk shell", () => {
     await user.click(await screen.findByRole("link", { name: "Assistant" }));
     await screen.findByRole("combobox", { name: "Preset" });
 
-    await waitFor(async () => expect(await db.aiPresets.get(savedPreset.id)).toEqual({ ...savedPreset, model: "openrouter/free" }));
+    await waitFor(async () => expect(await db.aiPresets.get(savedPreset.id)).toEqual(savedPreset));
     expect(await db.aiPresets.count()).toBe(5);
     expect(await db.aiPresets.get("kxno-school-helper")).toBeDefined();
     expect(await db.aiPresets.get("kxno-personal-helper")).toBeDefined();

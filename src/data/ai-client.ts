@@ -42,12 +42,19 @@ export interface AssistantUsage {
   limit: number;
 }
 
+export interface AssistantModelOption {
+  id: string;
+  provider: "openrouter" | "groq";
+  supportsAttachments: boolean;
+}
+
 export type AssistantServiceErrorCode =
   | "accessRequired"
   | "rateLimited"
   | "serviceUnavailable"
   | "modelNotAllowed"
   | "invalidAttachment"
+  | "unsupportedAttachmentProvider"
   | "attachmentTooLarge"
   | "providerUnavailable"
   | "timeout"
@@ -72,6 +79,7 @@ export class AssistantBackendUnavailableError extends Error {
 
 export interface AssistantClient {
   getUsage(endpoint: string | undefined): Promise<AssistantUsage>;
+  getModels(endpoint: string | undefined): Promise<{ models: AssistantModelOption[]; defaultModel: string }>;
   send(
     request: AssistantRequest,
     options: {
@@ -142,7 +150,7 @@ function errorFromStatus(status: number, body: string): AssistantServiceError {
   if (status === 429) return new AssistantServiceError("rateLimited");
   if (status === 413 || code === "request_too_large") return new AssistantServiceError("attachmentTooLarge");
   if (code === "model_not_allowed") return new AssistantServiceError("modelNotAllowed");
-  if (code === "unsupported_attachment_provider") return new AssistantServiceError("invalidAttachment");
+  if (code === "unsupported_attachment_provider") return new AssistantServiceError("unsupportedAttachmentProvider");
   if (code === "provider_unavailable" || code === "provider_not_configured") return new AssistantServiceError("providerUnavailable");
   if (status === 503) return new AssistantServiceError("serviceUnavailable");
   return new AssistantServiceError("requestFailed");
@@ -221,6 +229,39 @@ function requestWithProgress(
 }
 
 export const assistantClient: AssistantClient = {
+  async getModels(value) {
+    const endpoint = endpointUrl(value, "/api/models");
+    try {
+      const response = await fetch(endpoint, { method: "GET", headers: { Accept: "application/json" }, cache: "no-store", credentials: "omit" });
+      const body = await response.text();
+      if (!response.ok) throw errorFromStatus(response.status, body);
+      let payload: unknown;
+      try {
+        payload = JSON.parse(body);
+      } catch {
+        throw new AssistantServiceError("requestFailed");
+      }
+      if (typeof payload !== "object" || payload === null || !("models" in payload) || !("defaultModel" in payload) ||
+        !Array.isArray(payload.models) || typeof payload.defaultModel !== "string") {
+        throw new AssistantServiceError("requestFailed");
+      }
+      const models: AssistantModelOption[] = [];
+      for (const item of payload.models) {
+        if (typeof item !== "object" || item === null ||
+          !("id" in item) || typeof item.id !== "string" || !item.id || item.id.length > 120 ||
+          !("provider" in item) || (item.provider !== "openrouter" && item.provider !== "groq") ||
+          !("supportsAttachments" in item) || typeof item.supportsAttachments !== "boolean") {
+          throw new AssistantServiceError("requestFailed");
+        }
+        models.push({ id: item.id, provider: item.provider, supportsAttachments: item.supportsAttachments });
+      }
+      if (payload.defaultModel.length > 120) throw new AssistantServiceError("requestFailed");
+      return { models, defaultModel: payload.defaultModel };
+    } catch (cause) {
+      if (cause instanceof AssistantServiceError || cause instanceof AssistantBackendUnavailableError) throw cause;
+      throw new AssistantServiceError("networkFailure");
+    }
+  },
   async getUsage(value) {
     const endpoint = endpointUrl(value, "/api/usage");
     try {
