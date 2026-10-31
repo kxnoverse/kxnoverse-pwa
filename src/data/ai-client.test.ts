@@ -8,6 +8,37 @@ import {
 afterEach(() => vi.unstubAllGlobals());
 
 describe("assistant attachments and streaming client", () => {
+  it("loads only the backend's configured models", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({
+      models: [
+        { id: "openrouter/free", provider: "openrouter", supportsAttachments: true },
+        { id: "openai/gpt-oss-120b", provider: "groq", supportsAttachments: false },
+      ],
+      defaultModel: "openrouter/free",
+    })));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(assistantClient.getModels("https://worker.example.test")).resolves.toEqual({
+      models: [
+        { id: "openrouter/free", provider: "openrouter", supportsAttachments: true },
+        { id: "openai/gpt-oss-120b", provider: "groq", supportsAttachments: false },
+      ],
+      defaultModel: "openrouter/free",
+    });
+    expect(fetchMock).toHaveBeenCalledWith(
+      new URL("https://worker.example.test/api/models"),
+      expect.objectContaining({ method: "GET", credentials: "omit", cache: "no-store" }),
+    );
+  });
+
+  it("rejects malformed or unknown provider model options", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response(JSON.stringify({
+      models: [{ id: "attacker/model", provider: "unknown", supportsAttachments: true }],
+      defaultModel: "attacker/model",
+    }))));
+    await expect(assistantClient.getModels("https://worker.example.test")).rejects.toMatchObject({ code: "requestFailed" });
+  });
+
   it("reads a server-calculated remaining request count without sending credentials", async () => {
     const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({ remaining: 72, limit: 100 })));
     vi.stubGlobal("fetch", fetchMock);

@@ -7,9 +7,8 @@ enabled = true
 
 [vars]
 APP_ORIGIN = "https://kxnoverse.github.io"
-AI_PROVIDER = "openrouter"
 AI_MODEL = "openrouter/free"
-ALLOWED_MODELS = "openrouter/free"
+ALLOWED_MODELS = "openrouter/free,openai/gpt-oss-120b"
 
 [[durable_objects.bindings]]
 name = "USER_QUOTA"

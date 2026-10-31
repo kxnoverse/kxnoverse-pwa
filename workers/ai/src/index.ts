@@ -15,10 +15,10 @@ interface DurableObjectNamespace {
 
 interface Environment {
   APP_ORIGIN: string;
-  AI_PROVIDER: "openrouter";
   AI_MODEL: string;
   ALLOWED_MODELS?: string;
   OPENROUTER_API_KEY?: string;
+  GROQ_API_KEY?: string;
   TURNSTILE_SECRET_KEY?: string;
   USER_QUOTA: DurableObjectNamespace;
 }
@@ -216,14 +216,37 @@ function buildSystemInstruction(preset: AssistantPreset): string {
   ].filter(Boolean).join("\n");
 }
 
-function isModelEnabled(env: Environment, model: string): boolean {
-  const enabledModels = (env.ALLOWED_MODELS ?? env.AI_MODEL).split(",").map((item) => item.trim()).filter(Boolean);
-  return Boolean(env.AI_MODEL) && enabledModels.includes(model) &&
-    (model === "openrouter/free" || model.endsWith(":free"));
+type Provider = "openrouter" | "groq";
+
+function providerForModel(model: string): Provider | undefined {
+  if (model === "openrouter/free" || model.endsWith(":free")) return "openrouter";
+  if (/^[a-z0-9][a-z0-9._/-]{0,119}$/i.test(model)) return "groq";
+  return undefined;
 }
 
-function isProviderConfigured(env: Environment): boolean {
-  return env.AI_PROVIDER === "openrouter" && Boolean(env.AI_MODEL && env.OPENROUTER_API_KEY);
+function isModelEnabled(env: Environment, model: string): boolean {
+  const enabledModels = (env.ALLOWED_MODELS ?? env.AI_MODEL).split(",").map((item) => item.trim()).filter(Boolean);
+  const provider = providerForModel(model);
+  return enabledModels.includes(model) &&
+    (provider !== "openrouter" || model === "openrouter/free" || model.endsWith(":free"));
+}
+
+function providerConfigured(env: Environment, model: string): Provider | undefined {
+  if (!isModelEnabled(env, model)) return undefined;
+  const provider = providerForModel(model);
+  if (provider === "openrouter" && env.OPENROUTER_API_KEY) return provider;
+  if (provider === "groq" && env.GROQ_API_KEY) return provider;
+  return undefined;
+}
+
+function configuredModels(env: Environment): Array<{ id: string; provider: Provider; supportsAttachments: boolean }> {
+  return (env.ALLOWED_MODELS ?? env.AI_MODEL).split(",")
+    .map((model) => model.trim())
+    .filter((model, index, models) => Boolean(model) && models.indexOf(model) === index)
+    .flatMap((id) => {
+      const provider = providerConfigured(env, id);
+      return provider ? [{ id, provider, supportsAttachments: provider === "openrouter" }] : [];
+    });
 }
 
 async function responseText(providerResponse: Response): Promise<string> {
@@ -243,6 +266,17 @@ function extractAssistantText(content: unknown): string | undefined {
     .map((part) => part.text)
     .join("");
   return text.trim() ? text : undefined;
+}
+
+function buildProviderMessages(request: ChatRequest, userContent: unknown) {
+  return [
+    { role: "system" as const, content: buildSystemInstruction(request.preset) },
+    ...request.history.map((message) => ({
+      role: message.role === "model" ? "assistant" as const : "user" as const,
+      content: message.content,
+    })),
+    { role: "user" as const, content: userContent },
+  ];
 }
 
 async function callOpenRouter(
@@ -282,10 +316,7 @@ async function callOpenRouter(
     signal,
     body: JSON.stringify({
       model,
-      messages: [
-        { role: "system", content: buildSystemInstruction(request.preset) },
-        { role: "user", content: userContent },
-      ],
+      messages: buildProviderMessages(request, userContent),
       max_tokens: MAX_OUTPUT_TOKENS,
       stream: false,
       ...(includesPdf ? { plugins: [{ id: "file-parser", pdf: { engine: "cloudflare-ai" } }] } : {}),
@@ -306,8 +337,35 @@ async function generateAnswer(
   onProviderRequest: () => void,
 ): Promise<string> {
   if (!isModelEnabled(env, request.model)) throw new Error("The selected model is not enabled by the backend.");
-  if (env.AI_PROVIDER !== "openrouter" || !env.OPENROUTER_API_KEY) throw new Error("The provider is not configured.");
-  return callOpenRouter(env.OPENROUTER_API_KEY, origin, request.model, request, signal, onProviderRequest);
+  const provider = providerConfigured(env, request.model);
+  if (provider === "openrouter" && env.OPENROUTER_API_KEY) {
+    return callOpenRouter(env.OPENROUTER_API_KEY, origin, request.model, request, signal, onProviderRequest);
+  }
+  if (provider === "groq" && env.GROQ_API_KEY) {
+    if (request.attachments.length) throw new Error("The selected Groq model does not support attachments.");
+    onProviderRequest();
+    const result = await fetch("https://api.groq.com/openai/v1/chat/completions", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${env.GROQ_API_KEY}`,
+        "Content-Type": "application/json",
+        Accept: "application/json",
+      },
+      signal,
+      body: JSON.stringify({
+        model: request.model,
+        messages: buildProviderMessages(request, request.message),
+        max_tokens: MAX_OUTPUT_TOKENS,
+        stream: false,
+      }),
+    });
+    if (!result.ok) throw new Error("The configured provider did not accept the request.");
+    const payload = JSON.parse(await responseText(result)) as { choices?: Array<{ message?: { content?: unknown } }> };
+    const answer = extractAssistantText(payload.choices?.[0]?.message?.content);
+    if (!answer) throw new Error("The configured provider returned no answer.");
+    return answer.slice(0, 24_000);
+  }
+  throw new Error("The provider is not configured.");
 }
 
 export async function* generateAnswerStream(
@@ -328,24 +386,27 @@ class ProviderTestFailure extends Error {
   }
 }
 
-async function testOpenRouterConnection(env: Environment): Promise<void> {
-  if (!env.OPENROUTER_API_KEY || env.AI_PROVIDER !== "openrouter" ||
-    !isModelEnabled(env, env.AI_MODEL)) {
+async function testProviderConnection(env: Environment, model: string): Promise<void> {
+  const provider = providerConfigured(env, model);
+  if (!provider) {
     throw new ProviderTestFailure("configuration");
   }
+  const apiKey = provider === "openrouter" ? env.OPENROUTER_API_KEY : env.GROQ_API_KEY;
+  if (!apiKey) throw new ProviderTestFailure("configuration");
   let result: Response;
   try {
-    result = await fetch("https://openrouter.ai/api/v1/chat/completions", {
+    result = await fetch(provider === "openrouter"
+      ? "https://openrouter.ai/api/v1/chat/completions"
+      : "https://api.groq.com/openai/v1/chat/completions", {
       method: "POST",
       headers: {
-        Authorization: `Bearer ${env.OPENROUTER_API_KEY}`,
+        Authorization: `Bearer ${apiKey}`,
         "Content-Type": "application/json",
         Accept: "application/json",
-        "HTTP-Referer": env.APP_ORIGIN,
-        "X-Title": "Kxno Desk",
+        ...(provider === "openrouter" ? { "HTTP-Referer": env.APP_ORIGIN, "X-Title": "Kxno Desk" } : {}),
       },
       body: JSON.stringify({
-        model: env.AI_MODEL,
+        model,
         messages: [{ role: "user", content: "Reply with the single word OK." }],
         max_tokens: 64,
         stream: false,
@@ -473,6 +534,10 @@ export default {
       });
     }
     const url = new URL(request.url);
+    if (url.pathname === "/api/models") {
+      if (request.method !== "GET") return response({ error: "not_found" }, 404, allowedOrigin, { Allow: "GET, OPTIONS" });
+      return response({ models: configuredModels(env), defaultModel: env.AI_MODEL }, 200, allowedOrigin);
+    }
     const isUsage = url.pathname === "/api/usage";
     if (isUsage) {
       if (request.method !== "GET") return response({ error: "not_found" }, 404, allowedOrigin, { Allow: "GET, OPTIONS" });
@@ -510,18 +575,23 @@ export default {
     } catch {
       return response({ error: "invalid_request" }, 400, allowedOrigin);
     }
-    if (!isProviderConfigured(env)) return response({ error: "provider_not_configured" }, 503, allowedOrigin);
     if (isTest && (!isPlainObject(payload) || Object.keys(payload).length !== 1 ||
       typeof payload.turnstileToken !== "string" || !payload.turnstileToken)) {
       return response({ error: "invalid_request" }, 400, allowedOrigin);
     }
     const parsedChatPayload = isChat && validRequest(payload) ? payload : undefined;
-    const chatPayload = parsedChatPayload ? { ...parsedChatPayload, model: env.AI_MODEL } : undefined;
+    const chatPayload = parsedChatPayload;
     if (isChat && !chatPayload) return response({ error: "invalid_request" }, 400, allowedOrigin);
-    if (isTest && !isModelEnabled(env, env.AI_MODEL)) {
-      return response({ error: "provider_not_configured" }, 503, allowedOrigin);
+    const configuredTestModels = configuredModels(env);
+    const testModel = isModelEnabled(env, env.AI_MODEL)
+      ? providerConfigured(env, env.AI_MODEL) ? env.AI_MODEL : configuredTestModels[0]?.id
+      : undefined;
+    const selectedModel = isTest ? testModel ?? "" : chatPayload?.model ?? "";
+    const provider = providerConfigured(env, selectedModel);
+    if (!provider) return response({ error: "provider_not_configured" }, 503, allowedOrigin);
+    if (provider === "groq" && chatPayload?.attachments.length) {
+      return response({ error: "unsupported_attachment_provider" }, 400, allowedOrigin);
     }
-    if (chatPayload && !isModelEnabled(env, env.AI_MODEL)) return response({ error: "provider_not_configured" }, 503, allowedOrigin);
     if (!env.TURNSTILE_SECRET_KEY) return response({ error: "challenge_not_configured" }, 503, allowedOrigin);
 
     let turnstileValid: boolean;
@@ -562,11 +632,11 @@ export default {
 
     if (isTest) {
       try {
-        await testOpenRouterConnection(env);
-        return response({ ok: true, model: env.AI_MODEL }, 200, allowedOrigin);
+        await testProviderConnection(env, selectedModel);
+        return response({ ok: true, model: selectedModel }, 200, allowedOrigin);
       } catch (error) {
         console.error("AI provider connection test failed.", {
-          provider: env.AI_PROVIDER,
+          provider,
           ...providerErrorMetadata(error),
         });
         return response({ error: "provider_unavailable" }, 503, allowedOrigin);

@@ -100,7 +100,6 @@ describe("AI Worker access controls", () => {
       }), { headers: { "Content-Type": "application/json" } }));
       vi.stubGlobal("fetch", fetchMock);
       const env = {
-        AI_PROVIDER: "openrouter" as const,
         AI_MODEL: "openrouter/free",
         ALLOWED_MODELS: "openrouter/free",
         OPENROUTER_API_KEY: "server-only-openrouter-test-key",
@@ -131,6 +130,11 @@ describe("AI Worker access controls", () => {
       expect(JSON.parse(String(fetchMock.mock.calls[0][1].body)).messages[0].content).toContain(
         "You are Tutor, the user's assistant.",
       );
+      expect(JSON.parse(String(fetchMock.mock.calls[0][1].body)).messages.slice(1)).toEqual([
+        { role: "user", content: "Earlier question" },
+        { role: "assistant", content: "Earlier answer" },
+        { role: "user", content: [{ type: "text", text: "Explain these files" }] },
+      ]);
     });
 
     it("sends OpenRouter image and PDF attachments as multimodal data and uses the free PDF parser", async () => {
@@ -139,7 +143,6 @@ describe("AI Worker access controls", () => {
       }), { headers: { "Content-Type": "application/json" } }));
       vi.stubGlobal("fetch", fetchMock);
       const env = {
-        AI_PROVIDER: "openrouter" as const,
         AI_MODEL: "openrouter/free",
         ALLOWED_MODELS: "openrouter/free",
         OPENROUTER_API_KEY: "server-only-openrouter-test-key",
@@ -154,7 +157,8 @@ describe("AI Worker access controls", () => {
 
       expect(chunks.join("")).toBe("I can read both attachments.");
       const body = JSON.parse(String(fetchMock.mock.calls[0][1].body));
-      expect(body.messages[1].content).toEqual([
+      const currentMessage = body.messages[body.messages.length - 1];
+      expect(currentMessage.content).toEqual([
         { type: "text", text: "Explain these files" },
         { type: "image_url", image_url: { url: "data:image/png;base64,iVBORw0KGgo=" } },
         {
@@ -174,7 +178,6 @@ describe("AI Worker access controls", () => {
       }), { headers: { "Content-Type": "application/json" } }));
       vi.stubGlobal("fetch", fetchMock);
       const env = {
-        AI_PROVIDER: "openrouter" as const,
         AI_MODEL: "openrouter/free",
         ALLOWED_MODELS: "openrouter/free",
         OPENROUTER_API_KEY: "server-only-openrouter-test-key",
@@ -187,7 +190,8 @@ describe("AI Worker access controls", () => {
       )) { /* consume */ }
 
       const body = JSON.parse(String(fetchMock.mock.calls[0][1].body));
-      expect(body.messages[1].content[1].image_url.url).toBe("data:image/png;base64,iVBORw0KGgo=");
+      const currentMessage = body.messages[body.messages.length - 1];
+      expect(currentMessage.content[1].image_url.url).toBe("data:image/png;base64,iVBORw0KGgo=");
       expect(body.plugins).toBeUndefined();
     });
   });
@@ -195,7 +199,6 @@ describe("AI Worker access controls", () => {
   it("rejects unapproved origins and requires a verified Turnstile token before quota or provider use", async () => {
     const env = {
       APP_ORIGIN: "https://app.example.test",
-      AI_PROVIDER: "openrouter" as const,
       AI_MODEL: "openrouter/free",
       ALLOWED_MODELS: "openrouter/free",
       OPENROUTER_API_KEY: "server-only-openrouter-test-key",
@@ -311,10 +314,156 @@ describe("AI Worker access controls", () => {
     expect(quotaCalls.every(({ request }) => request.method === "GET" && new URL(request.url).pathname === "/usage")).toBe(true);
   });
 
+  it("routes an allowlisted text-only model through the Groq secret", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({
+      choices: [{ message: { content: "Groq answer" } }],
+    }), { headers: { "Content-Type": "application/json" } }));
+    vi.stubGlobal("fetch", fetchMock);
+    const request = {
+      turnstileToken: "valid-turnstile-token",
+      message: "Explain this topic",
+      model: "openai/gpt-oss-120b",
+      preset: {
+        assistantName: "Tutor",
+        style: "Clear",
+        length: "medium" as const,
+        depth: "guided" as const,
+        language: "en" as const,
+        instructions: "",
+      },
+      history: [
+        { role: "user" as const, content: "Earlier question" },
+        { role: "model" as const, content: "Earlier answer" },
+      ],
+      attachments: [],
+    };
+    const env = {
+      ALLOWED_MODELS: "openrouter/free,openai/gpt-oss-120b",
+      GROQ_API_KEY: "server-only-groq-test-key",
+    };
+    const chunks: string[] = [];
+    for await (const chunk of generateAnswerStream(
+      env,
+      "https://app.example.test",
+      request,
+      new AbortController().signal,
+    )) chunks.push(chunk);
+
+    expect(chunks.join("")).toBe("Groq answer");
+    expect(fetchMock).toHaveBeenCalledWith(
+      "https://api.groq.com/openai/v1/chat/completions",
+      expect.objectContaining({
+        headers: expect.objectContaining({ Authorization: "Bearer server-only-groq-test-key" }),
+      }),
+    );
+    expect(JSON.parse(String(fetchMock.mock.calls[0][1].body))).toMatchObject({
+      model: "openai/gpt-oss-120b",
+      messages: [
+        { role: "system" },
+        { role: "user", content: "Earlier question" },
+        { role: "assistant", content: "Earlier answer" },
+        { role: "user", content: "Explain this topic" },
+      ],
+      max_tokens: 1_200,
+      stream: false,
+    });
+  });
+
+  it("rejects Groq attachments and excludes models without provider secrets from discovery", async () => {
+    const request = {
+      turnstileToken: "valid-turnstile-token",
+      message: "Read this image",
+      model: "openai/gpt-oss-120b",
+      preset: {
+        assistantName: "Tutor",
+        style: "Clear",
+        length: "short" as const,
+        depth: "basic" as const,
+        language: "en" as const,
+        instructions: "",
+      },
+      history: [],
+      attachments: [{ name: "image.png", mimeType: "image/png" as const, size: 8, data: "iVBORw0KGgo=" }],
+    };
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+    await expect(generateAnswerStream(
+      { ALLOWED_MODELS: "openai/gpt-oss-120b", GROQ_API_KEY: "server-only-groq-test-key" },
+      "https://app.example.test",
+      request,
+      new AbortController().signal,
+    ).next()).rejects.toThrow("does not support attachments");
+    expect(fetchMock).not.toHaveBeenCalled();
+
+    const env = {
+      APP_ORIGIN: "https://app.example.test",
+      AI_MODEL: "openrouter/free",
+      ALLOWED_MODELS: "openrouter/free,openai/gpt-oss-120b",
+      GROQ_API_KEY: "server-only-groq-test-key",
+    };
+    const rejectedAttachment = await worker.fetch(new Request("https://worker.example.test/api/chat", {
+      method: "POST",
+      headers: { Origin: env.APP_ORIGIN, "Content-Type": "application/json" },
+      body: JSON.stringify(request),
+    }), env);
+    expect(rejectedAttachment.status).toBe(400);
+    expect(await rejectedAttachment.json()).toEqual({ error: "unsupported_attachment_provider" });
+
+    const hidden = await worker.fetch(new Request("https://worker.example.test/api/models", {
+      headers: { Origin: env.APP_ORIGIN },
+    }), { ...env, GROQ_API_KEY: undefined });
+    expect(hidden.status).toBe(200);
+    expect(await hidden.json()).toEqual({ models: [], defaultModel: "openrouter/free" });
+
+    const visible = await worker.fetch(new Request("https://worker.example.test/api/models", {
+      headers: { Origin: env.APP_ORIGIN },
+    }), { ...env, GROQ_API_KEY: "server-only-groq-test-key" });
+    expect(await visible.json()).toEqual({
+      models: [{ id: "openai/gpt-oss-120b", provider: "groq", supportsAttachments: false }],
+      defaultModel: "openrouter/free",
+    });
+  });
+
+  it("tests the first configured provider when the default provider secret is absent", async () => {
+    const env = {
+      APP_ORIGIN: "https://app.example.test",
+      AI_MODEL: "openrouter/free",
+      ALLOWED_MODELS: "openrouter/free,openai/gpt-oss-120b",
+      GROQ_API_KEY: "server-only-groq-test-key",
+      TURNSTILE_SECRET_KEY: "server-only-turnstile-secret",
+      USER_QUOTA: {
+        idFromName: (id: string) => id,
+        get: () => ({ fetch: async () => new Response(JSON.stringify({ allowed: true })) }),
+      },
+    };
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(new Response(JSON.stringify({
+        success: true,
+        hostname: "app.example.test",
+        action: "test",
+      }), { headers: { "Content-Type": "application/json" } }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({
+        choices: [{ message: { content: "OK" } }],
+      }), { headers: { "Content-Type": "application/json" } }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const tested = await worker.fetch(new Request("https://worker.example.test/api/test", {
+      method: "POST",
+      headers: { Origin: env.APP_ORIGIN, "Content-Type": "application/json", "CF-Connecting-IP": "192.0.2.9" },
+      body: JSON.stringify({ turnstileToken: "valid-token" }),
+    }), env);
+
+    expect(tested.status).toBe(200);
+    expect(await tested.json()).toEqual({ ok: true, model: "openai/gpt-oss-120b" });
+    expect(fetchMock.mock.calls[1][0]).toBe("https://api.groq.com/openai/v1/chat/completions");
+    expect(fetchMock.mock.calls[1][1].headers).toMatchObject({
+      Authorization: "Bearer server-only-groq-test-key",
+    });
+  });
+
   it("tests OpenRouter with its dedicated server-side key and restricts it to free routing", async () => {
     const env = {
       APP_ORIGIN: "https://app.example.test",
-      AI_PROVIDER: "openrouter" as const,
       AI_MODEL: "openrouter/free",
       ALLOWED_MODELS: "openrouter/free",
       OPENROUTER_API_KEY: "server-only-openrouter-test-key",
@@ -409,10 +558,9 @@ describe("AI Worker access controls", () => {
     expect(JSON.parse(String(fetchMock.mock.calls[5][1]?.body)).model).toBe("openrouter/free");
   });
 
-  it("uses the server-configured free model for chat even when the client sends a stale model ID", async () => {
+  it("rejects a stale client model ID instead of silently switching providers", async () => {
     const env = {
       APP_ORIGIN: "https://app.example.test",
-      AI_PROVIDER: "openrouter" as const,
       AI_MODEL: "openrouter/free",
       ALLOWED_MODELS: "openrouter/free",
       OPENROUTER_API_KEY: "server-only-openrouter-test-key",
@@ -422,15 +570,7 @@ describe("AI Worker access controls", () => {
         get: () => ({ fetch: async () => new Response(JSON.stringify({ allowed: true })) }),
       },
     };
-    const fetchMock = vi.fn()
-      .mockResolvedValueOnce(new Response(JSON.stringify({
-        success: true,
-        hostname: "app.example.test",
-        action: "chat",
-      }), { headers: { "Content-Type": "application/json" } }))
-      .mockResolvedValueOnce(new Response(JSON.stringify({
-        choices: [{ message: { content: "OpenRouter chat answer" } }],
-      }), { headers: { "Content-Type": "application/json" } }));
+    const fetchMock = vi.fn();
     vi.stubGlobal("fetch", fetchMock);
 
     const chat = await worker.fetch(new Request("https://worker.example.test/api/chat", {
@@ -453,14 +593,9 @@ describe("AI Worker access controls", () => {
       }),
     }), env);
 
-    expect(chat.status).toBe(200);
-    const eventStream = await chat.text();
-    expect(eventStream).toContain('data: {"text":"OpenRouter chat answer"}');
-    expect(eventStream).toContain('event: provider_request\ndata: {"count":1}');
-    expect(eventStream).not.toContain("legacy/old-model");
-    expect(fetchMock).toHaveBeenCalledTimes(2);
-    expect(fetchMock.mock.calls.filter(([url]) => url === "https://openrouter.ai/api/v1/chat/completions")).toHaveLength(1);
-    expect(JSON.parse(String(fetchMock.mock.calls[1][1]?.body)).model).toBe("openrouter/free");
+    expect(chat.status).toBe(503);
+    expect(await chat.json()).toEqual({ error: "provider_not_configured" });
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 
   it("accepts OpenAI-compatible text content blocks from OpenRouter", async () => {
@@ -469,7 +604,6 @@ describe("AI Worker access controls", () => {
     }), { headers: { "Content-Type": "application/json" } }));
     vi.stubGlobal("fetch", fetchMock);
     const env = {
-      AI_PROVIDER: "openrouter" as const,
       AI_MODEL: "openrouter/free",
       ALLOWED_MODELS: "openrouter/free",
       OPENROUTER_API_KEY: "server-only-openrouter-test-key",
