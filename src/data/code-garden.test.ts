@@ -209,7 +209,7 @@ describe("Code Garden language and simulation", () => {
     const moved = applyGardenAdventureAction(updated, assistantExecution.actions[0], assistantExecution.frames[0], now, "assistant");
     expect(moved.robot).toEqual(updated.robot);
     expect(moved.secondRobot).toMatchObject({ x: updated.secondRobot?.x, y: updated.secondRobot?.y, energy: 59 });
-    expect(moved.moonFarm?.robots.assistant).toMatchObject({ x: 4, y: 4, movementProgress: 1 });
+    expect(moved.moonFarm?.robots.assistant).toMatchObject({ x: 4, y: 4, movementProgress: 0 });
 
     const primaryRun = createGardenAdventureRun(moved, run.resources, now, "primary");
     const primaryExecution = executeGardenProgram('move("east")', mission, primaryRun, 300);
@@ -217,7 +217,7 @@ describe("Code Garden language and simulation", () => {
     expect(updated.robot).toEqual(moved.robot);
     expect(updated.energy).toBe(moved.energy - 1);
     expect(updated.secondRobot?.energy).toBe(59);
-    expect(updated.moonFarm?.robots.primary).toMatchObject({ x: 1, y: 2, movementProgress: 1 });
+    expect(updated.moonFarm?.robots.primary).toMatchObject({ x: 1, y: 2, movementProgress: 0 });
 
     const state = await initializeCodeGarden();
     const persisted = await saveCodeGardenState({
@@ -474,6 +474,88 @@ describe("Code Garden language and simulation", () => {
       skillLevels: {},
       plots: legacy.plots,
     });
+  });
+
+  it("keeps movement counters bounded and repairs counters from older saves", () => {
+    const now = 10_000;
+    const source = Array.from({ length: 4 }, () => 'move("east")\nmove("west")').join("\n");
+    const earth = createGardenAdventure(now);
+    const earthRun = createGardenAdventureRun(earth, {
+      plants: 0, wood: 0, stone: 0, seeds: 4, energy: 12,
+    }, now);
+    const earthExecution = executeGardenProgram(
+      source,
+      createGardenAdventureMission(earth, now),
+      earthRun,
+      300,
+      [],
+      { adventure: { seeds: earth.seeds, richSoil: false, wateringCan: false, now } },
+    );
+    let updatedEarth = earth;
+    earthExecution.actions.forEach((action, index) => {
+      updatedEarth = applyGardenAdventureAction(updatedEarth, action, earthExecution.frames[index], now);
+    });
+    expect(updatedEarth.robotMovementProgress).toBe(0);
+    expect(updatedEarth.energy).toBe(earth.energy - 8);
+
+    const moon = unlockGardenMoonExpedition(earthFarmReadyForMoon());
+    const moonRun = createGardenAdventureRun(moon, {
+      plants: 0, wood: 0, stone: 0, seeds: 4, energy: 12,
+    }, now);
+    const moonExecution = executeGardenProgram(
+      source,
+      createGardenAdventureMission(moon, now),
+      moonRun,
+      300,
+      [],
+      { adventure: {
+        seeds: moon.moonFarm!.seeds,
+        richSoil: false,
+        wateringCan: false,
+        isMoon: true,
+        moonWater: moon.moonFarm!.water,
+        now,
+      } },
+    );
+    let updatedMoon = moon;
+    moonExecution.actions.forEach((action, index) => {
+      updatedMoon = applyGardenAdventureAction(updatedMoon, action, moonExecution.frames[index], now);
+    });
+    expect(updatedMoon.moonFarm?.robots.primary?.movementProgress).toBe(0);
+
+    const malformedLegacy = {
+      ...updatedMoon,
+      robotMovementProgress: 8,
+      secondRobot: { ...updatedMoon.secondRobot!, movementProgress: 7 },
+      moonFarm: {
+        ...updatedMoon.moonFarm!,
+        robots: {
+          primary: { ...updatedMoon.moonFarm!.robots.primary!, movementProgress: 6 },
+          assistant: { ...updatedMoon.moonFarm!.robots.assistant!, movementProgress: 5 },
+        },
+      },
+    };
+    const normalized = normalizeGardenAdventure(malformedLegacy);
+    expect(normalized).toMatchObject({
+      robotMovementProgress: 0,
+      secondRobot: { movementProgress: 0 },
+      moonFarm: {
+        robots: {
+          primary: { movementProgress: 0 },
+          assistant: { movementProgress: 0 },
+        },
+      },
+    });
+    expect(isCodeGardenState({
+      id: "default",
+      activeMissionId: GARDEN_MISSIONS[0].id,
+      activeMode: "adventure",
+      completedMissionIds: GARDEN_MISSIONS.map((mission) => mission.id),
+      resources: { plants: 0, wood: 0, stone: 0, seeds: 4, energy: normalized.energy },
+      upgrades: [],
+      adventure: normalized,
+      updatedAt: now,
+    })).toBe(true);
   });
 
   beforeEach(async () => {

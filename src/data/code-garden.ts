@@ -306,6 +306,10 @@ export function getGardenMoonSkillLevel(farm: GardenMoonFarmSave, skillId: Garde
   return farm.skills?.[skillId] ?? 0;
 }
 
+function normalizeGardenMovementProgress(progress: number | undefined, energyDiscountActive: boolean): number {
+  return energyDiscountActive && progress === 1 ? 1 : 0;
+}
+
 export function getGardenAvailableCrops(farm: GardenAdventureSave): GardenCropId[] {
   return getGardenSkillLevel(farm, "seed-diversity") > 0
     ? Object.keys(GARDEN_CROPS) as GardenCropId[]
@@ -375,6 +379,8 @@ export function travelGardenWorld(farm: GardenAdventureSave, world: GardenWorldI
 export function normalizeGardenAdventure(farm: GardenAdventureSave): GardenAdventureSave {
   const savedSeeds: Partial<Record<GardenCropId, number>> = farm.seeds;
   const savedHarvest: Partial<Record<GardenCropId, number>> = farm.harvest;
+  const earthEnergyDiscount = getGardenSkillLevel(farm, "energy-economy") > 0;
+  const moonEnergyDiscount = farm.moonFarm && getGardenMoonSkillLevel(farm.moonFarm, "gravity-treads") > 0;
   return {
     ...farm,
     seeds: {
@@ -390,23 +396,42 @@ export function normalizeGardenAdventure(farm: GardenAdventureSave): GardenAdven
       pumpkin: savedHarvest.pumpkin ?? 0,
     },
     skillLevels: farm.skillLevels ?? {},
-    robotMovementProgress: farm.robotMovementProgress ?? 0,
+    robotMovementProgress: normalizeGardenMovementProgress(farm.robotMovementProgress, earthEnergyDiscount),
     activeRobot: farm.activeRobot ?? "primary",
     secondRobot: farm.secondRobot
-      ? { ...farm.secondRobot, movementProgress: farm.secondRobot.movementProgress ?? 0 }
+      ? {
+          ...farm.secondRobot,
+          movementProgress: normalizeGardenMovementProgress(farm.secondRobot.movementProgress, earthEnergyDiscount),
+        }
       : undefined,
     activeWorld: farm.moonFarm && farm.activeWorld === "moon" ? "moon" : "earth",
     moonFarm: farm.moonFarm ? {
       ...farm.moonFarm,
       robots: {
-        primary: farm.moonFarm.robots?.primary ?? { x: 0, y: 2, direction: "east", movementProgress: 0 },
+        primary: farm.moonFarm.robots?.primary
+          ? {
+              ...farm.moonFarm.robots.primary,
+              movementProgress: normalizeGardenMovementProgress(
+                farm.moonFarm.robots.primary.movementProgress,
+                Boolean(moonEnergyDiscount),
+              ),
+            }
+          : { x: 0, y: 2, direction: "east", movementProgress: 0 },
         ...(farm.secondRobot ? {
-          assistant: farm.moonFarm.robots?.assistant ?? {
-            x: farm.moonFarm.width - 1,
-            y: farm.moonFarm.height - 1,
-            direction: "west",
-            movementProgress: 0,
-          },
+          assistant: farm.moonFarm.robots?.assistant
+            ? {
+                ...farm.moonFarm.robots.assistant,
+                movementProgress: normalizeGardenMovementProgress(
+                  farm.moonFarm.robots.assistant.movementProgress,
+                  Boolean(moonEnergyDiscount),
+                ),
+              }
+            : {
+                x: farm.moonFarm.width - 1,
+                y: farm.moonFarm.height - 1,
+                direction: "west",
+                movementProgress: 0,
+              },
         } : {}),
       },
       seeds: {
@@ -1208,7 +1233,9 @@ export function executeGardenProgram(
         run.robot = { ...run.robot, x, y, direction: direction as GardenDirection };
         run.resources.energy -= energyCost;
         energyConsumed += energyCost;
-        movementProgress = moveEnergyEvery && nextMovementProgress >= moveEnergyEvery ? 0 : nextMovementProgress;
+        movementProgress = moveEnergyEvery
+          ? nextMovementProgress >= moveEnergyEvery ? 0 : nextMovementProgress
+          : 0;
         run.movementProgress = movementProgress;
       } else if (action.kind === "turn") {
         if (!GARDEN_TURN_DIRECTIONS.includes(action.argument as (typeof GARDEN_TURN_DIRECTIONS)[number])) throw new Error('turn() needs "left" or "right".');

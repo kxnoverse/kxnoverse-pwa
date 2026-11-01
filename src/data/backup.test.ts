@@ -8,6 +8,16 @@ import { db } from "./db";
 import { createSchoolDocument } from "./docs";
 import { createDiagramProject } from "./diagrams";
 import { createPresentationProject } from "./presentations";
+import {
+  applyGardenAdventureAction,
+  createGardenAdventure,
+  createGardenAdventureMission,
+  createGardenAdventureRun,
+  executeGardenProgram,
+  GARDEN_MISSIONS,
+  initializeCodeGarden,
+  saveCodeGardenState,
+} from "./code-garden";
 import { defaultAppearance } from "../stores/ui-store";
 import { i18nReady } from "../i18n";
 
@@ -594,6 +604,43 @@ describe("local data safety", () => {
     expect(legacyResult.codeProjects).toEqual({ added: 0, skipped: 0 });
     expect(legacyResult.codeLabProgress).toEqual({ added: 0, skipped: 0 });
     expect(legacyResult.codeGardenState).toEqual({ added: 0, skipped: 0 });
+  });
+
+  it("round-trips an Adventure save after multiple moves without an energy discount", async () => {
+    await db.open();
+    const state = await initializeCodeGarden();
+    const farm = createGardenAdventure();
+    const now = Date.now();
+    const run = createGardenAdventureRun(farm, state.resources, now);
+    const source = Array.from({ length: 4 }, () => 'move("east")\nmove("west")').join("\n");
+    const execution = executeGardenProgram(
+      source,
+      createGardenAdventureMission(farm, now),
+      run,
+      300,
+      [],
+      { adventure: { seeds: farm.seeds, richSoil: false, wateringCan: false, now } },
+    );
+    let updatedFarm = farm;
+    execution.actions.forEach((action, index) => {
+      updatedFarm = applyGardenAdventureAction(updatedFarm, action, execution.frames[index], now);
+    });
+    const saved = await saveCodeGardenState({
+      ...state,
+      activeMode: "adventure",
+      completedMissionIds: GARDEN_MISSIONS.map((mission) => mission.id),
+      adventure: updatedFarm,
+    });
+    expect(saved.adventure?.robotMovementProgress).toBe(0);
+
+    const backup = await exportDataBackup();
+    await db.codeGardenState.clear();
+    const restored = await importDataBackup(blobAsFile(backup));
+
+    expect(restored.codeGardenState).toEqual({ added: 1, skipped: 0 });
+    expect(await db.codeGardenState.get("default")).toMatchObject({
+      adventure: { robotMovementProgress: 0, energy: farm.energy - 8 },
+    });
   });
 
   it("rejects invalid backups before changing existing local records", async () => {
