@@ -1148,6 +1148,73 @@ h1 { color: var(--text); }
 .feature-footer a { display: inline-flex; align-items: center; gap: 5px; color: var(--text-muted); font-size: 9px; }
 .feature-footer a:hover { color: var(--accent); }
 
+.calendar-page__actions { display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 8px; }
+.calendar-page__views { display: inline-flex; gap: 3px; padding: 3px; border: 1px solid var(--ui-widget-border); border-radius: 12px; background: var(--ui-panel-well); }
+.calendar-page__views button { display: inline-flex; min-height: 30px; align-items: center; justify-content: center; gap: 6px; padding: 0 9px; border: 1px solid transparent; border-radius: 9px; background: transparent; color: var(--text-muted); cursor: pointer; font-size: 9px; }
+.calendar-page__views button:hover { color: var(--text); }
+.calendar-page__views button.is-active { border-color: color-mix(in srgb, var(--accent) 23%, var(--ui-widget-border)); background: var(--ui-widget-background); box-shadow: var(--ui-shadow-control); color: var(--text); }
+.calendar-checkins { display: grid; gap: 14px; }
+.calendar-checkins__heading, .calendar-checkins__overview-heading, .calendar-checkins__form-heading { display: flex; align-items: center; justify-content: space-between; gap: 14px; }
+.calendar-checkins__heading { margin: 8px 0 2px; }
+.calendar-checkins__heading h2 { margin: 5px 0 0; color: var(--text); font-size: 21px; font-weight: 570; letter-spacing: -.5px; }
+.calendar-checkins__heading p { margin: 5px 0 0; color: var(--text-muted); font-size: 10px; }
+.calendar-checkins__year-controls { display: flex; align-items: center; gap: 8px; }
+.calendar-checkins__year-controls strong { min-width: 46px; color: var(--text); font-size: 13px; font-variant-numeric: tabular-nums; text-align: center; }
+.calendar-checkins__overview { min-width: 0; padding: 17px; }
+.calendar-checkins__overview-heading { margin-bottom: 14px; }
+.calendar-checkins__overview-heading h3 { margin: 0 0 4px; color: var(--text); font-size: 13px; font-weight: 570; }
+.calendar-checkins__overview-heading span { color: var(--text-muted); font-size: 9px; }
+.calendar-checkins__overview-hint { text-align: right; }
+.calendar-checkins__scroll { overflow-x: auto; padding: 5px 3px 10px; scrollbar-color: var(--line) transparent; scrollbar-width: thin; }
+.calendar-checkins__chart { display: flex; width: max-content; gap: 8px; }
+.calendar-checkins__weekdays { display: grid; grid-template-rows: repeat(7, 11px); gap: 3px; padding-top: 21px; color: var(--text-muted); font-size: 8px; line-height: 11px; }
+.calendar-checkins__grid-wrap { width: max-content; }
+.calendar-checkins__months { display: grid; height: 18px; grid-auto-flow: column; align-items: start; gap: 0 3px; color: var(--text-muted); font-size: 8px; }
+.calendar-checkins__months span { white-space: nowrap; }
+.calendar-checkins__weeks { display: flex; gap: 3px; }
+.calendar-checkins__week { display: grid; grid-template-rows: repeat(7, 11px); gap: 3px; }
+.calendar-checkins__day { display: block; width: 11px; height: 11px; flex: 0 0 auto; padding: 0; border: 1px solid color-mix(in srgb, var(--text) 7%, transparent); border-radius: 3px; background: color-mix(in srgb, var(--surface-1) 92%, var(--text) 8%); }
+button.calendar-checkins__day { cursor: pointer; }
+button.calendar-checkins__day:hover { outline: 1px solid color-mix(in srgb, var(--text) 55%, transparent); outline-offset: 1px; }
+button.calendar-checkins__day:focus-visible { z-index: 1; outline: 2px solid var(--accent); outline-offset: 2px; }
+.calendar-checkins__day--outside { visibility: hidden; }
+.calendar-checkins__day--level-1 { background: color-mix(in srgb, #a78bfa 30%, var(--surface-1)); }
+.calendar-checkins__day--level-2 { background: color-mix(in srgb, #a78bfa 48%, var(--surface-1)); }
+.calendar-checkins__day--level-3 { background: color-mix(in srgb, #a78bfa 69%, var(--surface-1)); }
+.calendar-checkins__day--level-4 { background: color-mix(in srgb, #a78bfa 91%, var(--surface-1)); }
+.calendar-checkins__day--logged { box-shadow: inset 0 0 0 1px color-mix(in srgb, #a78bfa 65%, var(--text)); }
+button.calendar-checkins__day.is-selected { outline: 2px solid var(--accent); outline-offset: 2px; }
+.calendar-checkins__legend { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 13px; margin-top: 12px; color: var(--text-muted); font-size: 8px; }
+.calendar-checkins__legend > span { display: inline-flex; align-items: center; gap: 5px; white-space: nowrap; }
+.calendar-checkins__form { padding: 18px; }
+.calendar-checkins__form-heading { margin-bottom: 17px; padding-bottom: 13px; border-bottom: 1px solid var(--line); }
+.calendar-checkins__form-heading > div > span { display: block; margin-bottom: 4px; color: var(--text-muted); font-size: 8px; font-weight: 570; letter-spacing: .08em; text-transform: uppercase; }
+.calendar-checkins__form-heading h3 { margin: 0; color: var(--text); font-size: 14px; font-weight: 570; }
+.calendar-checkins__logged { padding: 4px 8px; border: 1px solid color-mix(in srgb, #a78bfa 35%, transparent); border-radius: 999px; color: color-mix(in srgb, #a78bfa 75%, var(--text)); font-size: 8px; }
+.calendar-checkins__fields { display: grid; grid-template-columns: minmax(150px, .7fr) minmax(270px, 1.3fr); gap: 17px 22px; }
+.calendar-checkins__fields > label > span:first-child, .calendar-checkins__mood legend { display: block; margin-bottom: 8px; color: var(--text-dim); font-size: 10px; font-weight: 550; }
+.calendar-checkins__sleep-input { display: flex; width: max-content; max-width: 100%; align-items: center; gap: 8px; }
+.calendar-checkins__sleep-input input { width: 94px; min-height: 38px; padding: 0 10px; border: 1px solid var(--ui-widget-border); border-radius: 10px; background: var(--ui-panel-well); color: var(--text); font-size: 13px; }
+.calendar-checkins__sleep-input > span { color: var(--text-muted); font-size: 9px; }
+.calendar-checkins__sleep small { display: block; margin-top: 6px; color: var(--text-muted); font-size: 8px; }
+.calendar-checkins__mood { min-width: 0; margin: 0; padding: 0; border: 0; }
+.calendar-checkins__mood-options { display: flex; flex-wrap: wrap; gap: 6px; }
+.calendar-checkins__mood-options label { display: grid; min-width: 58px; min-height: 60px; flex: 1; place-items: center; align-content: center; gap: 3px; padding: 5px; border: 1px solid var(--ui-widget-border); border-radius: 10px; background: var(--ui-panel-well); color: var(--text-muted); cursor: pointer; text-align: center; }
+.calendar-checkins__mood label:focus-within { outline: 2px solid var(--accent); outline-offset: 2px; }
+.calendar-checkins__mood-options label.is-selected { border-color: color-mix(in srgb, var(--accent) 50%, var(--ui-widget-border)); background: color-mix(in srgb, var(--accent) 10%, var(--ui-panel-well)); color: var(--text); }
+.calendar-checkins__mood input { width: 12px; height: 12px; margin: 0; accent-color: var(--accent); }
+.calendar-checkins__mood-options label > span { font-size: 17px; line-height: 1; }
+.calendar-checkins__mood-options small { font-size: 8px; }
+.calendar-checkins__feeling-creator { display: grid; grid-template-columns: minmax(0, 1fr) 76px auto; gap: 8px; align-items: end; margin-top: 12px; }
+.calendar-checkins__feeling-creator label { display: grid; gap: 5px; color: var(--text-dim); font-size: 9px; }
+.calendar-checkins__feeling-creator input { width: 100%; min-width: 0; min-height: 34px; padding: 0 9px; border: 1px solid var(--ui-widget-border); border-radius: 9px; background: var(--ui-panel-well); color: var(--text); font: inherit; }
+.calendar-checkins__feeling-creator .button { min-height: 34px; padding: 0 10px; font-size: 9px; }
+.calendar-checkins__plans { grid-column: 1 / -1; }
+.calendar-checkins__plans textarea { width: 100%; min-height: 74px; padding: 10px 11px; border: 1px solid var(--ui-widget-border); border-radius: 10px; background: var(--ui-panel-well); color: var(--text); font: inherit; font-size: 10px; resize: vertical; }
+.calendar-checkins__actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 12px; }
+.calendar-checkins__actions .button { min-height: 34px; padding: 0 12px; font-size: 9px; }
+.calendar-checkins__status { margin: 10px 0 0; color: var(--text-muted); font-size: 9px; }
+
 .main-column:has(.calendar-page) {
   background-image:
     radial-gradient(ellipse 42rem 30rem at 88% 0%, color-mix(in srgb, var(--accent) 10%, transparent), transparent 70%),
@@ -1412,6 +1479,23 @@ h1 { color: var(--text); }
   .calendar-month__controls .button { padding: 0 6px; }
   .calendar-page__heading { align-items: flex-start; }
   .calendar-page__heading > .button { min-height: 36px; }
+  .calendar-page__actions { width: 100%; justify-content: space-between; }
+  .calendar-page__views { min-width: 0; }
+  .calendar-page__views button { gap: 4px; padding-inline: 7px; font-size: 8px; }
+  .calendar-checkins__heading { align-items: flex-start; }
+  .calendar-checkins__heading h2 { font-size: 18px; }
+  .calendar-checkins__heading p { max-width: 280px; line-height: 1.5; }
+  .calendar-checkins__overview { padding: 12px; }
+  .calendar-checkins__overview-hint { max-width: 130px; line-height: 1.45; }
+  .calendar-checkins__legend { gap: 7px 10px; }
+  .calendar-checkins__form { padding: 14px; }
+  .calendar-checkins__fields { grid-template-columns: minmax(0, 1fr); gap: 15px; }
+  .calendar-checkins__plans { grid-column: auto; }
+  .calendar-checkins__mood-options label { min-width: 48px; }
+  .calendar-checkins__feeling-creator { grid-template-columns: minmax(0, 1fr) 66px; }
+  .calendar-checkins__feeling-creator .button { grid-column: 1 / -1; }
+  .calendar-checkins__actions { flex-wrap: wrap; }
+  .calendar-checkins__actions .button { flex: 1; justify-content: center; }
   .calendar-regional-status { align-items: flex-start; flex-direction: column; gap: 4px; }
   .calendar-month { margin-inline: -16px; padding: 8px 6px; }
   .calendar-month__heading { align-items: center; }

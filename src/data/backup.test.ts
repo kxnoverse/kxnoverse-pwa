@@ -67,7 +67,54 @@ describe("local data safety", () => {
     expect(await db.documentImages.count()).toBe(0);
     expect(await db.pdfProjects.count()).toBe(0);
     expect(await db.docsTemplates.count()).toBe(0);
-    expect(db.verno).toBe(12);
+    expect(db.verno).toBe(13);
+  });
+
+  it("backs up daily check-ins and accepts backups created before check-ins existed", async () => {
+    await db.open();
+    const checkin = {
+      id: "2026-10-31",
+      date: "2026-10-31",
+      sleepHours: 7.5,
+      mood: null,
+      customMoodId: "curious-id",
+      plans: "Finish the history project",
+      updatedAt: 123,
+    };
+    const feelings = [{ id: "curious-id", name: "Curious", emoji: "✨" }];
+    await db.dailyCheckins.put(checkin);
+    await db.settings.put({ key: "calendarCheckinFeelings", value: JSON.stringify(feelings) });
+
+    const backup = await exportDataBackup();
+    const snapshot = JSON.parse(await backup.text()) as {
+      schemaVersion: number;
+      data: Record<string, Array<Record<string, unknown>>>;
+    };
+    expect(snapshot.schemaVersion).toBe(13);
+    expect(snapshot.data.dailyCheckins).toEqual([checkin]);
+
+    await db.dailyCheckins.clear();
+    const restored = await importDataBackup(blobAsFile(backup));
+    expect(restored.dailyCheckins).toEqual({ added: 1, skipped: 0 });
+    expect(await db.dailyCheckins.get(checkin.id)).toEqual(checkin);
+    expect(await db.settings.get("calendarCheckinFeelings")).toEqual({
+      key: "calendarCheckinFeelings",
+      value: JSON.stringify(feelings),
+    });
+
+    await db.dailyCheckins.clear();
+    await db.settings.delete("calendarCheckinFeelings");
+    snapshot.schemaVersion = 12;
+    delete snapshot.data.dailyCheckins;
+    const legacy = blobAsFile(new Blob([JSON.stringify(snapshot)], { type: "application/json" }));
+    const legacyResult = await importDataBackup(legacy);
+    expect(legacyResult.dailyCheckins).toEqual({ added: 0, skipped: 0 });
+    expect(await db.dailyCheckins.count()).toBe(0);
+
+    snapshot.schemaVersion = 13;
+    snapshot.data.dailyCheckins = [{ ...checkin, id: "2026-02-30", date: "2026-02-30" }];
+    const invalidDateBackup = blobAsFile(new Blob([JSON.stringify(snapshot)], { type: "application/json" }));
+    await expect(importDataBackup(invalidDateBackup)).rejects.toThrow("The backup contains an invalid daily check-in.");
   });
 
   it("exports data and merges without overwriting colliding local records", async () => {
@@ -336,7 +383,7 @@ describe("local data safety", () => {
       data: Record<string, Array<Record<string, unknown>>>;
       preferences: Record<string, string>;
     };
-    expect(exported.schemaVersion).toBe(12);
+    expect(exported.schemaVersion).toBe(13);
     expect(exported.data.subjects).toHaveLength(1);
     expect(exported.data.timetable).toHaveLength(1);
     expect(exported.data.exceptions).toHaveLength(1);
@@ -475,7 +522,7 @@ describe("local data safety", () => {
       schemaVersion: number;
       data: Record<string, Array<Record<string, unknown>>>;
     };
-    expect(snapshot.schemaVersion).toBe(12);
+    expect(snapshot.schemaVersion).toBe(13);
     expect(snapshot.data.codeProjects).toEqual([project]);
     expect(snapshot.data.codeLabProgress).toEqual([progress]);
     expect(snapshot.data.codeGardenState).toEqual([garden]);
