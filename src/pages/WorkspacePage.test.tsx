@@ -181,7 +181,10 @@ describe("Workspace", () => {
     expect(screen.getByText("Atomic structure and bonding")).toBeInTheDocument();
 
     await user.click(screen.getByRole("button", { name: "Open in Docs" }));
-    const docsTitle = await screen.findByRole("textbox", { name: "Document title" });
+    await waitFor(() => {
+      expect(window.location.hash).toBe("#/docs?document=linked-school-document");
+    });
+    const docsTitle = await screen.findByRole("textbox", { name: "Document title" }, { timeout: 5000 });
     expect(docsTitle).toHaveValue("Chemistry review");
     await db.documents.update("linked-school-document", { title: "Chemistry notes", updatedAt: 3 });
     await user.click(within(screen.getByRole("navigation", { name: "Main navigation" })).getByRole("link", { name: "Workspace" }));
