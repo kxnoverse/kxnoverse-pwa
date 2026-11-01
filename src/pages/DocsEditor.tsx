@@ -1,8 +1,9 @@
 import { Suspense, lazy, useCallback, useEffect, useMemo, useRef, useState, type ChangeEvent } from "react";
+import { createPortal } from "react-dom";
 import {
   AlignCenter, AlignJustify, AlignLeft, AlignRight, Bold, Check, ChevronRight, ClipboardList, Copy, Download,
   FileText, Highlighter, ImagePlus, Italic, Link, List, ListOrdered, Minus, MoreHorizontal, Redo2, SpellCheck,
-  Search, Strikethrough, Table2, Trash2, Underline, Undo2, X,
+  Search, Share2, Strikethrough, Table2, Trash2, Underline, Undo2, X,
 } from "lucide-react";
 import { EditorContent, useEditor, type Editor } from "@tiptap/react";
 import StarterKit from "@tiptap/starter-kit";
@@ -24,8 +25,15 @@ import { countDocumentWords, extractDocumentText, saveDocument } from "../data/d
 import { downloadBlob, exportDocumentDocx, exportDocumentText, safeFilename } from "../data/docs-export";
 import { createDocumentPrintFrame } from "../data/docs-print";
 import type { SpellLanguage } from "../data/docs-spellcheck";
-import { DocumentFontSize, DocumentImage, DocumentIndent, DocumentPageBreak, DocumentParagraphSpacing } from "./docs-extensions";
+import { DocumentFontSize, DocumentImage, DocumentDiagram, DocumentIndent, DocumentPageBreak, DocumentParagraphSpacing } from "./docs-extensions";
 import { createWidgetNode, DOC_WIDGET_KINDS, DocumentWidget, type DocWidgetKind } from "./docs-widgets";
+import { createDiagramProject } from "../data/diagrams";
+import type { DiagramProject } from "../data/db";
+
+const DiagramEditor = lazy(async () => {
+  const module = await import("./DiagramEditor");
+  return { default: module.DiagramEditor };
+});
 
 const DocsSpellcheckPanel = lazy(async () => {
   const module = await import("./docs-spellcheck-panel");
@@ -106,6 +114,10 @@ export function DocsEditor({
   const [matchIndex, setMatchIndex] = useState(0);
   const [exportError, setExportError] = useState("");
   const [imageError, setImageError] = useState("");
+  const [diagramModal, setDiagramModal] = useState<{
+    project: DiagramProject;
+    onApply?: (project: DiagramProject) => void;
+  } | null>(null);
   const imageInput = useRef<HTMLInputElement>(null);
   const documentRef = useRef(documentInfo);
   const editorRef = useRef<Editor | null>(null);
@@ -167,6 +179,7 @@ export function DocsEditor({
       DocumentIndent,
       DocumentParagraphSpacing,
       DocumentImage,
+      DocumentDiagram,
       DocumentPageBreak,
       DocumentWidget,
     ],
@@ -187,6 +200,18 @@ export function DocsEditor({
   useEffect(() => {
     editorRef.current = editor;
   }, [editor]);
+
+  useEffect(() => {
+    const handleDiagramEdit = (event: Event) => {
+      const { project, onApply } = (event as CustomEvent<{
+        project: DiagramProject;
+        onApply: (project: DiagramProject) => void;
+      }>).detail;
+      setDiagramModal({ project, onApply });
+    };
+    window.addEventListener("kxno:edit-diagram", handleDiagramEdit);
+    return () => window.removeEventListener("kxno:edit-diagram", handleDiagramEdit);
+  }, []);
 
   useEffect(() => () => {
     if (saveTimer.current !== undefined) window.clearTimeout(saveTimer.current);
@@ -468,6 +493,7 @@ export function DocsEditor({
               }}><Link size={15} />{t("docs.insertLink")}</button>
               <button type="button" aria-label={t("docs.insertTable")} onClick={() => editor?.chain().focus().insertTable({ rows: 3, cols: 3, withHeaderRow: true }).run()}><Table2 size={15} />{t("docs.insertTable")}</button>
               <button type="button" aria-label={t("docs.insertImage")} onClick={() => imageInput.current?.click()}><ImagePlus size={15} />{t("docs.insertImage")}</button>
+              <button type="button" aria-label={t("diagram.insertIntoDocs")} onClick={() => setDiagramModal({ project: createDiagramProject(t("diagram.newDiagram")) })}><Share2 size={15} />{t("diagram.insertIntoDocs")}</button>
               {selectedImage && <><button type="button" onClick={() => updateImageWidth(-40)}><Minus size={15} />{t("docs.imageSmaller")}</button><button type="button" onClick={() => updateImageWidth(40)}><ChevronRight size={15} />{t("docs.imageLarger")}</button></>}
               <button type="button" aria-label={t("docs.insertPageBreak")} onClick={() => editor?.chain().focus().insertContent({ type: "pageBreak" }).run()}><FileText size={15} />{t("docs.insertPageBreak")}</button>
               <button type="button" aria-label={t("docs.findReplace")} onClick={() => setFindOpen((open) => !open)}><Search size={15} />{t("docs.findReplace")}</button>
@@ -567,6 +593,20 @@ export function DocsEditor({
         <span>{t("docs.paragraphs", { count: documentParagraphCount(editor?.getJSON()) })}</span>
         <span className={`docs-save-indicator docs-save-indicator--${saveState}`}><Check size={12} />{saveState === "saving" ? t("docs.saving") : saveState === "error" ? t("docs.saveError") : t("docs.saved")}</span>
       </footer>
+      {diagramModal && createPortal(
+        <Suspense fallback={<p className="diagram-editor__loading" role="status">{t("diagram.loading")}</p>}>
+          <DiagramEditor
+            initialProject={diagramModal.project}
+            onClose={() => setDiagramModal(null)}
+            onApply={diagramModal.onApply}
+            onInsert={(project) => {
+              if (diagramModal.onApply) diagramModal.onApply(project);
+              else editor?.chain().focus().insertContent({ type: "documentDiagram", attrs: { project } }).run();
+            }}
+          />
+        </Suspense>,
+        document.body,
+      )}
     </div>
   );
 }

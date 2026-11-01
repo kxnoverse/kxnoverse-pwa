@@ -259,6 +259,75 @@ export interface SchoolDocumentImage {
   createdAt: number;
 }
 
+export type DiagramShape = "rounded" | "rectangle" | "circle" | "diamond";
+
+export interface DiagramNode {
+  id: string;
+  label: string;
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  shape: DiagramShape;
+  color: string;
+}
+
+export interface DiagramConnector {
+  id: string;
+  from: string;
+  to: string;
+  label: string;
+  color: string;
+}
+
+export interface DiagramProject {
+  id: string;
+  name: string;
+  nodes: DiagramNode[];
+  connectors: DiagramConnector[];
+  createdAt: number;
+  updatedAt: number;
+}
+
+export type PresentationElementKind = "text" | "shape" | "image";
+export type PresentationShape = "rectangle" | "rounded" | "circle" | "line";
+
+export interface PresentationElement {
+  id: string;
+  kind: PresentationElementKind;
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  text?: string;
+  shape?: PresentationShape;
+  color?: string;
+  fill?: string;
+  fontSize?: number;
+  fontFamily?: string;
+  bold?: boolean;
+  blob?: Blob;
+  mimeType?: "image/png" | "image/jpeg" | "image/webp";
+  imageName?: string;
+}
+
+export interface PresentationSlide {
+  id: string;
+  title: string;
+  background: string;
+  layout: string;
+  elements: PresentationElement[];
+}
+
+export interface PresentationProject {
+  id: string;
+  name: string;
+  templateId: string;
+  slides: PresentationSlide[];
+  createdAt: number;
+  updatedAt: number;
+}
+
 export type PdfAnnotationTool = "text" | "highlight" | "draw";
 
 export interface PdfAnnotation {
@@ -374,6 +443,8 @@ class KxnoDatabase extends Dexie {
   documentContents!: EntityTable<SchoolDocumentContent, "id">;
   docsTemplates!: EntityTable<DocsTemplate, "id">;
   documentImages!: EntityTable<SchoolDocumentImage, "id">;
+  diagramProjects!: EntityTable<DiagramProject, "id">;
+  presentations!: EntityTable<PresentationProject, "id">;
   pdfProjects!: EntityTable<PdfProject, "id">;
   codeProjects!: EntityTable<CodeProject, "id">;
   codeLabProgress!: EntityTable<CodeLabProgress, "id">;
@@ -636,6 +707,65 @@ class KxnoDatabase extends Dexie {
       codeLabProgress: "id",
       codeGardenState: "id",
       musicSources: "id",
+    });
+    this.version(14).stores({
+      subjects: "id, name",
+      teachers: "id, name",
+      timetable: "id, weekday, subjectId, teacherId, weekType",
+      exceptions: "id, date, type, entryId",
+      settings: "key",
+      aiPresets: "id, name",
+      aiConversations: "id, updatedAt",
+      aiMessages: "id, conversationId, createdAt",
+      aiAttachments: "id, messageId, createdAt",
+      tasks: "id, dueDate, completed, subjectId, priority, updatedAt",
+      calendarEvents: "id, startAt, endAt, taskId",
+      dailyCheckins: "id",
+      notes: "id, updatedAt, pinned, folder, subjectId",
+      focusSessions: "id, startedAt, endedAt, kind, taskId",
+      files: "id, name, category, subjectId, noteId, modifiedAt",
+      arcadeData: "id, updatedAt",
+      workspace: "id",
+      documents: "id, updatedAt",
+      documentContents: "id",
+      documentImages: "id, type, createdAt",
+      pdfProjects: "id, updatedAt, sourceFileId",
+      docsTemplates: "id, updatedAt",
+      codeProjects: "id, updatedAt",
+      codeLabProgress: "id",
+      codeGardenState: "id",
+      musicSources: "id",
+      diagramProjects: "id, updatedAt",
+    });
+    this.version(15).stores({
+      subjects: "id, name",
+      teachers: "id, name",
+      timetable: "id, weekday, subjectId, teacherId, weekType",
+      exceptions: "id, date, type, entryId",
+      settings: "key",
+      aiPresets: "id, name",
+      aiConversations: "id, updatedAt",
+      aiMessages: "id, conversationId, createdAt",
+      aiAttachments: "id, messageId, createdAt",
+      tasks: "id, dueDate, completed, subjectId, priority, updatedAt",
+      calendarEvents: "id, startAt, endAt, taskId",
+      dailyCheckins: "id",
+      notes: "id, updatedAt, pinned, folder, subjectId",
+      focusSessions: "id, startedAt, endedAt, kind, taskId",
+      files: "id, name, category, subjectId, noteId, modifiedAt",
+      arcadeData: "id, updatedAt",
+      workspace: "id",
+      documents: "id, updatedAt",
+      documentContents: "id",
+      documentImages: "id, type, createdAt",
+      pdfProjects: "id, updatedAt, sourceFileId",
+      docsTemplates: "id, updatedAt",
+      codeProjects: "id, updatedAt",
+      codeLabProgress: "id",
+      codeGardenState: "id",
+      musicSources: "id",
+      diagramProjects: "id, updatedAt",
+      presentations: "id, updatedAt",
     });
   }
 }

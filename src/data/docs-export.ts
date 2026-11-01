@@ -1,6 +1,7 @@
 import type { ImageRun, Paragraph, ParagraphChild, Table, TableCell, TableRow } from "docx";
 import { db, type SchoolDocument } from "./db";
 import { extractDocumentText } from "./docs";
+import { diagramToPng, isDiagramProject } from "./diagrams";
 
 type DocxLibrary = typeof import("docx");
 type JsonNode = {
@@ -83,6 +84,18 @@ async function imageRun(item: JsonNode, library: DocxLibrary): Promise<ImageRun>
   });
 }
 
+async function diagramRun(item: JsonNode, library: DocxLibrary): Promise<ImageRun> {
+  const project = item.attrs?.project;
+  if (!isDiagramProject(project)) throw new Error("The document contains invalid diagram data.");
+  const png = await diagramToPng(project, 1);
+  return new library.ImageRun({
+    data: new Uint8Array(await png.arrayBuffer()),
+    type: "png",
+    transformation: { width: 540, height: 360 },
+    altText: { description: project.name },
+  });
+}
+
 async function renderBlocks(
   children: JsonNode[],
   library: DocxLibrary,
@@ -133,6 +146,8 @@ async function renderBlocks(
       if (rows.length) result.push(new library.Table({ rows, width: { size: 100, type: library.WidthType.PERCENTAGE } }));
     } else if (child.type === "documentImage") {
       result.push(new library.Paragraph({ children: [await imageRun(child, library)] }));
+    } else if (child.type === "documentDiagram") {
+      result.push(new library.Paragraph({ children: [await diagramRun(child, library)] }));
     } else if (child.type === "pageBreak") {
       result.push(new library.Paragraph({ children: [new library.PageBreak()] }));
     } else if (child.type === "documentWidget") {

@@ -6,6 +6,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { exportDataBackup, importDataBackup } from "./backup";
 import { db } from "./db";
 import { createSchoolDocument } from "./docs";
+import { createDiagramProject } from "./diagrams";
+import { createPresentationProject } from "./presentations";
 import { defaultAppearance } from "../stores/ui-store";
 import { i18nReady } from "../i18n";
 
@@ -67,7 +69,7 @@ describe("local data safety", () => {
     expect(await db.documentImages.count()).toBe(0);
     expect(await db.pdfProjects.count()).toBe(0);
     expect(await db.docsTemplates.count()).toBe(0);
-    expect(db.verno).toBe(13);
+    expect(db.verno).toBe(15);
   });
 
   it("backs up daily check-ins and accepts backups created before check-ins existed", async () => {
@@ -90,7 +92,7 @@ describe("local data safety", () => {
       schemaVersion: number;
       data: Record<string, Array<Record<string, unknown>>>;
     };
-    expect(snapshot.schemaVersion).toBe(13);
+    expect(snapshot.schemaVersion).toBe(15);
     expect(snapshot.data.dailyCheckins).toEqual([checkin]);
 
     await db.dailyCheckins.clear();
@@ -106,6 +108,8 @@ describe("local data safety", () => {
     await db.settings.delete("calendarCheckinFeelings");
     snapshot.schemaVersion = 12;
     delete snapshot.data.dailyCheckins;
+    delete snapshot.data.diagramProjects;
+    delete snapshot.data.presentations;
     const legacy = blobAsFile(new Blob([JSON.stringify(snapshot)], { type: "application/json" }));
     const legacyResult = await importDataBackup(legacy);
     expect(legacyResult.dailyCheckins).toEqual({ added: 0, skipped: 0 });
@@ -115,6 +119,46 @@ describe("local data safety", () => {
     snapshot.data.dailyCheckins = [{ ...checkin, id: "2026-02-30", date: "2026-02-30" }];
     const invalidDateBackup = blobAsFile(new Blob([JSON.stringify(snapshot)], { type: "application/json" }));
     await expect(importDataBackup(invalidDateBackup)).rejects.toThrow("The backup contains an invalid daily check-in.");
+  });
+
+  it("round-trips saved diagrams and presentation image blobs", async () => {
+    await db.open();
+    const diagram = createDiagramProject("Study flow");
+    const presentation = createPresentationProject("northstar");
+    const imageBytes = [137, 80, 78, 71, 13, 10, 26, 10];
+    presentation.slides[0].elements.push({
+      id: "cover-image",
+      kind: "image",
+      x: 700,
+      y: 80,
+      width: 220,
+      height: 140,
+      blob: new Blob([new Uint8Array(imageBytes)], { type: "image/png" }),
+      mimeType: "image/png",
+      imageName: "cover.png",
+    });
+    await db.diagramProjects.put(diagram);
+    await db.presentations.put(presentation);
+
+    const backup = await exportDataBackup();
+    const snapshot = JSON.parse(await backup.text()) as {
+      data: {
+        presentations: Array<{ slides: Array<{ elements: Array<{ blobData?: string }> }> }>;
+      };
+    };
+    expect(snapshot.data.presentations[0].slides[0].elements.some((element) => element.blobData)).toBe(true);
+
+    await db.diagramProjects.clear();
+    await db.presentations.clear();
+    const restored = await importDataBackup(blobAsFile(backup));
+
+    expect(restored.diagramProjects).toEqual({ added: 1, skipped: 0 });
+    expect(restored.presentations).toEqual({ added: 1, skipped: 0 });
+    expect(await db.diagramProjects.get(diagram.id)).toMatchObject({ name: "Study flow" });
+    const restoredPresentation = await db.presentations.get(presentation.id);
+    const restoredImage = restoredPresentation?.slides[0].elements.find((element) => element.id === "cover-image");
+    expect(restoredImage?.blob?.type).toBe("image/png");
+    expect([...new Uint8Array(await restoredImage!.blob!.arrayBuffer())]).toEqual(imageBytes);
   });
 
   it("exports data and merges without overwriting colliding local records", async () => {
@@ -383,7 +427,7 @@ describe("local data safety", () => {
       data: Record<string, Array<Record<string, unknown>>>;
       preferences: Record<string, string>;
     };
-    expect(exported.schemaVersion).toBe(13);
+    expect(exported.schemaVersion).toBe(15);
     expect(exported.data.subjects).toHaveLength(1);
     expect(exported.data.timetable).toHaveLength(1);
     expect(exported.data.exceptions).toHaveLength(1);
@@ -522,7 +566,7 @@ describe("local data safety", () => {
       schemaVersion: number;
       data: Record<string, Array<Record<string, unknown>>>;
     };
-    expect(snapshot.schemaVersion).toBe(13);
+    expect(snapshot.schemaVersion).toBe(15);
     expect(snapshot.data.codeProjects).toEqual([project]);
     expect(snapshot.data.codeLabProgress).toEqual([progress]);
     expect(snapshot.data.codeGardenState).toEqual([garden]);

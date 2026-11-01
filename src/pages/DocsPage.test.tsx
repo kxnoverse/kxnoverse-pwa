@@ -75,7 +75,7 @@ describe("Kxno Docs editor", () => {
   it("autosaves editor changes locally and reloads the saved content", async () => {
     const document = await createDocument("Revision");
     const user = userEvent.setup();
-    const view = renderDocsPage();
+    const view = renderDocsPage(`/docs?document=${document.id}`);
     const editor = await findDocumentEditor();
     await user.type(editor, "Photosynthesis notes");
 
@@ -92,6 +92,60 @@ describe("Kxno Docs editor", () => {
     });
     renderDocsPage();
     expect(await findDocumentEditor()).toHaveTextContent("Photosynthesis notes");
+  });
+
+  it("inserts an editable diagram into a document and persists edits to its nodes", async () => {
+    const docRecord = await createDocument("Process notes");
+    const user = userEvent.setup();
+    renderDocsPage();
+    await findDocumentEditor();
+
+    await user.click(screen.getByRole("button", { name: "Insert diagram" }));
+    const dialog = await screen.findByRole("dialog");
+    await user.click(within(dialog).getByRole("button", { name: "Insert diagram" }));
+
+    const editButton = await screen.findByRole("button", { name: "Edit diagram" });
+    await user.click(editButton);
+    const editDialog = await screen.findByRole("dialog");
+    await user.click(within(editDialog).getByRole("button", { name: "Start node" }));
+    await user.clear(within(editDialog).getByLabelText("Label"));
+    await user.type(within(editDialog).getByLabelText("Label"), "Read the brief");
+    await user.click(within(editDialog).getByRole("button", { name: "Update in document" }));
+
+    await waitFor(async () => {
+      const saved = await db.documentContents.get(docRecord.id);
+      expect(JSON.stringify(saved?.content)).toContain("Read the brief");
+    }, { timeout: 5000 });
+    expect(screen.getByRole("button", { name: "Edit diagram" })).toBeInTheDocument();
+  });
+
+  it("opens the existing assistant with the current document and saved conversation history", async () => {
+    const docRecord = await createDocument("Revision");
+    await saveDocument(docRecord, {
+      type: "doc",
+      content: [{ type: "paragraph", content: [{ type: "text", text: "Photosynthesis notes" }] }],
+    });
+    await db.aiConversations.add({
+      id: "docs-assistant-history",
+      title: "Biology review",
+      updatedAt: 123,
+      presetId: "study-assistant",
+    });
+    await db.aiMessages.add({
+      id: "docs-assistant-message",
+      conversationId: "docs-assistant-history",
+      role: "user",
+      content: "Explain chlorophyll",
+      createdAt: 123,
+    });
+    const user = userEvent.setup();
+    renderDocsPage(`/docs?document=${docRecord.id}`);
+    await findDocumentEditor();
+
+    await user.click(screen.getByRole("button", { name: "Open assistant" }));
+    expect(await screen.findByRole("checkbox", { name: "Include current document" }, { timeout: 5000 })).toBeChecked();
+    expect(await screen.findByText("Biology review", {}, { timeout: 5000 })).toBeInTheDocument();
+    expect(await screen.findByText("Explain chlorophyll", {}, { timeout: 5000 })).toBeInTheDocument();
   });
 
   it("keeps dark paper preview visual-only and leaves stored formatting unchanged", async () => {

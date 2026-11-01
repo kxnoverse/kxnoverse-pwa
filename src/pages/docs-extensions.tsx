@@ -1,7 +1,10 @@
 import { useEffect, useState } from "react";
 import { Extension, Node, mergeAttributes } from "@tiptap/core";
 import { NodeViewWrapper, ReactNodeViewRenderer, type NodeViewProps } from "@tiptap/react";
+import { useTranslation } from "react-i18next";
 import { db } from "../data/db";
+import { diagramToSvg, isDiagramProject } from "../data/diagrams";
+import type { DiagramProject } from "../data/db";
 
 function DocumentImageView({ node, updateAttributes, selected }: NodeViewProps) {
   const [src, setSrc] = useState("");
@@ -68,6 +71,70 @@ export const DocumentImage = Node.create({
   },
   addNodeView() {
     return ReactNodeViewRenderer(DocumentImageView);
+  },
+});
+
+function DocumentDiagramView({ node, updateAttributes, selected }: NodeViewProps) {
+  const { t } = useTranslation();
+  const project = isDiagramProject(node.attrs.project) ? node.attrs.project : null;
+  return (
+    <NodeViewWrapper className={`docs-diagram-node${selected ? " is-selected" : ""}`}>
+      {project ? (
+        <div className="docs-diagram-node__preview" dangerouslySetInnerHTML={{ __html: diagramToSvg(project) }} />
+      ) : (
+        <p className="docs-diagram-node__error" role="alert">{t("diagram.unavailable")}</p>
+      )}
+      {project && (
+        <div className="docs-diagram-node__actions">
+          <span>{project.name}</span>
+          <button
+            type="button"
+            onMouseDown={(event) => event.preventDefault()}
+            onClick={() => window.dispatchEvent(new CustomEvent<{ project: DiagramProject; onApply: (next: DiagramProject) => void }>(
+              "kxno:edit-diagram",
+              { detail: { project, onApply: (next) => updateAttributes({ project: next }) } },
+            ))}
+          >
+            {t("diagram.editDiagram")}
+          </button>
+        </div>
+      )}
+    </NodeViewWrapper>
+  );
+}
+
+export const DocumentDiagram = Node.create({
+  name: "documentDiagram",
+  group: "block",
+  atom: true,
+  draggable: true,
+  selectable: true,
+  addAttributes() {
+    return { project: { default: null } };
+  },
+  parseHTML() {
+    return [{
+      tag: "div[data-doc-diagram]",
+      getAttrs: (element) => {
+        try {
+          const project = JSON.parse((element as HTMLElement).dataset.project ?? "") as unknown;
+          return isDiagramProject(project) ? { project } : false;
+        } catch {
+          return false;
+        }
+      },
+    }];
+  },
+  renderHTML({ HTMLAttributes }) {
+    const { project: rawProject, ...attributes } = HTMLAttributes;
+    const project = isDiagramProject(rawProject) ? rawProject : null;
+    return ["div", mergeAttributes(attributes, {
+      "data-doc-diagram": "",
+      "data-project": project ? JSON.stringify(project) : "",
+    })];
+  },
+  addNodeView() {
+    return ReactNodeViewRenderer(DocumentDiagramView);
   },
 });
 
