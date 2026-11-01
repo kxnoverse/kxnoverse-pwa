@@ -38,6 +38,7 @@ const DATA_TABLES = [
   "codeProjects",
   "codeLabProgress",
   "codeGardenState",
+  "dailyCheckins",
 ] as const;
 
 type DataTableName = (typeof DATA_TABLES)[number];
@@ -79,6 +80,13 @@ function hasString(record: BackupRecord, key: string): boolean {
   return typeof record[key] === "string";
 }
 
+function isDateKey(value: unknown): value is string {
+  if (typeof value !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
+  const [year, month, day] = value.split("-").map(Number);
+  const date = new Date(Date.UTC(year, month - 1, day));
+  return date.getUTCFullYear() === year && date.getUTCMonth() === month - 1 && date.getUTCDate() === day;
+}
+
 const requiredStrings: Record<DataTableName, string[]> = {
   subjects: ["id", "name", "color"],
   teachers: ["id", "name"],
@@ -90,6 +98,7 @@ const requiredStrings: Record<DataTableName, string[]> = {
   aiMessages: ["id", "conversationId", "role", "content"],
   tasks: ["id", "title", "description", "dueDate", "priority", "category"],
   calendarEvents: ["id", "type", "title", "description", "startAt", "endAt", "color"],
+  dailyCheckins: ["id", "date", "plans"],
   notes: ["id", "title", "content", "folder"],
   focusSessions: ["id", "kind"],
   files: ["id", "name", "type", "category", "blobData"],
@@ -131,6 +140,17 @@ function validateRecord(table: DataTableName, record: BackupRecord): void {
   }
   if (table === "notes" && typeof record.pinned !== "boolean") {
     throw new Error("The backup contains an invalid note.");
+  }
+  if (table === "dailyCheckins" &&
+    (record.id !== record.date || !isDateKey(record.date) ||
+      !(record.sleepHours === null || (typeof record.sleepHours === "number" &&
+        Number.isFinite(record.sleepHours) && record.sleepHours >= 0 && record.sleepHours <= 24)) ||
+      !(record.mood === null || (Number.isInteger(record.mood) && Number(record.mood) >= 1 && Number(record.mood) <= 5)) ||
+      !(record.customMoodId === undefined || record.customMoodId === null ||
+        (typeof record.customMoodId === "string" && record.customMoodId.length > 0 && record.customMoodId.length <= 100)) ||
+      typeof record.plans !== "string" || record.plans.length > 1000 ||
+      typeof record.updatedAt !== "number" || !Number.isFinite(record.updatedAt))) {
+    throw new Error("The backup contains an invalid daily check-in.");
   }
   if (table === "focusSessions" && (typeof record.startedAt !== "number" || typeof record.endedAt !== "number" || typeof record.plannedSeconds !== "number" || typeof record.durationSeconds !== "number")) {
     throw new Error("The backup contains an invalid focus session.");
@@ -239,7 +259,7 @@ export async function exportDataBackup(): Promise<Blob> {
   }
   return new Blob([JSON.stringify({
     format: BACKUP_FORMAT,
-    schemaVersion: 12,
+    schemaVersion: 13,
     exportedAt: new Date().toISOString(),
     data,
     preferences,
@@ -254,7 +274,7 @@ export async function importDataBackup(file: File): Promise<BackupImportSummary>
   } catch {
     throw new Error("The selected file is not valid backup JSON.");
   }
-  if (!isRecord(parsed) || parsed.format !== BACKUP_FORMAT || typeof parsed.schemaVersion !== "number" || parsed.schemaVersion < 2 || parsed.schemaVersion > 12 || !isRecord(parsed.data)) {
+  if (!isRecord(parsed) || parsed.format !== BACKUP_FORMAT || typeof parsed.schemaVersion !== "number" || parsed.schemaVersion < 2 || parsed.schemaVersion > 13 || !isRecord(parsed.data)) {
     throw new Error("This file is not a supported Kxno Desk backup.");
   }
 
@@ -272,7 +292,7 @@ export async function importDataBackup(file: File): Promise<BackupImportSummary>
   let total = 0;
   for (const name of DATA_TABLES) {
     const records = data[name];
-    if (records === undefined && ((parsed.schemaVersion < 3 && DATA_TABLES.indexOf(name) >= 8) || (parsed.schemaVersion < 4 && name === "aiAttachments") || (parsed.schemaVersion < 5 && name === "arcadeData") || (parsed.schemaVersion < 6 && name === "workspace") || (parsed.schemaVersion < 7 && ["documents", "documentContents", "documentImages"].includes(name)) || (parsed.schemaVersion < 8 && name === "pdfProjects") || (parsed.schemaVersion < 9 && name === "docsTemplates") || (parsed.schemaVersion < 10 && ["codeProjects", "codeLabProgress"].includes(name)) || (parsed.schemaVersion < 11 && name === "codeGardenState"))) {
+    if (records === undefined && ((parsed.schemaVersion < 3 && DATA_TABLES.indexOf(name) >= 8) || (parsed.schemaVersion < 4 && name === "aiAttachments") || (parsed.schemaVersion < 5 && name === "arcadeData") || (parsed.schemaVersion < 6 && name === "workspace") || (parsed.schemaVersion < 7 && ["documents", "documentContents", "documentImages"].includes(name)) || (parsed.schemaVersion < 8 && name === "pdfProjects") || (parsed.schemaVersion < 9 && name === "docsTemplates") || (parsed.schemaVersion < 10 && ["codeProjects", "codeLabProgress"].includes(name)) || (parsed.schemaVersion < 11 && name === "codeGardenState") || (parsed.schemaVersion < 13 && name === "dailyCheckins"))) {
       recordsByTable[name] = [];
       continue;
     }
@@ -335,6 +355,9 @@ export async function importDataBackup(file: File): Promise<BackupImportSummary>
   });
   await db.transaction("rw", db.codeGardenState, async () => {
     await addTableRecords("codeGardenState");
+  });
+  await db.transaction("rw", db.dailyCheckins, async () => {
+    await addTableRecords("dailyCheckins");
   });
   const preferenceSummary = { added: 0, skipped: 0 };
   for (const key of PREFERENCE_KEYS) {

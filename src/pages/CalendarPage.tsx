@@ -1,9 +1,10 @@
 import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import { useLiveQuery } from "dexie-react-hooks";
-import { CalendarDays, ChevronLeft, ChevronRight, Plus, Trash2 } from "lucide-react";
+import { CalendarDays, ChevronLeft, ChevronRight, NotebookPen, Plus, Trash2 } from "lucide-react";
 import { Link } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import { Surface } from "../components/Surface";
+import { CalendarCheckins } from "../components/CalendarCheckins";
 import { createId, db, localDateKey, type CalendarEvent, type SchoolTask } from "../data/db";
 import { useUiStore } from "../stores/ui-store";
 import {
@@ -36,6 +37,7 @@ export function CalendarPage() {
   const [month, setMonth] = useState(() => new Date(new Date().getFullYear(), new Date().getMonth(), 1));
   const [selectedDate, setSelectedDate] = useState(() => localDateKey(new Date()));
   const [formOpen, setFormOpen] = useState(false);
+  const [activeView, setActiveView] = useState<"month" | "checkins">("month");
   const [editingId, setEditingId] = useState("");
   const [eventType, setEventType] = useState<CalendarEvent["type"]>("event");
   const [title, setTitle] = useState("");
@@ -71,7 +73,7 @@ export function CalendarPage() {
   }, []);
 
   useEffect(() => {
-    if (!regionReady) return;
+    if (!regionReady || activeView !== "month") return;
     let active = true;
     let hasCachedData = false;
     let cacheReadFailed = false;
@@ -137,7 +139,7 @@ export function CalendarPage() {
       active = false;
       controller.abort();
     };
-  }, [cacheKey, isOnline, language, month, region, regionReady]);
+  }, [activeView, cacheKey, isOnline, language, month, region, regionReady]);
 
   const days = useMemo(() => {
     const first = new Date(month.getFullYear(), month.getMonth(), 1);
@@ -302,13 +304,26 @@ export function CalendarPage() {
     <section className="feature-page calendar-page">
       <header className="page-heading--compact feature-heading calendar-page__heading">
         <div className="calendar-page__intro">
-          <span className="calendar-page__eyebrow"><CalendarDays size={13} />{monthTitle}</span>
+          <span className="calendar-page__eyebrow">
+            {activeView === "month" ? <CalendarDays size={13} /> : <NotebookPen size={13} />}
+            {activeView === "month" ? monthTitle : t("calendar.checkins.yearLabel")}
+          </span>
           <h1>{t("nav.calendar")}</h1>
           <p>{t("calendar.subtitle")}</p>
         </div>
-        <button className="button button--primary" onClick={openCreateForm} type="button"><Plus size={14} />{t("calendar.add")}</button>
+        <div className="calendar-page__actions">
+          <div aria-label={t("calendar.views")} className="calendar-page__views" role="group">
+            <button aria-pressed={activeView === "month"} className={activeView === "month" ? "is-active" : ""} onClick={() => setActiveView("month")} type="button"><CalendarDays size={13} />{t("calendar.monthView")}</button>
+            <button aria-pressed={activeView === "checkins"} className={activeView === "checkins" ? "is-active" : ""} onClick={() => { setFormOpen(false); setActiveView("checkins"); }} type="button"><NotebookPen size={13} />{t("calendar.checkins.tab")}</button>
+          </div>
+          {activeView === "month" && <button className="button button--primary" onClick={openCreateForm} type="button"><Plus size={14} />{t("calendar.add")}</button>}
+        </div>
       </header>
 
+      {activeView === "checkins" ? (
+        <CalendarCheckins onSelectDate={setSelectedDate} selectedDate={selectedDate} />
+      ) : (
+        <>
       <Surface
         aria-live="polite"
         className={`calendar-regional-status calendar-regional-status--${regionalStatus}`}
@@ -424,6 +439,8 @@ export function CalendarPage() {
         </Surface>
       )}
       {error && !formOpen && <p className="form-error" role="alert">{error}</p>}
+        </>
+      )}
     </section>
   );
 }

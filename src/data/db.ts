@@ -130,6 +130,16 @@ export interface CalendarEvent {
   updatedAt: number;
 }
 
+export interface DailyCheckin {
+  id: string;
+  date: string;
+  sleepHours: number | null;
+  mood: 1 | 2 | 3 | 4 | 5 | null;
+  customMoodId?: string | null;
+  plans: string;
+  updatedAt: number;
+}
+
 export interface SchoolNote {
   id: string;
   title: string;
@@ -354,6 +364,7 @@ class KxnoDatabase extends Dexie {
   aiAttachments!: EntityTable<AiAttachment, "id">;
   tasks!: EntityTable<SchoolTask, "id">;
   calendarEvents!: EntityTable<CalendarEvent, "id">;
+  dailyCheckins!: EntityTable<DailyCheckin, "id">;
   notes!: EntityTable<SchoolNote, "id">;
   focusSessions!: EntityTable<FocusSession, "id">;
   files!: EntityTable<LocalFile, "id">;
@@ -583,6 +594,34 @@ class KxnoDatabase extends Dexie {
       aiAttachments: "id, messageId, createdAt",
       tasks: "id, dueDate, completed, subjectId, priority, updatedAt",
       calendarEvents: "id, startAt, endAt, taskId",
+      notes: "id, updatedAt, pinned, folder, subjectId",
+      focusSessions: "id, startedAt, endedAt, kind, taskId",
+      files: "id, name, category, subjectId, noteId, modifiedAt",
+      arcadeData: "id, updatedAt",
+      workspace: "id",
+      documents: "id, updatedAt",
+      documentContents: "id",
+      documentImages: "id, type, createdAt",
+      pdfProjects: "id, updatedAt, sourceFileId",
+      docsTemplates: "id, updatedAt",
+      codeProjects: "id, updatedAt",
+      codeLabProgress: "id",
+      codeGardenState: "id",
+      musicSources: "id",
+    });
+    this.version(13).stores({
+      subjects: "id, name",
+      teachers: "id, name",
+      timetable: "id, weekday, subjectId, teacherId, weekType",
+      exceptions: "id, date, type, entryId",
+      settings: "key",
+      aiPresets: "id, name",
+      aiConversations: "id, updatedAt",
+      aiMessages: "id, conversationId, createdAt",
+      aiAttachments: "id, messageId, createdAt",
+      tasks: "id, dueDate, completed, subjectId, priority, updatedAt",
+      calendarEvents: "id, startAt, endAt, taskId",
+      dailyCheckins: "id",
       notes: "id, updatedAt, pinned, folder, subjectId",
       focusSessions: "id, startedAt, endedAt, kind, taskId",
       files: "id, name, category, subjectId, noteId, modifiedAt",
