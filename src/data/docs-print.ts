@@ -55,6 +55,10 @@ export function createDocumentPrintFrame(
     .docs-prose [data-doc-page-break] { height: 0; margin: 0; border: 0; break-before: page; page-break-before: always; color: transparent; }
     .docs-prose [data-doc-page-break] span, .docs-image-node input { display: none !important; }
     .docs-prose tr, .docs-prose img { break-inside: avoid; page-break-inside: avoid; }
+    .docs-diagram-node { max-width: 100%; margin: 0 0 8px; break-inside: avoid; page-break-inside: avoid; }
+    .docs-diagram-node__preview { width: min(100%, 620px); overflow: hidden; }
+    .docs-diagram-node__preview svg { display: block; width: 100%; height: auto; }
+    .docs-diagram-node__actions { display: none !important; }
     .docs-widget { box-sizing: border-box; margin: 0 0 8px; border: 1px solid; break-inside: avoid; page-break-inside: avoid; }
     .docs-widget__header, .docs-widget__controls { display: none !important; }
     .docs-widget__content > * { margin-top: 0; }

@@ -1,6 +1,6 @@
 import { lazy, Suspense, useEffect, useMemo, useRef, useState, type ChangeEvent } from "react";
 import { useLiveQuery } from "dexie-react-hooks";
-import { ChevronLeft, ChevronRight, FilePlus2, FileText, FileUp, LoaderCircle, Search } from "lucide-react";
+import { Bot, ChevronLeft, ChevronRight, FilePlus2, FileText, FileUp, LoaderCircle, Search, X } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { useSearchParams } from "react-router-dom";
 import { db, type SchoolDocument, type SchoolDocumentContent, type Subject } from "../data/db";
@@ -12,6 +12,8 @@ import { createSubject as addSubject, deleteSubject as removeSubject, matchesSub
 const DocumentEditor = lazy(() => import("./DocsEditor").then((module) => ({ default: module.DocsEditor })));
 const NotesSection = lazy(() => import("./NotesPage").then((module) => ({ default: module.NotesPage })));
 const TasksSection = lazy(() => import("./TasksPage").then((module) => ({ default: module.TasksPage })));
+const PresentationStudio = lazy(() => import("./PresentationStudio").then((module) => ({ default: module.PresentationStudio })));
+const AssistantPanel = lazy(() => import("./AssistantPage").then((module) => ({ default: module.AssistantPage })));
 
 type SaveState = "saved" | "saving" | "error";
 
@@ -20,13 +22,19 @@ export function DocsPage() {
   const documentLoadError = t("docs.loadError");
   const [searchParams, setSearchParams] = useSearchParams();
   const sectionParam = searchParams.get("section");
-  const section = sectionParam === "notes" || sectionParam === "tasks" ? sectionParam : "documents";
+  const section = sectionParam === "notes" || sectionParam === "tasks" || sectionParam === "presentations"
+    ? sectionParam
+    : "documents";
   const requestedDocumentId = searchParams.get("document") ?? "";
   const ignoredDocumentRoute = useRef<string | null>(null);
   const documents = useLiveQuery(() => db.documents.orderBy("updatedAt").reverse().toArray(), [], []);
   const pdfProjects = useLiveQuery(() => db.pdfProjects.orderBy("updatedAt").reverse().toArray(), [], []);
   const subjects = useLiveQuery(() => db.subjects.orderBy("name").toArray(), [], []);
   const [activeId, setActiveId] = useState(requestedDocumentId);
+  const liveDocumentContent = useLiveQuery(
+    async () => activeId ? await db.documentContents.get(activeId) : undefined,
+    [activeId],
+  );
   const [activePdfProjectId, setActivePdfProjectId] = useState("");
   const [storedContent, setStoredContent] = useState<SchoolDocumentContent | null>(null);
   const [loadingContent, setLoadingContent] = useState(false);
@@ -42,6 +50,7 @@ export function DocsPage() {
   const [darkPaper, setDarkPaper] = useState(() => localStorage.getItem("kxnodesk-docs-dark-paper") === "true");
   const [saveState, setSaveState] = useState<SaveState>("saved");
   const [error, setError] = useState("");
+  const [assistantOpen, setAssistantOpen] = useState(false);
   const pdfInput = useRef<HTMLInputElement>(null);
 
   const visibleDocuments = useMemo(() => documents
@@ -50,8 +59,11 @@ export function DocsPage() {
   const visiblePdfProjects = useMemo(() => pdfProjects.filter((item) => matchesSubject(item.subjectId, subjectFilter)), [pdfProjects, subjectFilter]);
   const activeDocument = documents.find((item) => item.id === activeId);
   const activePdfProject = pdfProjects.find((item) => item.id === activePdfProjectId);
+  const assistantDocumentContent = liveDocumentContent?.id === activeId
+    ? liveDocumentContent.plainText
+    : storedContent?.id === activeId ? storedContent.plainText : "";
 
-  function selectSection(next: "documents" | "notes" | "tasks") {
+  function selectSection(next: "documents" | "notes" | "tasks" | "presentations") {
     setSearchParams(next === "documents"
       ? activePdfProjectId ? {} : activeId ? { document: activeId } : {}
       : { section: next }, { replace: true });
@@ -225,7 +237,7 @@ export function DocsPage() {
     <section className="docs-unified-page" aria-label={t("nav.docs")}>
       <header className="docs-unified-toolbar">
         <nav className="docs-section-tabs" aria-label={t("docs.sections")}>
-          {(["documents", "notes", "tasks"] as const).map((value) => (
+          {(["documents", "notes", "tasks", "presentations"] as const).map((value) => (
             <button key={value} type="button" aria-current={section === value ? "page" : undefined} className={section === value ? "is-active" : ""} onClick={() => selectSection(value)}>{t(`docs.section.${value}`)}</button>
           ))}
         </nav>
@@ -262,6 +274,7 @@ export function DocsPage() {
       )}
       {section === "notes" ? <Suspense fallback={<div className="docs-loading" role="status">{t("app.loading")}</div>}><NotesSection subjectFilter={subjectFilter} /></Suspense>
         : section === "tasks" ? <Suspense fallback={<div className="docs-loading" role="status">{t("app.loading")}</div>}><TasksSection subjectFilter={subjectFilter} /></Suspense>
+        : section === "presentations" ? <Suspense fallback={<div className="docs-loading" role="status">{t("app.loading")}</div>}><PresentationStudio /></Suspense>
         : <section className={`docs-page${sidebarCollapsed ? " docs-page--sidebar-collapsed" : ""}`} aria-label={t("docs.section.documents")}>
       <aside id="docs-document-sidebar" className="docs-sidebar">
         <header className="docs-sidebar__header">
@@ -357,6 +370,33 @@ export function DocsPage() {
         {activeDocument && <span className="docs-page-save-status" role="status">{savedLabel}</span>}
       </main>
       </section>}
+      {section === "documents" && (
+        <button
+          className="docs-assistant-launcher"
+          type="button"
+          aria-expanded={assistantOpen}
+          aria-controls="docs-assistant-panel"
+          onClick={() => setAssistantOpen((open) => !open)}
+        >
+          {assistantOpen ? <X size={16} /> : <Bot size={16} />}
+          <span>{assistantOpen ? t("assistant.closeDocsWidget") : t("assistant.openDocsWidget")}</span>
+        </button>
+      )}
+      {assistantOpen && section === "documents" && (
+        <aside id="docs-assistant-panel" className="docs-assistant-panel" aria-label={t("assistant.title")}>
+          <header className="docs-assistant-panel__header">
+            <strong>{t("assistant.title")}</strong>
+            <button type="button" aria-label={t("assistant.closeDocsWidget")} onClick={() => setAssistantOpen(false)}><X size={16} /></button>
+          </header>
+          <Suspense fallback={<div className="docs-loading" role="status">{t("app.loading")}</div>}>
+            <AssistantPanel
+              embedded
+              documentContext={assistantDocumentContent}
+              documentTitle={activeDocument?.title ?? ""}
+            />
+          </Suspense>
+        </aside>
+      )}
     </section>
   );
 }

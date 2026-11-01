@@ -7,6 +7,8 @@ import { isDocumentContent, isDocsTemplate, isSchoolDocument } from "./docs";
 import { isPdfProject } from "./docs-pdf";
 import { isCodeLabProgress, isCodeProject } from "./code-lab";
 import { isCodeGardenState } from "./code-garden";
+import { isDiagramProject } from "./diagrams";
+import { isPresentationProject } from "./presentations";
 
 const BACKUP_FORMAT = "kxnodesk-local-backup";
 const MAX_IMPORT_BYTES = 150 * 1024 * 1024;
@@ -39,6 +41,8 @@ const DATA_TABLES = [
   "codeLabProgress",
   "codeGardenState",
   "dailyCheckins",
+  "diagramProjects",
+  "presentations",
 ] as const;
 
 type DataTableName = (typeof DATA_TABLES)[number];
@@ -113,6 +117,8 @@ const requiredStrings: Record<DataTableName, string[]> = {
   codeProjects: ["id", "name", "html", "css", "javascript"],
   codeLabProgress: ["id", "currentLessonId"],
   codeGardenState: ["id", "activeMissionId"],
+  diagramProjects: ["id", "name"],
+  presentations: ["id", "name"],
 };
 
 function validateRecord(table: DataTableName, record: BackupRecord): void {
@@ -178,6 +184,28 @@ function validateRecord(table: DataTableName, record: BackupRecord): void {
   }
   if (table === "codeGardenState" && !isCodeGardenState(record)) {
     throw new Error("The backup contains invalid Code Garden progress.");
+  }
+  if (table === "diagramProjects" && !isDiagramProject(record)) {
+    throw new Error("The backup contains an invalid diagram project.");
+  }
+  if (table === "presentations") {
+    if (!Array.isArray(record.slides)) throw new Error("The backup contains an invalid presentation.");
+    for (const slide of record.slides) {
+      if (!isRecord(slide) || !Array.isArray(slide.elements)) throw new Error("The backup contains an invalid presentation slide.");
+      for (const element of slide.elements) {
+        if (!isRecord(element) || element.kind !== "image") continue;
+        if (!hasString(element, "blobData") || !["image/png", "image/jpeg"].includes(String(element.mimeType))) {
+          throw new Error("The backup contains an invalid presentation image.");
+        }
+        const bytes = base64ToBytes(element.blobData as string);
+        if (bytes.byteLength <= 0 || bytes.byteLength > 15 * 1024 * 1024) {
+          throw new Error("The backup contains an invalid presentation image.");
+        }
+        element.blob = new Blob([bytes], { type: element.mimeType as string });
+        delete element.blobData;
+      }
+    }
+    if (!isPresentationProject(record)) throw new Error("The backup contains an invalid presentation.");
   }
 }
 
@@ -248,6 +276,28 @@ export async function exportDataBackup(): Promise<Blob> {
         serializedRecords.push({ ...rest, blobData: bytesToBase64(bytes) });
       }
       data[name] = serializedRecords;
+    } else if (name === "presentations") {
+      const serializedRecords: BackupRecord[] = [];
+      for (const record of records) {
+        if (!isPresentationProject(record)) throw new Error("A local presentation could not be added to the backup.");
+        const slides = [];
+        for (const slide of record.slides) {
+          const elements: BackupRecord[] = [];
+          for (const element of slide.elements) {
+            if (element.kind !== "image") {
+              elements.push({ ...element });
+              continue;
+            }
+            if (!isBlobLike(element.blob)) throw new Error("A presentation image could not be added to the backup.");
+            const bytes = new Uint8Array(await readBlobAsArrayBuffer(element.blob));
+            const { blob: _blob, ...rest } = element;
+            elements.push({ ...rest, blobData: bytesToBase64(bytes) });
+          }
+          slides.push({ ...slide, elements });
+        }
+        serializedRecords.push({ ...record, slides });
+      }
+      data[name] = serializedRecords;
     } else {
       data[name] = records;
     }
@@ -259,7 +309,7 @@ export async function exportDataBackup(): Promise<Blob> {
   }
   return new Blob([JSON.stringify({
     format: BACKUP_FORMAT,
-    schemaVersion: 13,
+    schemaVersion: 15,
     exportedAt: new Date().toISOString(),
     data,
     preferences,
@@ -274,7 +324,7 @@ export async function importDataBackup(file: File): Promise<BackupImportSummary>
   } catch {
     throw new Error("The selected file is not valid backup JSON.");
   }
-  if (!isRecord(parsed) || parsed.format !== BACKUP_FORMAT || typeof parsed.schemaVersion !== "number" || parsed.schemaVersion < 2 || parsed.schemaVersion > 13 || !isRecord(parsed.data)) {
+  if (!isRecord(parsed) || parsed.format !== BACKUP_FORMAT || typeof parsed.schemaVersion !== "number" || parsed.schemaVersion < 2 || parsed.schemaVersion > 15 || !isRecord(parsed.data)) {
     throw new Error("This file is not a supported Kxno Desk backup.");
   }
 
@@ -292,7 +342,7 @@ export async function importDataBackup(file: File): Promise<BackupImportSummary>
   let total = 0;
   for (const name of DATA_TABLES) {
     const records = data[name];
-    if (records === undefined && ((parsed.schemaVersion < 3 && DATA_TABLES.indexOf(name) >= 8) || (parsed.schemaVersion < 4 && name === "aiAttachments") || (parsed.schemaVersion < 5 && name === "arcadeData") || (parsed.schemaVersion < 6 && name === "workspace") || (parsed.schemaVersion < 7 && ["documents", "documentContents", "documentImages"].includes(name)) || (parsed.schemaVersion < 8 && name === "pdfProjects") || (parsed.schemaVersion < 9 && name === "docsTemplates") || (parsed.schemaVersion < 10 && ["codeProjects", "codeLabProgress"].includes(name)) || (parsed.schemaVersion < 11 && name === "codeGardenState") || (parsed.schemaVersion < 13 && name === "dailyCheckins"))) {
+    if (records === undefined && ((parsed.schemaVersion < 3 && DATA_TABLES.indexOf(name) >= 8) || (parsed.schemaVersion < 4 && name === "aiAttachments") || (parsed.schemaVersion < 5 && name === "arcadeData") || (parsed.schemaVersion < 6 && name === "workspace") || (parsed.schemaVersion < 7 && ["documents", "documentContents", "documentImages"].includes(name)) || (parsed.schemaVersion < 8 && name === "pdfProjects") || (parsed.schemaVersion < 9 && name === "docsTemplates") || (parsed.schemaVersion < 10 && ["codeProjects", "codeLabProgress"].includes(name)) || (parsed.schemaVersion < 11 && name === "codeGardenState") || (parsed.schemaVersion < 13 && name === "dailyCheckins") || (parsed.schemaVersion < 14 && name === "diagramProjects") || (parsed.schemaVersion < 15 && name === "presentations"))) {
       recordsByTable[name] = [];
       continue;
     }
@@ -358,6 +408,12 @@ export async function importDataBackup(file: File): Promise<BackupImportSummary>
   });
   await db.transaction("rw", db.dailyCheckins, async () => {
     await addTableRecords("dailyCheckins");
+  });
+  await db.transaction("rw", db.diagramProjects, async () => {
+    await addTableRecords("diagramProjects");
+  });
+  await db.transaction("rw", db.presentations, async () => {
+    await addTableRecords("presentations");
   });
   const preferenceSummary = { added: 0, skipped: 0 };
   for (const key of PREFERENCE_KEYS) {

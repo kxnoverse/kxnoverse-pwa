@@ -29,6 +29,11 @@ const starters: AiPreset[] = [
 ];
 
 type AttachmentView = Pick<AiAttachment, "name" | "mimeType" | "size" | "blob">;
+type AssistantPageProps = {
+  embedded?: boolean;
+  documentContext?: string;
+  documentTitle?: string;
+};
 
 function renderError(cause: unknown, t: (key: string) => string): string {
   if (cause instanceof AssistantBackendUnavailableError) return t("assistant.backendUnavailable");
@@ -69,7 +74,7 @@ function AttachmentTile({ attachment, onPreview, onRemove }: {
   );
 }
 
-export function AssistantPage() {
+export function AssistantPage({ embedded = false, documentContext = "", documentTitle = "" }: AssistantPageProps) {
   const { t, i18n } = useTranslation();
   const savedPresets = useLiveQuery(() => db.aiPresets.toArray(), []);
   const presets = savedPresets ?? [];
@@ -111,6 +116,7 @@ export function AssistantPage() {
   const [copyStatus, setCopyStatus] = useState("");
   const [turnstileVersion, setTurnstileVersion] = useState(0);
   const [remainingRequests, setRemainingRequests] = useState<number>();
+  const [includeDocumentContext, setIncludeDocumentContext] = useState(Boolean(documentContext.trim()));
   const [availableModels, setAvailableModels] = useState<AssistantModelOption[]>([]);
   const [defaultModel, setDefaultModel] = useState("openrouter/free");
   const [modelsUnavailable, setModelsUnavailable] = useState(false);
@@ -190,6 +196,11 @@ export function AssistantPage() {
     [activeConversation?.presetId, presets],
   );
   const activeModel = availableModels.find((item) => item.id === activePreset?.model);
+  const trimmedDocumentContext = documentContext.trim().slice(0, 12_000);
+
+  useEffect(() => {
+    setIncludeDocumentContext(Boolean(trimmedDocumentContext));
+  }, [documentTitle, trimmedDocumentContext]);
 
   const canSend = Boolean(activePreset && (draft.trim() || draftFiles.length)) && !isSending &&
     !(endpoint && (!cloudEnabled || !cloudConsent || !turnstileSiteKey || remainingRequests === 0));
@@ -282,6 +293,7 @@ export function AssistantPage() {
     conversation: AiConversation,
     userMessage: AiMessage,
     contextMessages: AiMessage[],
+    currentDocumentContext = "",
   ) {
     const assistantMessageId = createId();
     const requestPreset = presets.find((preset) => preset.id === conversation.presetId) ?? activePreset ?? starters[0];
@@ -353,7 +365,9 @@ export function AssistantPage() {
       await assistantClient.send({
         endpoint,
         turnstileToken: verificationToken,
-        message: userMessage.content,
+        message: currentDocumentContext
+          ? `Current document${documentTitle ? ` "${documentTitle.slice(0, 160)}"` : ""}:\n${currentDocumentContext}\n\nUser request:\n${userMessage.content}`
+          : userMessage.content,
         model: requestModel,
         preset: requestPreset,
         history,
@@ -441,7 +455,12 @@ export function AssistantPage() {
     setActiveConversationId(conversation.id);
     setDraft("");
     setDraftFiles([]);
-    await requestAssistantReply(conversation, userMessage, [...messages, userMessage]);
+    await requestAssistantReply(
+      conversation,
+      userMessage,
+      [...messages, userMessage],
+      includeDocumentContext ? trimmedDocumentContext : "",
+    );
   }
 
   function handleComposerKeyDown(event: KeyboardEvent<HTMLTextAreaElement>) {
@@ -457,7 +476,12 @@ export function AssistantPage() {
     const userMessage = priorMessages.slice(0, currentIndex).reverse().find((item) => item.role === "user");
     const conversation = conversations.find((item) => item.id === assistantMessage.conversationId);
     if (currentIndex < 0 || !userMessage || !conversation) return;
-    await requestAssistantReply(conversation, userMessage, priorMessages.slice(0, currentIndex));
+    await requestAssistantReply(
+      conversation,
+      userMessage,
+      priorMessages.slice(0, currentIndex),
+      includeDocumentContext ? trimmedDocumentContext : "",
+    );
   }
 
   async function copyMessage(content: string) {
@@ -543,7 +567,7 @@ export function AssistantPage() {
   }
 
   return (
-    <section className="assistant-page">
+    <section className={`assistant-page${embedded ? " assistant-page--embedded" : ""}`}>
       <header className="assistant-heading">
         <div><h1>{t("assistant.title")}</h1><p>{t("assistant.subtitle")}</p></div>
         <button
@@ -583,6 +607,16 @@ export function AssistantPage() {
                 {presets.map((preset) => <option key={preset.id} value={preset.id}>{preset.name}</option>)}
               </select>
             </label>
+            {embedded && trimmedDocumentContext && (
+              <label className="assistant-document-context">
+                <input
+                  type="checkbox"
+                  checked={includeDocumentContext}
+                  onChange={(event) => setIncludeDocumentContext(event.target.checked)}
+                />
+                <span>{t("assistant.useCurrentDocument")}</span>
+              </label>
+            )}
             <button className="button button--quiet assistant-preset-manage" onClick={() => setPresetModalOpen(true)} type="button"><Settings2 size={13} />{t("assistant.presets")}</button>
           </div>
           {modelsUnavailable && <p className="assistant-cloud-notice" role="status">{t("assistant.modelsUnavailable")}</p>}

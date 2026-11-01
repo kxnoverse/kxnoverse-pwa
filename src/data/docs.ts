@@ -1,4 +1,5 @@
 import { createId, db, type DocsTemplate, type SchoolDocument, type SchoolDocumentContent } from "./db";
+import { isDiagramProject } from "./diagrams";
 
 export const EMPTY_DOCUMENT_CONTENT: Record<string, unknown> = {
   type: "doc",
@@ -156,7 +157,27 @@ export function isSchoolDocument(value: unknown): value is SchoolDocument {
 export function isDocumentContent(value: unknown): value is SchoolDocumentContent {
   if (!value || typeof value !== "object") return false;
   const record = value as Partial<SchoolDocumentContent>;
-  return typeof record.id === "string" &&
-    Boolean(record.content && typeof record.content === "object" && record.content.type === "doc") &&
-    typeof record.plainText === "string";
+  if (
+    typeof record.id !== "string" ||
+    !record.content || typeof record.content !== "object" || record.content.type !== "doc" ||
+    typeof record.plainText !== "string"
+  ) return false;
+  const pending: unknown[] = [record.content];
+  let visited = 0;
+  while (pending.length) {
+    const current = pending.pop();
+    if (!current || typeof current !== "object" || Array.isArray(current)) return false;
+    visited += 1;
+    if (visited > 100_000) return false;
+    const item = current as { type?: unknown; attrs?: unknown; content?: unknown };
+    if (item.type === "documentDiagram") {
+      if (!item.attrs || typeof item.attrs !== "object" ||
+        !isDiagramProject((item.attrs as { project?: unknown }).project)) return false;
+    }
+    if (item.content !== undefined) {
+      if (!Array.isArray(item.content)) return false;
+      pending.push(...item.content);
+    }
+  }
+  return true;
 }
