@@ -44,7 +44,7 @@ describe("presentation projects", () => {
   it("exports and reimports editable slide text, colors, shapes, and images", async () => {
     const project = createPresentationProject("signal");
     const imageBytes = [137, 80, 78, 71, 13, 10, 26, 10];
-    project.slides[0].elements.push({
+    project.slides[0].elements.splice(1, 0, {
       id: "cover-image",
       kind: "image",
       x: 760,
@@ -64,6 +64,7 @@ describe("presentation projects", () => {
 
     expect(imported.slides).toHaveLength(project.slides.length);
     expect(imported.slides.some((item) => item.elements.some((element) => element.text?.includes("Build.")))).toBe(true);
+    expect(imported.slides[0].elements[1]?.kind).toBe("image");
     const importedImage = imported.slides[0].elements.find((element) => element.kind === "image");
     expect(importedImage?.mimeType).toBe("image/png");
     expect([...new Uint8Array(await importedImage!.blob!.arrayBuffer())]).toEqual(imageBytes);

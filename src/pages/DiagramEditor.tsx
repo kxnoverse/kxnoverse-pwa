@@ -192,12 +192,12 @@ export function DiagramEditor({ initialProject, onClose, onInsert, onApply }: Pr
     setProject(next);
   }
 
-  function worldPoint(event: ReactPointerEvent<SVGElement>) {
+  function worldPoint(event: ReactPointerEvent<SVGElement>, origin = pan) {
     const bounds = svgRef.current?.getBoundingClientRect();
     if (!bounds) return { x: 0, y: 0 };
     return {
-      x: pan.x + ((event.clientX - bounds.left) / Math.max(1, bounds.width)) * (DIAGRAM_WIDTH / zoom),
-      y: pan.y + ((event.clientY - bounds.top) / Math.max(1, bounds.height)) * (DIAGRAM_HEIGHT / zoom),
+      x: origin.x + ((event.clientX - bounds.left) / Math.max(1, bounds.width)) * (DIAGRAM_WIDTH / zoom),
+      y: origin.y + ((event.clientY - bounds.top) / Math.max(1, bounds.height)) * (DIAGRAM_HEIGHT / zoom),
     };
   }
 
@@ -250,7 +250,7 @@ export function DiagramEditor({ initialProject, onClose, onInsert, onApply }: Pr
   function movePointer(event: ReactPointerEvent<SVGSVGElement>) {
     const drag = dragRef.current;
     if (!drag) return;
-    const point = worldPoint(event);
+    const point = worldPoint(event, drag.kind === "pan" ? drag.initialPan : pan);
     if (drag.kind === "pan") {
       setPan({ x: drag.initialPan.x - (point.x - drag.start.x), y: drag.initialPan.y - (point.y - drag.start.y) });
       return;

@@ -561,18 +561,15 @@ async function importedSlide(
   const relationPath = `ppt/slides/_rels/${stem}.rels`;
   const rels = relationships(parseXml(parts[relationPath]));
   const elements: PresentationElement[] = [];
-  const images = Array.from(document.getElementsByTagNameNS(P_NS, "pic"));
-  const shapes = Array.from(document.getElementsByTagNameNS(P_NS, "sp"));
-  const sceneObjects = [
-    ...shapes.map((item) => ({ element: item, kind: "shape" as const })),
-    ...images.map((item) => ({ element: item, kind: "image" as const })),
-  ];
-  for (const entry of sceneObjects) {
+  const shapeTree = document.getElementsByTagNameNS(P_NS, "spTree")[0];
+  const sceneObjects = Array.from(shapeTree?.children ?? []).filter((item) =>
+    item.namespaceURI === P_NS && (item.localName === "sp" || item.localName === "pic"));
+  for (const sceneObject of sceneObjects) {
     if (elements.length >= MAX_ELEMENTS_PER_SLIDE) break;
-    const bounds = shapeBounds(entry.element, sourceWidth, sourceHeight);
+    const bounds = shapeBounds(sceneObject, sourceWidth, sourceHeight);
     if (!bounds) continue;
-    if (entry.kind === "image") {
-      const rel = entry.element.getElementsByTagNameNS(A_NS, "blip")[0]?.getAttributeNS(R_NS, "embed") ?? "";
+    if (sceneObject.localName === "pic") {
+      const rel = sceneObject.getElementsByTagNameNS(A_NS, "blip")[0]?.getAttributeNS(R_NS, "embed") ?? "";
       const target = resolveTarget(slidePath, rels.get(rel) ?? "");
       const bytes = parts[target];
       if (!bytes || !/^ppt\/media\/[A-Za-z0-9._-]+\.(?:png|jpe?g)$/i.test(target)) continue;
@@ -585,10 +582,10 @@ async function importedSlide(
       }));
       continue;
     }
-    const content = slideText(entry.element);
-    const geometry = entry.element.getElementsByTagNameNS(A_NS, "prstGeom")[0]?.getAttribute("prst");
+    const content = slideText(sceneObject);
+    const geometry = sceneObject.getElementsByTagNameNS(A_NS, "prstGeom")[0]?.getAttribute("prst");
     const shape: PresentationShape = geometry === "ellipse" ? "circle" : geometry === "roundRect" ? "rounded" : "rectangle";
-    const fill = shapeColor(entry.element, "solidFill") ?? "transparent";
+    const fill = shapeColor(sceneObject, "solidFill") ?? "transparent";
     if (content.text.trim() || fill !== "transparent") {
       elements.push(makeElement(content.text.trim() && fill === "transparent" ? "text" : "shape", {
         ...bounds,

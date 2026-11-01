@@ -93,6 +93,14 @@ export function PresentationStudio() {
     return () => window.clearTimeout(timer);
   }, [project, t]);
 
+  useEffect(() => () => {
+    const pending = projectRef.current;
+    if (!pending || !dirtyRef.current) return;
+    void savePresentationProject(pending).catch((reason: unknown) => {
+      console.error("Failed to save the presentation while leaving the editor.", reason);
+    });
+  }, []);
+
   function markProjectChanged(next: PresentationProject) {
     const normalized = { ...next, updatedAt: Date.now() };
     projectRef.current = normalized;

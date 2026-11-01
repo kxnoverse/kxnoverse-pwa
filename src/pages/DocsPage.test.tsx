@@ -119,6 +119,28 @@ describe("Kxno Docs editor", () => {
     expect(screen.getByRole("button", { name: "Edit diagram" })).toBeInTheDocument();
   });
 
+  it("pans the diagram canvas according to the full pointer displacement", async () => {
+    await createDocument("Diagram notes");
+    const user = userEvent.setup();
+    renderDocsPage();
+    await findDocumentEditor();
+
+    await user.click(screen.getByRole("button", { name: "Insert diagram" }));
+    const dialog = await screen.findByRole("dialog");
+    const canvas = within(dialog).getByRole("group", { name: "Editable diagram canvas" });
+    vi.spyOn(canvas, "getBoundingClientRect").mockReturnValue(new DOMRect(0, 0, 1200, 800));
+    const viewBoxOrigin = () => canvas.getAttribute("viewBox")?.split(" ").slice(0, 2).map(Number);
+
+    fireEvent.pointerDown(canvas, { pointerId: 1, button: 0, clientX: 100, clientY: 100 });
+    fireEvent.pointerMove(canvas, { pointerId: 1, clientX: 110, clientY: 105 });
+    expect(viewBoxOrigin()?.[0]).toBeCloseTo(-10);
+    expect(viewBoxOrigin()?.[1]).toBeCloseTo(-5);
+
+    fireEvent.pointerMove(canvas, { pointerId: 1, clientX: 120, clientY: 110 });
+    expect(viewBoxOrigin()?.[0]).toBeCloseTo(-20);
+    expect(viewBoxOrigin()?.[1]).toBeCloseTo(-10);
+  });
+
   it("opens the existing assistant with the current document and saved conversation history", async () => {
     const docRecord = await createDocument("Revision");
     await saveDocument(docRecord, {
