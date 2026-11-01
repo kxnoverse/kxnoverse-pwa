@@ -1,16 +1,19 @@
-import { useMemo, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
+import { useEffect, useMemo, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
 
 export interface CodeSuggestion {
   insert: string;
   detail: string;
+  signature?: string;
 }
+
+type SuggestionSource = CodeSuggestion[] | ((value: string, cursor: number) => CodeSuggestion[]);
 
 interface CodeInputProps {
   value: string;
   onChange: (value: string) => void;
   label: string;
   language: "html" | "css" | "javascript" | "garden";
-  suggestions?: CodeSuggestion[];
+  suggestions?: SuggestionSource;
   disabled?: boolean;
 }
 
@@ -68,19 +71,28 @@ export function CodeInput({ value, onChange, label, language, suggestions, disab
   const editorRef = useRef<HTMLTextAreaElement>(null);
   const [activeSuggestion, setActiveSuggestion] = useState(0);
   const [dismissedPrefix, setDismissedPrefix] = useState("");
+  const [cursor, setCursor] = useState(value.length);
+  useEffect(() => {
+    const editor = editorRef.current;
+    if (editor !== document.activeElement) setCursor(value.length);
+    else setCursor((current) => Math.min(current, value.length));
+  }, [value]);
+
   const candidates = useMemo(() => {
-    const selection = suggestions ?? (language === "garden" ? [] : COMMON_SUGGESTIONS[language]);
-    const cursor = editorRef.current?.selectionStart ?? value.length;
+    const selection = typeof suggestions === "function"
+      ? suggestions(value, cursor)
+      : suggestions ?? (language === "garden" ? [] : COMMON_SUGGESTIONS[language]);
     const before = value.slice(0, cursor);
     const word = before.match(/[A-Za-z_][\w-]*$/)?.[0] ?? "";
-    const insideGardenArgument = language === "garden" && /(?:move|turn)\(\s*["']?$/.test(before);
+    const insideGardenArgument = language === "garden" &&
+      /(?:\b(?:move|turn|plant|tile_is|energy_at_least|storage_has_room|repeat)\s*\(\s*|\bif\s*\()\s*["']?$/.test(before);
     if (word.length === 0 && !insideGardenArgument) return [];
     if ((word.length === 0 && (language !== "garden" || selection.length === 0)) ||
-      word === dismissedPrefix || (!word && dismissedPrefix === "$context")) return [];
+      (dismissedPrefix !== "" && word === dismissedPrefix) || (!word && dismissedPrefix === "$context")) return [];
     return selection
       .filter((item) => item.insert.toLowerCase().startsWith(word.toLowerCase()) && item.insert.toLowerCase() !== word.toLowerCase())
       .slice(0, 6);
-  }, [dismissedPrefix, language, suggestions, value]);
+  }, [cursor, dismissedPrefix, language, suggestions, value]);
 
   function insertText(text: string, replaceWord: boolean) {
     const editor = editorRef.current;
@@ -94,6 +106,7 @@ export function CodeInput({ value, onChange, label, language, suggestions, disab
     onChange(next);
     setActiveSuggestion(0);
     setDismissedPrefix("");
+    setCursor(replaceStart + text.length);
     requestAnimationFrame(() => {
       editor.focus();
       const caret = replaceStart + text.length;
@@ -102,7 +115,7 @@ export function CodeInput({ value, onChange, label, language, suggestions, disab
   }
 
   function acceptSuggestion(index = activeSuggestion) {
-    const suggestion = candidates[index];
+    const suggestion = candidates[Math.min(index, candidates.length - 1)];
     if (suggestion) insertText(suggestion.insert, true);
   }
 
@@ -140,6 +153,7 @@ export function CodeInput({ value, onChange, label, language, suggestions, disab
       const start = editor.selectionStart;
       const end = editor.selectionEnd;
       onChange(`${value.slice(0, start)}  ${value.slice(end)}`);
+      setCursor(start + 2);
       requestAnimationFrame(() => editor.setSelectionRange(start + 2, start + 2));
       return;
     }
@@ -151,6 +165,7 @@ export function CodeInput({ value, onChange, label, language, suggestions, disab
       event.preventDefault();
       const next = `${value.slice(0, start)}${event.key}${value.slice(start, end)}${close}${value.slice(end)}`;
       onChange(next);
+      setCursor(start + 1);
       requestAnimationFrame(() => {
         editor.setSelectionRange(start + 1, start + 1);
       });
@@ -175,6 +190,7 @@ export function CodeInput({ value, onChange, label, language, suggestions, disab
       <pre aria-hidden="true" className="code-input__highlight">{highlightCode(value, language)}<br /></pre>
       <textarea
         ref={editorRef}
+        aria-activedescendant={showSuggestions ? `${suggestionsId}-option-${activeSuggestion}` : undefined}
         aria-label={label}
         aria-autocomplete="list"
         aria-controls={showSuggestions ? suggestionsId : undefined}
@@ -183,8 +199,16 @@ export function CodeInput({ value, onChange, label, language, suggestions, disab
         autoComplete="off"
         autoCorrect="off"
         disabled={disabled}
-        onChange={(event) => { setActiveSuggestion(0); setDismissedPrefix(""); onChange(event.target.value); }}
+        onChange={(event) => {
+          setActiveSuggestion(0);
+          setDismissedPrefix("");
+          setCursor(event.currentTarget.selectionStart);
+          onChange(event.target.value);
+        }}
+        onClick={(event) => setCursor(event.currentTarget.selectionStart)}
         onKeyDown={onKeyDown}
+        onKeyUp={(event) => setCursor(event.currentTarget.selectionStart)}
+        onSelect={(event) => setCursor(event.currentTarget.selectionStart)}
         onScroll={(event) => {
           const highlight = event.currentTarget.parentElement?.querySelector<HTMLElement>(".code-input__highlight");
           if (highlight) {
@@ -198,13 +222,13 @@ export function CodeInput({ value, onChange, label, language, suggestions, disab
       {showSuggestions && (
         <ul className="code-input__suggestions" id={suggestionsId} role="listbox" aria-label="Code suggestions">
           {candidates.map((suggestion, index) => (
-            <li key={`${suggestion.insert}:${index}`} role="option" aria-selected={index === activeSuggestion}>
+            <li id={`${suggestionsId}-option-${index}`} key={`${suggestion.insert}:${index}`} role="option" aria-selected={index === activeSuggestion}>
               <button
                 onMouseDown={(event) => { event.preventDefault(); acceptSuggestion(index); }}
                 tabIndex={-1}
                 type="button"
               >
-                <code>{suggestion.insert.split("\n")[0]}</code><span>{suggestion.detail}</span>
+                <code>{suggestion.signature ?? suggestion.insert.split("\n")[0]}</code><span>{suggestion.detail}</span>
               </button>
             </li>
           ))}

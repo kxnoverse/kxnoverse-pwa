@@ -8,13 +8,16 @@ export function CodeReference() {
   const [query, setQuery] = useState("");
   const entries = useMemo(() => {
     const needle = query.trim().toLocaleLowerCase();
-    return CODE_REFERENCE_ENTRIES.filter(([id]) => {
+    return CODE_REFERENCE_ENTRIES.filter((entry) => {
       if (!needle) return true;
       const text = [
-        t(`codeLab.reference.entries.${id}.title`),
-        t(`codeLab.reference.entries.${id}.description`),
-        t(`codeLab.reference.entries.${id}.example`),
-        t(`codeLab.reference.entries.${id}.mistake`),
+        entry.signature,
+        entry.example,
+        entry.argumentValues?.join(" "),
+        entry.suggestedValues?.join(" "),
+        t(`codeLab.reference.entries.${entry.id}.title`),
+        t(`codeLab.reference.entries.${entry.id}.description`),
+        t(`codeLab.reference.entries.${entry.id}.mistake`),
       ].join(" ").toLocaleLowerCase();
       return text.includes(needle);
     });
@@ -34,19 +37,29 @@ export function CodeReference() {
         <p>{t("codeLab.reference.autoPairing")}</p>
       </section>
       <div className="code-reference__entries" aria-live="polite">
-        {entries.map(([id, category, example, requirement]) => (
-          <article className="code-reference__entry" key={id}>
-            <header><h3>{t(`codeLab.reference.entries.${id}.title`)}</h3><span>{t(`codeLab.reference.categories.${category}`)}</span></header>
-            <p>{t(`codeLab.reference.entries.${id}.description`)}</p>
+        {entries.map((entry) => (
+          <article className="code-reference__entry" key={entry.id}>
+            <header><h3>{entry.signature ?? t(`codeLab.reference.entries.${entry.id}.title`)}</h3><span>{t(`codeLab.reference.categories.${entry.category}`)}</span></header>
+            <p>{t(`codeLab.reference.entries.${entry.id}.description`)}</p>
             <dl>
-              <div><dt>{t("codeLab.reference.use")}</dt><dd>{t(`codeLab.reference.entries.${id}.use`)}</dd></div>
-              <div><dt>{t("codeLab.reference.arguments")}</dt><dd>{t(`codeLab.reference.entries.${id}.arguments`)}</dd></div>
-              <div><dt>{t("codeLab.reference.example")}</dt><dd><code>{example}</code></dd></div>
-              <div><dt>{t("codeLab.reference.mistake")}</dt><dd>{t(`codeLab.reference.entries.${id}.mistake`)}</dd></div>
-              <div><dt>{t("codeLab.reference.unlock")}</dt><dd>{t(requirement === "field-scanner"
+              <div><dt>{t("codeLab.reference.use")}</dt><dd>{t(`codeLab.reference.entries.${entry.id}.use`)}</dd></div>
+              <div><dt>{t("codeLab.reference.arguments")}</dt><dd>{t(`codeLab.reference.entries.${entry.id}.arguments`)}</dd></div>
+              {entry.argumentValues && (
+                <div><dt>{t("codeLab.reference.acceptedValues")}</dt><dd className="code-reference__values">
+                  {entry.argumentValues.map((value) => <code key={value}>{value}</code>)}
+                </dd></div>
+              )}
+              {entry.suggestedValues && (
+                <div><dt>{t("codeLab.reference.suggestedValues")}</dt><dd className="code-reference__values">
+                  {entry.suggestedValues.map((value) => <code key={value}>{value}</code>)}
+                </dd></div>
+              )}
+              <div><dt>{t("codeLab.reference.example")}</dt><dd><pre className="code-reference__example"><code>{entry.example}</code></pre></dd></div>
+              <div><dt>{t("codeLab.reference.mistake")}</dt><dd>{t(`codeLab.reference.entries.${entry.id}.mistake`)}</dd></div>
+              <div><dt>{t("codeLab.reference.unlock")}</dt><dd>{t(entry.requirement === "field-scanner"
                 ? "codeLab.game.researchNames.field-scanner"
-                : requirement === "syntax" ? "codeLab.reference.alwaysAvailable"
-                  : `codeLab.game.missionNames.${requirement}.name`)}</dd></div>
+                : entry.requirement === "syntax" ? "codeLab.reference.alwaysAvailable"
+                  : `codeLab.game.missionNames.${entry.requirement}.name`)}</dd></div>
             </dl>
           </article>
         ))}

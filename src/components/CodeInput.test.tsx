@@ -30,6 +30,41 @@ describe("CodeInput assistance", () => {
     expect(onChange).toHaveBeenLastCalledWith("move()\n  ");
   });
 
+  it("resolves suggestions from the caret context and supports keyboard navigation", async () => {
+    const user = userEvent.setup();
+    const onChange = vi.fn();
+    const suggestions = vi.fn((_source: string, _cursor: number) => [
+      { insert: "east", signature: "east", detail: "Move east" },
+      { insert: "west", signature: "west", detail: "Move west" },
+    ]);
+    render(<CodeInput label="Garden code" language="garden" onChange={onChange} value="move(" suggestions={suggestions} />);
+    const editor = screen.getByRole("textbox", { name: "Garden code" }) as HTMLTextAreaElement;
+    editor.setSelectionRange(5, 5);
+    fireEvent.select(editor);
+
+    expect(suggestions).toHaveBeenLastCalledWith("move(", 5);
+    expect(screen.getByRole("option", { name: /east.*Move east/ })).toBeInTheDocument();
+    editor.focus();
+    await user.keyboard("{ArrowDown}{Enter}");
+    expect(onChange).toHaveBeenLastCalledWith("move(west");
+  });
+
+  it("offers crop-name suggestions inside Adventure plant arguments", async () => {
+    const user = userEvent.setup();
+    const onChange = vi.fn();
+    const suggestions = [
+      { insert: "turnip", signature: "turnip", detail: "Available crop seeds" },
+      { insert: "carrot", signature: "carrot", detail: "Available crop seeds" },
+      { insert: "berry", signature: "berry", detail: "Available crop seeds" },
+    ];
+    render(<CodeInput label="Garden code" language="garden" onChange={onChange} value={'plant("'} suggestions={suggestions} />);
+    const editor = screen.getByRole("textbox", { name: "Garden code" });
+    expect(screen.getByRole("option", { name: /turnip.*Available crop seeds/ })).toBeInTheDocument();
+    await user.click(editor);
+    await user.keyboard("{ArrowDown}{Enter}");
+    expect(onChange).toHaveBeenLastCalledWith('plant("carrot');
+  });
+
   it("inserts paired delimiters and syntax-color markup", () => {
     const onChange = vi.fn();
     render(<CodeInput label="JavaScript editor" language="javascript" onChange={onChange} value="const n = 2;" />);
