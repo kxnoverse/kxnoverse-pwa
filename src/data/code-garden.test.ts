@@ -29,6 +29,7 @@ import {
   GardenLanguageError,
   executeGardenProgram,
   gardenCoordinatesAtPoint,
+  getGardenRobotRotation,
   isCodeGardenState,
   isGardenAdventureUnlocked,
   isGardenMoonExpeditionReady,
@@ -36,6 +37,7 @@ import {
   initializeCodeGarden,
   parseGardenProgram,
   researchGardenUpgrade,
+  restoreGardenMissionSeeds,
   saveCodeGardenProgram,
   saveCodeGardenState,
   sellGardenHarvest,
@@ -71,6 +73,82 @@ describe("Code Garden language and simulation", () => {
     expect(gardenCoordinatesAtPoint({ x: 332, y: 67 }, 7, 5)).toEqual({ x: 0, y: 1 });
     expect(gardenCoordinatesAtPoint({ x: 380, y: 42 }, 0, 0)).toBeNull();
     expect(gardenCoordinatesAtPoint({ x: 20, y: 350 }, 7, 5)).toBeNull();
+  });
+
+  it("points the robot artwork along each isometric movement vector", () => {
+    const projectedDirections = {
+      north: { x: -48, y: -25 },
+      east: { x: 48, y: 25 },
+      south: { x: -48, y: 25 },
+      west: { x: 48, y: -25 },
+    } as const;
+    for (const [direction, vector] of Object.entries(projectedDirections) as Array<
+      [keyof typeof projectedDirections, { x: number; y: number }]
+    >) {
+      const radians = getGardenRobotRotation(direction) * Math.PI / 180;
+      const actual = { x: Math.sin(radians), y: -Math.cos(radians) };
+      const length = Math.hypot(vector.x, vector.y);
+      expect(actual.x).toBeCloseTo(vector.x / length);
+      expect(actual.y).toBeCloseTo(vector.y / length);
+    }
+  });
+
+  it("keeps facing aligned after turns and movement in every direction", () => {
+    const mission = GARDEN_MISSIONS[0];
+    const deltas = {
+      north: { x: 0, y: -1 },
+      east: { x: 1, y: 0 },
+      south: { x: 0, y: 1 },
+      west: { x: -1, y: 0 },
+    } as const;
+    for (const [direction, delta] of Object.entries(deltas) as Array<
+      [keyof typeof deltas, { x: number; y: number }]
+    >) {
+      const start = createGardenRun(mission);
+      start.robot = { x: 3, y: 2, direction: "east" };
+      const moved = executeGardenProgram(`move(${direction})`, mission, start).run;
+      expect(moved.robot).toEqual({ x: 3 + delta.x, y: 2 + delta.y, direction });
+
+      const turned = executeGardenProgram('turn("right")', mission, {
+        ...start,
+        robot: { ...start.robot, direction },
+      }).run;
+      const nextDirection = {
+        north: "east",
+        east: "south",
+        south: "west",
+        west: "north",
+      }[direction];
+      expect(turned.robot.direction).toBe(nextDirection);
+    }
+  });
+
+  it("preserves each robot's facing when traveling between Earth and Moon", () => {
+    const earth = earthFarmReadyForMoon();
+    const orientedEarth = {
+      ...earth,
+      robot: { ...earth.robot, direction: "north" as const },
+      secondRobot: { ...earth.secondRobot!, direction: "south" as const },
+    };
+    const unlocked = unlockGardenMoonExpedition(orientedEarth);
+    const moonFarm = unlocked.moonFarm!;
+    const orientedMoon = {
+      ...unlocked,
+      moonFarm: {
+        ...moonFarm,
+        robots: {
+          ...moonFarm.robots,
+          primary: { x: 0, y: 2, direction: "west" as const },
+          assistant: { x: moonFarm.width - 1, y: moonFarm.height - 1, direction: "east" as const },
+        },
+      },
+    };
+    const moon = travelGardenWorld(orientedMoon, "moon");
+    const returnedEarth = travelGardenWorld(moon, "earth");
+    expect(returnedEarth.robot.direction).toBe("north");
+    expect(returnedEarth.secondRobot?.direction).toBe("south");
+    expect(returnedEarth.moonFarm?.robots.primary?.direction).toBe("west");
+    expect(returnedEarth.moonFarm?.robots.assistant?.direction).toBe("east");
   });
 
   it("keeps tutorial unlocks intact and simulates persistent, time-grown Adventure crops", () => {
@@ -836,6 +914,70 @@ describe("Code Garden language and simulation", () => {
     expect(variables.run.completed).toBe(true);
     expect(variables.run.harvested).toBe(2);
     expect(variables.run.resources.seeds).toBe(2);
+  });
+
+  it("provides an executable complete solution for every tutorial mission", () => {
+    for (const mission of GARDEN_MISSIONS) {
+      if (!mission.solution) throw new Error(`Missing mission solution for ${mission.id}.`);
+      const upgrades = mission.requiresUpgrade ? [mission.requiresUpgrade] : [];
+      const result = executeGardenProgram(
+        mission.solution,
+        mission,
+        createGardenRun(mission, undefined, upgrades),
+        mission.maxSteps,
+        upgrades,
+      );
+      expect(result.run.completed, mission.id).toBe(true);
+      expect(result.run.harvested, mission.id).toBe(mission.goal.count);
+    }
+  });
+
+  it("advances a tutorial crop one stage per wait until the board marks it ripe", () => {
+    const mission = GARDEN_MISSIONS.find((item) => item.id === "seed-cycle")!;
+    const oneWait = executeGardenProgram(
+      "plant() wait()",
+      mission,
+      createGardenRun(mission),
+    );
+    expect(oneWait.run.tiles.find((tile) => tile.x === 2 && tile.y === 2)).toMatchObject({
+      kind: "plant",
+      growth: 1,
+    });
+
+    const twoWaits = executeGardenProgram(
+      "plant() wait() wait()",
+      mission,
+      createGardenRun(mission),
+    );
+    expect(twoWaits.run.tiles.find((tile) => tile.x === 2 && tile.y === 2)).toMatchObject({
+      kind: "ripe",
+      growth: 2,
+    });
+  });
+
+  it("restores only the missing starter seeds for an incomplete seed-cycle mission", async () => {
+    const initial = await initializeCodeGarden();
+    const exhausted = {
+      ...initial,
+      activeMissionId: "seed-cycle",
+      completedMissionIds: GARDEN_MISSIONS.slice(0, 4).map((mission) => mission.id),
+      resources: { ...initial.resources, seeds: 0 },
+    };
+
+    expect(restoreGardenMissionSeeds(exhausted, "seed-cycle")).toMatchObject({
+      resources: { seeds: 2 },
+      completedMissionIds: exhausted.completedMissionIds,
+      upgrades: exhausted.upgrades,
+    });
+    expect(() => restoreGardenMissionSeeds(exhausted, "first-harvest")).toThrow("no starter-seed recovery");
+    expect(() => restoreGardenMissionSeeds({
+      ...exhausted,
+      completedMissionIds: [...exhausted.completedMissionIds, "seed-cycle"],
+    }, "seed-cycle")).toThrow("after completion");
+    expect(() => restoreGardenMissionSeeds({
+      ...exhausted,
+      resources: { ...exhausted.resources, seeds: 2 },
+    }, "seed-cycle")).toThrow("already has enough seeds");
   });
 
   it("returns useful runtime errors without allowing edge movement or unbounded execution", () => {

@@ -1031,12 +1031,27 @@ h1 { color: var(--text); }
 .garden-game__language { padding: 2px 5px; border: 1px solid var(--line); color: #9ac9a7; font-size: 6px; letter-spacing: .08em; }
 .garden-game__help { display: grid; width: 23px; height: 23px; place-items: center; border: 1px solid transparent; background: transparent; color: var(--text-muted); cursor: pointer; }
 .garden-game__help:hover { border-color: var(--line); color: var(--text); }
+.garden-game__mission-help { display: inline-flex; min-height: 25px; align-items: center; justify-content: center; gap: 5px; padding: 0 7px; border: 1px solid color-mix(in srgb, #8eb798 45%, var(--line)); background: color-mix(in srgb, #8eb798 10%, var(--surface-1)); color: #b6d2b6; font: inherit; font-size: 8px; white-space: nowrap; cursor: pointer; }
+.garden-game__mission-help:hover, .garden-game__mission-help:focus-visible { border-color: #8eb798; color: #d6e8d7; }
+.garden-game__mission-help-panel { display: grid; min-width: 0; gap: 7px; max-height: 270px; margin-top: 8px; padding: 8px; overflow: auto; border: 1px solid color-mix(in srgb, #8eb798 30%, var(--line)); background: color-mix(in srgb, #8eb798 6%, var(--surface-1)); }
+.garden-game__mission-help-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 8px; }
+.garden-game__mission-help-heading h3 { margin: 0; color: #d1ded3; font-size: 9px; font-weight: 650; }
+.garden-game__mission-help-heading p { margin: 3px 0 0; color: var(--text-muted); font-size: 7px; line-height: 1.45; }
+.garden-game__mission-help-panel > .garden-game__hint { margin: 0; font-size: 8px; }
+.garden-game .garden-game__mission-help-panel .code-input { min-height: 0; max-height: 165px; flex: 0 0 auto; }
+.garden-game .garden-game__mission-help-panel .code-input__highlight, .garden-game .garden-game__mission-help-panel .code-input textarea { min-height: 120px; max-height: 165px; padding: 8px; font-size: 8px; line-height: 1.55; }
+.garden-game__mission-help-return { justify-self: start; min-height: 25px; padding: 0 8px; border: 1px solid var(--line); background: transparent; color: var(--text-dim); font: inherit; font-size: 8px; cursor: pointer; }
+.garden-game__mission-help-return:hover { border-color: color-mix(in srgb, #8eb798 45%, var(--line)); color: var(--text); }
 .garden-game .code-input { min-height: 280px; border: 1px solid var(--line); background: #121916; }
 .garden-game .code-input__highlight, .garden-game .code-input textarea { min-height: 280px; padding: 11px; font-size: 9px; line-height: 1.65; }
 .garden-game .code-input textarea { color: transparent; }
 .garden-game__editor-hint { margin: 6px 0 0; color: var(--text-muted); font-size: 7px; line-height: 1.5; }
 .garden-game__hint { margin: 7px 0 0; padding: 7px 8px; border-left: 2px solid #8eb798; background: color-mix(in srgb, #8eb798 8%, var(--surface-1)); color: var(--text-dim); font-size: 8px; line-height: 1.5; }
+.garden-game__hint--code { overflow-x: auto; white-space: pre-wrap; font-family: var(--font-mono); }
 .garden-game__controls { display: flex; gap: 6px; margin-top: 9px; }
+.garden-game__seed-recovery { align-self: flex-start; min-height: 28px; margin-top: 7px; padding: 0 9px; border: 1px solid color-mix(in srgb, #8eb798 45%, var(--line)); background: color-mix(in srgb, #8eb798 10%, var(--surface-1)); color: #a8d1b2; font: inherit; font-size: 8px; cursor: pointer; }
+.garden-game__seed-recovery:hover { border-color: #8eb798; }
+.garden-game__seed-recovery:disabled { cursor: not-allowed; opacity: .55; }
 .garden-game__control { display: inline-flex; min-height: 30px; align-items: center; justify-content: center; gap: 6px; padding: 0 9px; border: 1px solid var(--line); background: var(--surface-1); color: var(--text-dim); font: inherit; font-size: 8px; cursor: pointer; }
 .garden-game__control:hover { border-color: color-mix(in srgb, #8eb798 45%, var(--line)); color: var(--text); }
 .garden-game__control--run { border-color: color-mix(in srgb, #8eb798 55%, var(--line)); background: color-mix(in srgb, #8eb798 15%, var(--surface-1)); color: #a8d1b2; }

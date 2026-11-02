@@ -3,7 +3,7 @@ import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-li
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { db } from "../data/db";
-import { createGardenAdventure, expandGarden, GARDEN_MISSIONS, initializeCodeGarden, saveCodeGardenState } from "../data/code-garden";
+import { createGardenAdventure, createGardenRun, expandGarden, GARDEN_MISSIONS, getGardenRobotRotation, initializeCodeGarden, saveCodeGardenState } from "../data/code-garden";
 import { i18n, i18nReady } from "../i18n";
 import { CodeGardenGame } from "./CodeGardenGame";
 
@@ -52,6 +52,33 @@ describe("playable Code Garden", () => {
     expect((screen.getByRole("textbox", { name: "Robot program" }) as HTMLTextAreaElement).value).toContain("repeat");
   });
 
+  it("renders the saved robot orientation along the isometric direction after reload", async () => {
+    const initial = await initializeCodeGarden();
+    const mission = GARDEN_MISSIONS[0];
+    for (const direction of ["north", "east", "south", "west"] as const) {
+      const run = createGardenRun(mission);
+      await saveCodeGardenState({
+        ...initial,
+        activeMissionId: mission.id,
+        activeRun: {
+          missionId: run.missionId,
+          robot: { ...run.robot, direction },
+          tiles: run.tiles,
+          harvested: run.harvested,
+          collected: run.collected,
+          steps: run.steps,
+          completed: run.completed,
+          storageCapacity: run.storageCapacity,
+        },
+      });
+      const rendered = render(<CodeGardenGame />);
+      await screen.findByRole("textbox", { name: "Robot program" });
+      expect(rendered.container.querySelector(".garden-board__robot"))
+        .toHaveAttribute("transform", `translate(0 -38) rotate(${getGardenRobotRotation(direction)})`);
+      rendered.unmount();
+    }
+  });
+
   it("opens a searchable, registry-backed command reference from the editor", async () => {
     const user = userEvent.setup();
     render(<CodeGardenGame />);
@@ -64,6 +91,95 @@ describe("playable Code Garden", () => {
 
     await user.click(within(dialog).getByRole("button", { name: "Close" }));
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+  });
+
+  it("explains the seed-cycle wait count and recovers exhausted mission seeds without repeating rewards", async () => {
+    const user = userEvent.setup();
+    const initial = await initializeCodeGarden();
+    await saveCodeGardenState({
+      ...initial,
+      activeMode: "missions",
+      activeMissionId: "seed-cycle",
+      completedMissionIds: GARDEN_MISSIONS.slice(0, 4).map((mission) => mission.id),
+      resources: { ...initial.resources, seeds: 0 },
+    });
+    render(<CodeGardenGame />);
+
+    await addGardenPanel(user, "Mission instructions");
+    expect(await screen.findByText(/two wait\(\) calls make a new crop ripe/i)).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Programming reference" }));
+    const dialog = await screen.findByRole("dialog");
+    const waitEntry = within(dialog).getByRole("heading", { name: "wait()" }).closest("article");
+    expect(waitEntry).toHaveTextContent(/two wait\(\) calls/i);
+    expect(waitEntry).toHaveTextContent(/board shows the crop as ripe/i);
+
+    const restoreButton = await screen.findByRole("button", { name: "Refill to 2 starter seeds" });
+    await user.click(restoreButton);
+    await waitFor(async () => {
+      expect(await db.codeGardenState.get("default")).toMatchObject({
+        resources: { seeds: 2 },
+        completedMissionIds: GARDEN_MISSIONS.slice(0, 4).map((mission) => mission.id),
+      });
+    });
+
+    await user.click(within(dialog).getByRole("button", { name: "Close" }));
+    const editor = await screen.findByRole("textbox", { name: "Robot program" }) as HTMLTextAreaElement;
+    fireEvent.change(editor, {
+      target: { value: "let cycles = 2\nrepeat(cycles) { plant() wait() wait() harvest() }" },
+    });
+    await user.click(screen.getByRole("button", { name: "Run program" }));
+    expect(await screen.findByText("Mission complete: 2/2.", {}, { timeout: 8000 })).toBeInTheDocument();
+    await waitFor(async () => {
+      expect(await db.codeGardenState.get("default")).toMatchObject({
+        completedMissionIds: [...GARDEN_MISSIONS.slice(0, 4).map((mission) => mission.id), "seed-cycle"],
+        resources: { plants: 12, seeds: 0, wood: 4, energy: 22 },
+      });
+    });
+    expect(screen.queryByRole("button", { name: "Refill to 2 starter seeds" })).not.toBeInTheDocument();
+  });
+
+  it("reveals a hint and then an executable read-only solution for every mission", async () => {
+    const user = userEvent.setup();
+    const initial = await initializeCodeGarden();
+    for (const mission of GARDEN_MISSIONS) {
+      const program = `# Existing ${mission.id} program`;
+      const state = {
+        ...initial,
+        activeMode: "missions" as const,
+        activeMissionId: mission.id,
+        completedMissionIds: GARDEN_MISSIONS.map((entry) => entry.id),
+        upgrades: ["solar-coil", "field-scanner"],
+        programs: { [mission.id]: program },
+      };
+      await saveCodeGardenState(state);
+      const rendered = render(<CodeGardenGame />);
+      const editor = await screen.findByRole("textbox", { name: "Robot program" }) as HTMLTextAreaElement;
+      expect(editor.value).toBe(program);
+
+      await user.click(screen.getByRole("button", { name: "Show mission hint" }));
+      const panel = await screen.findByRole("region", { name: "Hint" });
+      expect(within(panel).getByText(mission.hint)).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: "Show complete solution" })).toHaveAttribute("aria-expanded", "true");
+
+      await user.click(screen.getByRole("button", { name: "Show complete solution" }));
+      const missionName = i18n.t(`codeLab.game.missionNames.${mission.id}.name`);
+      const solutionEditor = await screen.findByRole("textbox", { name: `${missionName} Complete solution` }) as HTMLTextAreaElement;
+      expect(solutionEditor.readOnly).toBe(true);
+      expect(solutionEditor.value).toBe(mission.solution);
+      expect(within(panel).getByText(/This example uses only commands unlocked/)).toBeInTheDocument();
+      expect(editor.value).toBe(program);
+
+      await user.click(within(panel).getByRole("button", { name: "Return to mission" }));
+      expect(screen.queryByRole("region", { name: "Hint" })).not.toBeInTheDocument();
+      expect(editor.value).toBe(program);
+      expect(await db.codeGardenState.get("default")).toMatchObject({
+        completedMissionIds: state.completedMissionIds,
+        programs: state.programs,
+        resources: state.resources,
+      });
+      rendered.unmount();
+    }
   });
 
   it("pauses and cancels a visible run without changing the saved world", async () => {

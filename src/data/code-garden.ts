@@ -149,6 +149,8 @@ export interface GardenMission {
   concept: string;
   objective: string;
   hint: string;
+  solution?: string;
+  seedRecovery?: number;
   width: number;
   height: number;
   robot: { x: number; y: number; direction: GardenDirection };
@@ -190,17 +192,29 @@ export function gardenCoordinatesAtPoint(
   return tileDistance <= 1 ? { x, y } : null;
 }
 
+export function getGardenRobotRotation(direction: GardenDirection): number {
+  const screenVector = {
+    north: { x: -48, y: -25 },
+    east: { x: 48, y: 25 },
+    south: { x: -48, y: 25 },
+    west: { x: 48, y: -25 },
+  }[direction];
+  return (Math.atan2(screenVector.x, -screenVector.y) * 180 / Math.PI + 360) % 360;
+}
+
 export const GARDEN_MISSIONS: GardenMission[] = [
   {
     id: "first-harvest", concept: "movement", objective: "Reach the ripe plant and harvest it.",
-    hint: 'Use move("east") twice, then harvest().',
+    hint: "The ripe plant is two tiles east. Move to it before harvesting.",
+    solution: 'move("east")\nmove("east")\nharvest()',
     width: 7, height: 5, robot: { x: 0, y: 2, direction: "east" },
     tiles: [{ x: 2, y: 2, kind: "ripe" }], goal: { kind: "harvest", count: 1 },
     reward: { plants: 3, seeds: 2, energy: 4 }, maxSteps: 16, unlocks: ["move", "harvest", "turn"],
   },
   {
     id: "repeat-the-row", concept: "loops", objective: "Harvest all three plants in a straight row.",
-    hint: "A repeat block runs its instructions more than once. Move, then harvest, inside the block.",
+    hint: "Each loop should move onto one tile and harvest there. Repeat that pair three times.",
+    solution: 'repeat(3) {\n  move("east")\n  harvest()\n}',
     width: 7, height: 5, robot: { x: 0, y: 2, direction: "east" },
     tiles: [{ x: 1, y: 2, kind: "ripe" }, { x: 2, y: 2, kind: "ripe" }, { x: 3, y: 2, kind: "ripe" }],
     goal: { kind: "harvest", count: 3 }, reward: { plants: 5, seeds: 2, energy: 5 }, maxSteps: 24,
@@ -208,7 +222,8 @@ export const GARDEN_MISSIONS: GardenMission[] = [
   },
   {
     id: "read-the-ground", concept: "conditions", objective: "Move east across the patch and harvest only ripe plants.",
-    hint: 'Check the tile with if (tile == "ripe") { harvest() }. The stone is safe to leave alone.',
+    hint: 'Check each tile after moving. Harvest only when tile == "ripe"; leave the stone alone.',
+    solution: 'repeat(3) {\n  move("east")\n  if (tile == "ripe") {\n    harvest()\n  }\n}',
     width: 7, height: 5, robot: { x: 0, y: 2, direction: "east" },
     tiles: [{ x: 1, y: 2, kind: "ripe" }, { x: 2, y: 2, kind: "stone" }, { x: 3, y: 2, kind: "ripe" }],
     goal: { kind: "harvest", count: 2 }, reward: { plants: 6, wood: 2, stone: 2, energy: 6 }, maxSteps: 32,
@@ -216,7 +231,8 @@ export const GARDEN_MISSIONS: GardenMission[] = [
   },
   {
     id: "garden-routine", concept: "functions", objective: "Write a reusable harvest_row() routine and use it to collect the whole row.",
-    hint: "Define function harvest_row() { ... } once, then call harvest_row() to run it.",
+    hint: "Put the three move-and-harvest steps inside a named function, then call that function.",
+    solution: 'function harvest_row() {\n  repeat(3) {\n    move("east")\n    harvest()\n  }\n}\nharvest_row()',
     width: 7, height: 5, robot: { x: 0, y: 1, direction: "east" },
     tiles: [{ x: 1, y: 1, kind: "ripe" }, { x: 2, y: 1, kind: "ripe" }, { x: 3, y: 1, kind: "ripe" }],
     goal: { kind: "harvest", count: 3 }, reward: { plants: 8, wood: 3, stone: 2, energy: 8 }, maxSteps: 40,
@@ -224,14 +240,17 @@ export const GARDEN_MISSIONS: GardenMission[] = [
   },
   {
     id: "seed-cycle", concept: "variables", objective: "Plant, grow, and harvest a crop using a named repeat count.",
-    hint: "Set let cycles = 2, then use repeat(cycles) { ... } to repeat your plant-and-wait routine.",
+    hint: "Use a named repeat count for two crops. In a tutorial, each wait() advances one growth stage; a new crop needs two.",
+    solution: "let cycles = 2\nrepeat(cycles) {\n  plant()\n  wait()\n  wait()\n  harvest()\n}",
+    seedRecovery: 2,
     width: 7, height: 5, robot: { x: 2, y: 2, direction: "east" },
     tiles: [], goal: { kind: "harvest", count: 2 }, reward: { plants: 10, wood: 4, energy: 10 }, maxSteps: 48,
     unlocks: ["move", "harvest", "turn", "repeat", "if", "plant", "collect", "wait", "let"],
   },
   {
     id: "solar-relay", concept: "energy", objective: "Automate a long crop row with a limited energy reserve. Wait to recharge, then continue.",
-    hint: "Your solar coil turns each wait() into energy. A repeat block can move and harvest each tile.",
+    hint: "Three moves use your starting energy. Let the Solar coil recharge with wait() before the final move.",
+    solution: 'repeat(3) {\n  move("east")\n  harvest()\n}\nwait()\nmove("east")\nharvest()',
     width: 7, height: 5, robot: { x: 0, y: 2, direction: "east" },
     tiles: [1, 2, 3, 4].map((x) => ({ x, y: 2, kind: "ripe" as const })),
     goal: { kind: "harvest", count: 4 }, reward: { plants: 8, seeds: 3, energy: 6 }, maxSteps: 20,
@@ -241,7 +260,8 @@ export const GARDEN_MISSIONS: GardenMission[] = [
   },
   {
     id: "sensor-sweep", concept: "sensors", objective: "Scan a mixed row and harvest only the ripe plants. Empty soil and stone are safe to pass.",
-    hint: 'First try tile_is("ripe") in an if condition. It reads the tile under the robot and returns true or false.',
+    hint: 'Inspect each tile after moving. Use tile_is("ripe") to harvest only ripe crops and safely pass empty soil and stone.',
+    solution: 'repeat(5) {\n  move("east")\n  if (tile_is("ripe")) {\n    harvest()\n  }\n}',
     width: 7, height: 5, robot: { x: 0, y: 2, direction: "east" },
     tiles: [
       { x: 1, y: 2, kind: "ripe" },
@@ -288,6 +308,20 @@ export const DEFAULT_GARDEN_STATE: CodeGardenState = {
 
 export function isGardenAdventureUnlocked(completedMissionIds: readonly string[]): boolean {
   return GARDEN_MISSIONS.every((mission) => completedMissionIds.includes(mission.id));
+}
+
+export function restoreGardenMissionSeeds(state: CodeGardenState, missionId: string): CodeGardenState {
+  const mission = GARDEN_MISSIONS.find((item) => item.id === missionId);
+  if (!mission?.seedRecovery) throw new Error("This mission has no starter-seed recovery.");
+  if (state.completedMissionIds.includes(mission.id)) throw new Error("Mission starter seeds cannot be restored after completion.");
+  if (state.resources.seeds >= mission.seedRecovery) throw new Error("The seed pouch already has enough seeds.");
+  return {
+    ...state,
+    resources: {
+      ...state.resources,
+      seeds: mission.seedRecovery,
+    },
+  };
 }
 
 export function isGardenMoonExpeditionReady(farm: GardenAdventureSave): boolean {

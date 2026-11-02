@@ -79,4 +79,25 @@ describe("CodeInput assistance", () => {
     render(<CodeInput label="Garden code" language="garden" onChange={vi.fn()} value={'move("east")'} />);
     expect(document.querySelector(".code-input__highlight")?.textContent).toBe('move("east")');
   });
+
+  it("renders a syntax-highlighted read-only example without suggestions or editor shortcuts", () => {
+    const onChange = vi.fn();
+    render(
+      <CodeInput
+        label="Mission solution"
+        language="garden"
+        onChange={onChange}
+        readOnly
+        suggestions={[{ insert: "harvest()", detail: "Harvest a crop" }]}
+        value={'move("east")\nharvest()'}
+      />,
+    );
+    const editor = screen.getByRole("textbox", { name: "Mission solution" }) as HTMLTextAreaElement;
+    expect(editor.readOnly).toBe(true);
+    expect(editor.value).toBe('move("east")\nharvest()');
+    expect(screen.queryByRole("listbox")).not.toBeInTheDocument();
+    expect(document.querySelector(".code-input__token[data-language='garden']")).toBeInTheDocument();
+    fireEvent.keyDown(editor, { key: "Tab" });
+    expect(onChange).not.toHaveBeenCalled();
+  });
 });

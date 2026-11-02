@@ -15,6 +15,7 @@ interface CodeInputProps {
   language: "html" | "css" | "javascript" | "garden";
   suggestions?: SuggestionSource;
   disabled?: boolean;
+  readOnly?: boolean;
 }
 
 const COMMON_SUGGESTIONS: Record<Exclude<CodeInputProps["language"], "garden">, CodeSuggestion[]> = {
@@ -67,7 +68,7 @@ function highlightCode(value: string, language: CodeInputProps["language"]): Rea
   return parts;
 }
 
-export function CodeInput({ value, onChange, label, language, suggestions, disabled }: CodeInputProps) {
+export function CodeInput({ value, onChange, label, language, suggestions, disabled, readOnly = false }: CodeInputProps) {
   const editorRef = useRef<HTMLTextAreaElement>(null);
   const [activeSuggestion, setActiveSuggestion] = useState(0);
   const [dismissedPrefix, setDismissedPrefix] = useState("");
@@ -79,6 +80,7 @@ export function CodeInput({ value, onChange, label, language, suggestions, disab
   }, [value]);
 
   const candidates = useMemo(() => {
+    if (readOnly) return [];
     const selection = typeof suggestions === "function"
       ? suggestions(value, cursor)
       : suggestions ?? (language === "garden" ? [] : COMMON_SUGGESTIONS[language]);
@@ -92,7 +94,7 @@ export function CodeInput({ value, onChange, label, language, suggestions, disab
     return selection
       .filter((item) => item.insert.toLowerCase().startsWith(word.toLowerCase()) && item.insert.toLowerCase() !== word.toLowerCase())
       .slice(0, 6);
-  }, [cursor, dismissedPrefix, language, suggestions, value]);
+  }, [cursor, dismissedPrefix, language, readOnly, suggestions, value]);
 
   function insertText(text: string, replaceWord: boolean) {
     const editor = editorRef.current;
@@ -120,6 +122,7 @@ export function CodeInput({ value, onChange, label, language, suggestions, disab
   }
 
   function onKeyDown(event: KeyboardEvent<HTMLTextAreaElement>) {
+    if (readOnly) return;
     if (candidates.length > 0 && event.key === "ArrowDown") {
       event.preventDefault();
       setActiveSuggestion((index) => (index + 1) % candidates.length);
@@ -186,13 +189,13 @@ export function CodeInput({ value, onChange, label, language, suggestions, disab
   const suggestionsId = `code-suggestions-${language}`;
   const showSuggestions = candidates.length > 0;
   return (
-    <div className={`code-input${disabled ? " code-input--disabled" : ""}`}>
+    <div className={`code-input${disabled ? " code-input--disabled" : ""}${readOnly ? " code-input--read-only" : ""}`}>
       <pre aria-hidden="true" className="code-input__highlight">{highlightCode(value, language)}<br /></pre>
       <textarea
         ref={editorRef}
         aria-activedescendant={showSuggestions ? `${suggestionsId}-option-${activeSuggestion}` : undefined}
         aria-label={label}
-        aria-autocomplete="list"
+        aria-autocomplete={readOnly ? "none" : "list"}
         aria-controls={showSuggestions ? suggestionsId : undefined}
         aria-expanded={showSuggestions}
         autoCapitalize="off"
@@ -216,6 +219,7 @@ export function CodeInput({ value, onChange, label, language, suggestions, disab
             highlight.scrollLeft = event.currentTarget.scrollLeft;
           }
         }}
+        readOnly={readOnly}
         spellCheck={false}
         value={value}
       />
