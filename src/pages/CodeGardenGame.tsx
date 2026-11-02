@@ -995,7 +995,12 @@ export function CodeGardenGame({ toolbarStart, toolbarEnd }: CodeGardenGameProps
             minWidth: 300,
             minHeight: 250,
             openByDefault: false,
-            content: <CodeReference />,
+            content: (
+              <CodeReference
+                world={gameMode === "adventure" ? currentWorld : undefined}
+                availableCrops={gameMode === "adventure" ? availableAdventureCrops : undefined}
+              />
+            ),
           },
           {
             id: "skill-tree",
@@ -1265,7 +1270,12 @@ export function CodeGardenGame({ toolbarStart, toolbarEnd }: CodeGardenGameProps
             minWidth: 300,
             minHeight: 250,
             openByDefault: false,
-            content: <CodeReference />,
+            content: (
+              <CodeReference
+                world={gameMode === "adventure" ? currentWorld : undefined}
+                availableCrops={gameMode === "adventure" ? availableAdventureCrops : undefined}
+              />
+            ),
           },
         ]}
       />
@@ -1280,7 +1290,10 @@ export function CodeGardenGame({ toolbarStart, toolbarEnd }: CodeGardenGameProps
               <h2 id="garden-reference-title">{t("codeLab.reference.title")}</h2>
               <button aria-label={t("codeLab.windowClose")} autoFocus onClick={() => setReferenceOpen(false)} type="button"><X size={16} /></button>
             </header>
-            <CodeReference />
+            <CodeReference
+              world={gameMode === "adventure" ? currentWorld : undefined}
+              availableCrops={gameMode === "adventure" ? availableAdventureCrops : undefined}
+            />
           </section>
         </div>,
         document.body,

@@ -1298,7 +1298,7 @@ export function executeGardenProgram(
         if (options.adventure.isMoon) moonWater -= 1;
         tile.watered = true;
         tile.growthBonusMs = (tile.growthBonusMs ?? 0) +
-          cropDuration * (options.adventure.richSoil ? 0.8 : 1) *
+          cropDuration * (!options.adventure.isMoon && options.adventure.richSoil ? 0.8 : 1) *
           (options.adventure.wateringGrowthFraction ?? (options.adventure.wateringCan ? 0.35 : 0.2));
       } else if (action.kind === "wait") {
         if (!options.adventure) {

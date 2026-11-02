@@ -1,14 +1,20 @@
 import { useMemo, useState } from "react";
 import { Search } from "lucide-react";
 import { useTranslation } from "react-i18next";
-import { CODE_REFERENCE_ENTRIES } from "../data/code-reference";
+import { getCodeReferenceEntries } from "../data/code-reference";
+import type { GardenCropType, GardenWorldId } from "../data/db";
 
-export function CodeReference() {
+interface CodeReferenceProps {
+  world?: GardenWorldId;
+  availableCrops?: readonly GardenCropType[];
+}
+
+export function CodeReference({ world, availableCrops }: CodeReferenceProps) {
   const { t } = useTranslation();
   const [query, setQuery] = useState("");
   const entries = useMemo(() => {
     const needle = query.trim().toLocaleLowerCase();
-    return CODE_REFERENCE_ENTRIES.filter((entry) => {
+    return getCodeReferenceEntries(world, availableCrops).filter((entry) => {
       if (!needle) return true;
       const text = [
         entry.signature,
@@ -21,7 +27,7 @@ export function CodeReference() {
       ].join(" ").toLocaleLowerCase();
       return text.includes(needle);
     });
-  }, [query, t]);
+  }, [availableCrops, query, t, world]);
 
   return (
     <div className="code-reference">

@@ -45,7 +45,7 @@ import {
   unlockGardenMoonExpedition,
   normalizeGardenAdventure,
 } from "./code-garden";
-import { CODE_REFERENCE_ENTRIES } from "./code-reference";
+import { CODE_REFERENCE_ENTRIES, getCodeReferenceEntries } from "./code-reference";
 import { db, type GardenAdventureSave } from "./db";
 
 function earthFarmReadyForMoon(coins = 1_600): GardenAdventureSave {
@@ -165,7 +165,7 @@ describe("Code Garden language and simulation", () => {
     const options = {
       adventure: {
         seeds: moon.seeds,
-        richSoil: false,
+        richSoil: true,
         wateringCan: false,
         now,
         availableCrops: getGardenMoonAvailableCrops(moon),
@@ -897,6 +897,19 @@ describe("Code Garden language and simulation", () => {
       signature: "move(direction?)",
       argumentValues: ["north", "south", "east", "west"],
     });
+  });
+
+  it("shows crop values for the active world in the command reference", () => {
+    expect(getCodeReferenceEntries("moon", ["mooncap", "moonleaf"]).find((entry) => entry.id === "plant"))
+      .toMatchObject({
+        example: 'plant("mooncap")',
+        argumentValues: ["mooncap", "moonleaf"],
+      });
+    expect(getCodeReferenceEntries("earth", ["turnip", "carrot"]).find((entry) => entry.id === "plant"))
+      .toMatchObject({
+        example: 'plant("turnip")',
+        argumentValues: ["turnip", "carrot"],
+      });
   });
 
   it("researches the solar coil with real costs and makes wait recharge the energy-limited relay", async () => {
