@@ -48,6 +48,7 @@ import {
   getGardenSeedPack,
   getGardenSkillLevel,
   gardenCoordinatesAtPoint,
+  getGardenRobotRotation,
   GARDEN_RESEARCH,
   GARDEN_MISSIONS,
   getGardenSuggestions,
@@ -60,6 +61,7 @@ import {
   type GardenResearchId,
   initializeCodeGarden,
   researchGardenUpgrade,
+  restoreGardenMissionSeeds,
   saveCodeGardenProgram,
   saveCodeGardenState,
   sellGardenHarvest,
@@ -157,6 +159,8 @@ export function CodeGardenGame({ toolbarStart, toolbarEnd }: CodeGardenGameProps
   const [message, setMessage] = useState("");
   const [messageIsError, setMessageIsError] = useState(false);
   const [hintVisible, setHintVisible] = useState(false);
+  const [missionHelpLevel, setMissionHelpLevel] = useState<0 | 1 | 2>(0);
+  const [missionHelpOpen, setMissionHelpOpen] = useState(false);
   const [referenceOpen, setReferenceOpen] = useState(false);
   const [loadingError, setLoadingError] = useState("");
   const [hintedMissionId, setHintedMissionId] = useState("");
@@ -630,6 +634,26 @@ export function CodeGardenGame({ toolbarStart, toolbarEnd }: CodeGardenGameProps
     await persist({ ...gameState, activeMissionId: currentMission.id }, reset);
   }
 
+  async function restoreMissionSeeds() {
+    if (!gameState || gameMode === "adventure" || status !== "ready") return;
+    try {
+      const stateWithProgram = {
+        ...gameState,
+        programs: { ...gameState.programs, [currentMission.id]: source },
+      };
+      const restored = restoreGardenMissionSeeds(stateWithProgram, currentMission.id);
+      const nextRun = createGardenRun(currentMission, restored.resources, restored.upgrades);
+      setRun(nextRun);
+      setAction(null);
+      setMessage(t("codeLab.game.starterSeedsRestored", { count: currentMission.seedRecovery }));
+      setMessageIsError(false);
+      await persist(restored, nextRun);
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : String(error));
+      setMessageIsError(true);
+    }
+  }
+
   async function selectMission(mission: GardenMission) {
     if (!gameState || GARDEN_MISSIONS.indexOf(mission) > unlockedThrough || status === "running" || status === "paused") return;
     runToken.current += 1;
@@ -639,6 +663,8 @@ export function CodeGardenGame({ toolbarStart, toolbarEnd }: CodeGardenGameProps
     setSource(gameState.programs?.[mission.id] ?? initialProgram(mission.id));
     setHintVisible(false);
     setHintedMissionId("");
+    setMissionHelpLevel(0);
+    setMissionHelpOpen(false);
     setMessage("");
     setAction(null);
     setSensorFeedback("");
@@ -670,6 +696,17 @@ export function CodeGardenGame({ toolbarStart, toolbarEnd }: CodeGardenGameProps
   function showHint() {
     setHintVisible(true);
     setHintedMissionId(currentMission.id);
+  }
+
+  function activateMissionHelp() {
+    if (!missionHelpOpen) {
+      setMissionHelpOpen(true);
+      if (missionHelpLevel === 0) setMissionHelpLevel(1);
+    } else if (missionHelpLevel === 1) {
+      setMissionHelpLevel(2);
+    } else {
+      setMissionHelpOpen(false);
+    }
   }
 
   if (!gameState || !currentRun) {
@@ -1094,7 +1131,6 @@ export function CodeGardenGame({ toolbarStart, toolbarEnd }: CodeGardenGameProps
                     <span><code>storage_has_room(resource)</code> {t("codeLab.game.sensorStorageHelp")}</span>
                   </div>
                 )}
-                {hintVisible && hintedMissionId === missionId && <p className="garden-game__hint">{currentMission.hint}</p>}
               </div>
             ),
           },
@@ -1149,7 +1185,24 @@ export function CodeGardenGame({ toolbarStart, toolbarEnd }: CodeGardenGameProps
                 <div className="garden-game__program-head">
                   <div><span className="garden-game__section-label">{t("codeLab.game.program")}</span><span className="garden-game__language">GARDEN</span></div>
                   <button aria-label={t("codeLab.reference.title")} className="garden-game__help" onClick={() => setReferenceOpen(true)} type="button"><BookOpen size={15} /></button>
-                  <button aria-label={t("codeLab.hint")} className="garden-game__help" onClick={showHint} type="button"><CircleHelp size={15} /></button>
+                  <button
+                    aria-controls="garden-mission-help"
+                    aria-expanded={missionHelpOpen}
+                    aria-label={t(
+                      missionHelpOpen
+                        ? missionHelpLevel === 1
+                          ? "codeLab.game.missionHelp.showSolution"
+                          : "codeLab.game.missionHelp.close"
+                        : missionHelpLevel === 0
+                          ? "codeLab.game.missionHelp.showHint"
+                          : missionHelpLevel === 1
+                            ? "codeLab.game.missionHelp.openHint"
+                            : "codeLab.game.missionHelp.openSolution",
+                    )}
+                    className="garden-game__mission-help"
+                    onClick={activateMissionHelp}
+                    type="button"
+                  ><CircleHelp aria-hidden="true" size={14} />{t("codeLab.game.missionHelp.button")}</button>
                 </div>
                 <CodeInput
                   disabled={status === "running" || status === "paused"}
@@ -1163,6 +1216,34 @@ export function CodeGardenGame({ toolbarStart, toolbarEnd }: CodeGardenGameProps
                   }))}
                   value={source}
                 />
+                {missionHelpOpen && (
+                  <section aria-labelledby="garden-mission-help-title" className="garden-game__mission-help-panel" id="garden-mission-help">
+                    <div className="garden-game__mission-help-heading">
+                      <div>
+                        <h3 id="garden-mission-help-title">
+                          {t(missionHelpLevel === 1
+                            ? "codeLab.game.missionHelp.hintTitle"
+                            : "codeLab.game.missionHelp.solutionTitle")}
+                        </h3>
+                        {missionHelpLevel === 2 && <p>{t("codeLab.game.missionHelp.solutionNote")}</p>}
+                      </div>
+                    </div>
+                    {missionHelpLevel === 1
+                      ? <p className="garden-game__hint" role="status">{t(`codeLab.game.missionHelp.hints.${currentMission.id}`)}</p>
+                      : currentMission.solution
+                        ? <CodeInput
+                            label={`${t(`codeLab.game.missionNames.${currentMission.id}.name`)} ${t("codeLab.game.missionHelp.solutionTitle")}`}
+                            language="garden"
+                            onChange={setSource}
+                            readOnly
+                            value={currentMission.solution}
+                          />
+                        : <p className="garden-game__hint" role="status">{t("codeLab.game.missionHelp.missingSolution")}</p>}
+                    <button className="garden-game__mission-help-return" onClick={() => setMissionHelpOpen(false)} type="button">
+                      {t("codeLab.game.missionHelp.returnToMission")}
+                    </button>
+                  </section>
+                )}
                 <p className="garden-game__editor-hint">{t("codeLab.game.codeHint")}</p>
                 <div className="garden-game__controls">
                   {status === "running"
@@ -1172,6 +1253,16 @@ export function CodeGardenGame({ toolbarStart, toolbarEnd }: CodeGardenGameProps
                       : <button className="garden-game__control garden-game__control--run" onClick={() => void runProgram()} type="button"><Play size={13} />{t("codeLab.game.run")}</button>}
                   <button aria-label={t("codeLab.game.reset")} className="garden-game__control garden-game__control--reset" onClick={() => void resetRun()} type="button"><RotateCcw size={13} />{t("codeLab.game.reset")}</button>
                 </div>
+                {currentMission.seedRecovery !== undefined &&
+                  !gameState.completedMissionIds.includes(currentMission.id) &&
+                  currentRun.resources.seeds < currentMission.seedRecovery && (
+                    <button
+                      className="garden-game__seed-recovery"
+                      disabled={status !== "ready"}
+                      onClick={() => void restoreMissionSeeds()}
+                      type="button"
+                    >{t("codeLab.game.restoreStarterSeeds", { count: currentMission.seedRecovery })}</button>
+                  )}
                 {gameState.completedMissionIds.includes(currentMission.id) && currentMission.id !== GARDEN_MISSIONS.at(-1)?.id && (
                   <button className="garden-game__next" onClick={() => void selectMission(GARDEN_MISSIONS[missionIndex + 1])} type="button">
                     {t("codeLab.game.nextMission")}<span>→</span>
@@ -1384,7 +1475,7 @@ function GardenBoard({
               const tileSelected = tile.x === selected.x && tile.y === selected.y;
               const TileIcon = tile.kind === "ripe" || tile.kind === "plant" ? Sprout :
                 tile.kind === "stone" ? Mountain : tile.kind === "wood" ? Trees : null;
-              const direction = { north: 0, east: 90, south: 180, west: 270 }[run.robot.direction];
+              const direction = getGardenRobotRotation(run.robot.direction);
               const cropLabel = tile.crop ? labels.crops?.[tile.crop] ?? tile.crop : "";
               const tileDescription = tile.crop
                 ? `${cropLabel}, ${tile.kind === "ripe" ? labels.ready ?? labels.kinds.ripe : `${labels.stage ?? "Growth"} ${tile.growth ?? 0}/${labels.growthMax ?? 2}`}`
@@ -1427,7 +1518,7 @@ function GardenBoard({
                   {secondaryRobotHere && (
                     <g
                       className="garden-board__robot garden-board__robot--secondary"
-                      transform={`translate(0 -38) rotate(${({ north: 0, east: 90, south: 180, west: 270 } satisfies Record<GardenDirection, number>)[secondaryRobot.direction as GardenDirection]})`}
+                      transform={`translate(0 -38) rotate(${getGardenRobotRotation(secondaryRobot.direction as GardenDirection)})`}
                       aria-hidden="true"
                     >
                       <ellipse className="garden-board__robot-shadow" cx="0" cy="13" rx="20" ry="8" />
