@@ -376,10 +376,12 @@ export interface CodeLabProgress {
 export interface CodeGardenState {
   id: "default";
   activeMissionId: string;
+  activeMode?: "missions" | "adventure";
   completedMissionIds: string[];
   resources: { plants: number; wood: number; stone: number; seeds: number; energy: number };
   upgrades: string[];
   programs?: Record<string, string>;
+  adventure?: GardenAdventureSave;
   bestResults?: Record<string, {
     instructions: number;
     harvested: number;
@@ -397,6 +399,98 @@ export interface CodeGardenState {
     completed: boolean;
     storageCapacity: number;
   };
+  updatedAt: number;
+}
+
+export type GardenCropId = "turnip" | "carrot" | "berry" | "pumpkin";
+export type GardenSkillId =
+  | "soil-science"
+  | "abundant-harvest"
+  | "seed-diversity"
+  | "quick-steps"
+  | "energy-economy"
+  | "solar-routines"
+  | "precision-nozzle"
+  | "deep-pantry"
+  | "seed-sorting"
+  | "field-survey"
+  | "robot-blueprints";
+export type GardenRobotId = "primary" | "assistant";
+export type GardenMoonCropId = "mooncap" | "moonleaf" | "prismberry";
+export type GardenMoonSkillId =
+  | "cryoseeding"
+  | "ice-condenser"
+  | "prism-grafting"
+  | "gravity-treads"
+  | "lunar-yield";
+export type GardenWorldId = "earth" | "moon";
+export type GardenCropType = GardenCropId | GardenMoonCropId;
+
+export interface GardenAdventureRobot {
+  x: number;
+  y: number;
+  direction: string;
+  energy: number;
+  movementProgress?: number;
+}
+
+export interface GardenAdventurePlot {
+  x: number;
+  y: number;
+  crop?: GardenCropId;
+  plantedAt?: number;
+  growthBonusMs?: number;
+  watered?: boolean;
+}
+
+export interface GardenMoonPlot {
+  x: number;
+  y: number;
+  crop?: GardenMoonCropId;
+  plantedAt?: number;
+  growthBonusMs?: number;
+  watered?: boolean;
+}
+
+export interface GardenMoonRobotPosition {
+  x: number;
+  y: number;
+  direction: string;
+  movementProgress?: number;
+}
+
+export interface GardenMoonFarmSave {
+  width: number;
+  height: number;
+  robots: Partial<Record<GardenRobotId, GardenMoonRobotPosition>>;
+  plots: GardenMoonPlot[];
+  seeds: Record<GardenMoonCropId, number>;
+  harvest: Record<GardenMoonCropId, number>;
+  skills?: Partial<Record<GardenMoonSkillId, number>>;
+  credits: number;
+  water: number;
+  expansions: number;
+  updatedAt: number;
+}
+
+export interface GardenAdventureSave {
+  width: number;
+  height: number;
+  robot: { x: number; y: number; direction: string };
+  robotMovementProgress?: number;
+  secondRobot?: GardenAdventureRobot;
+  activeRobot?: GardenRobotId;
+  plots: GardenAdventurePlot[];
+  seeds: Record<GardenCropId, number>;
+  harvest: Record<GardenCropId, number>;
+  skillLevels?: Partial<Record<GardenSkillId, number>>;
+  coins: number;
+  energy: number;
+  richSoil: boolean;
+  wateringCan: boolean;
+  expansions: number;
+  activeWorld?: GardenWorldId;
+  moonFarm?: GardenMoonFarmSave;
   updatedAt: number;
 }
 

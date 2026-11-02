@@ -1,22 +1,58 @@
-export const CODE_REFERENCE_ENTRIES = [
-  ["move", "command", "move(\"east\")", "first-harvest"],
-  ["turn", "command", "turn(\"left\")", "first-harvest"],
-  ["harvest", "command", "harvest()", "first-harvest"],
-  ["plant", "command", "plant()", "garden-routine"],
-  ["collect", "command", "collect()", "garden-routine"],
-  ["wait", "command", "wait()", "garden-routine"],
-  ["repeat", "language", "repeat(3) { move(\"east\") }", "repeat-the-row"],
-  ["condition", "language", "if (tile == \"ripe\") { harvest() }", "read-the-ground"],
-  ["variable", "language", "let cycles = 2", "seed-cycle"],
-  ["function", "language", "function harvest_row() { harvest() }", "garden-routine"],
-  ["tileSensor", "sensor", "tile_is(\"ripe\")", "field-scanner"],
-  ["energySensor", "sensor", "energy_at_least(2)", "field-scanner"],
-  ["storageSensor", "sensor", "storage_has_room(\"wood\")", "field-scanner"],
-  ["braces", "syntax", "{ ... }", "syntax"],
-  ["parentheses", "syntax", "move(\"east\")", "syntax"],
-  ["quotes", "syntax", "move(\"east\")", "syntax"],
-  ["comparison", "syntax", "tile == \"ripe\"", "syntax"],
-  ["comments", "syntax", "# explanation", "syntax"],
-] as const;
+import {
+  GARDEN_CROPS,
+  GARDEN_MOON_CROPS,
+  GARDEN_REFERENCE_ENTRIES,
+} from "./code-garden";
+import type { GardenCropType, GardenWorldId } from "./db";
 
-export type CodeReferenceEntryId = (typeof CODE_REFERENCE_ENTRIES)[number][0];
+export interface CodeReferenceEntry {
+  id: string;
+  category: "command" | "language" | "sensor" | "syntax";
+  signature?: string;
+  example: string;
+  requirement: string;
+  argumentValues?: readonly string[];
+  suggestedValues?: readonly string[];
+}
+
+const syntaxEntries: CodeReferenceEntry[] = [
+  { id: "braces", category: "syntax", example: "{ ... }", requirement: "syntax" },
+  { id: "parentheses", category: "syntax", example: 'move("east")', requirement: "syntax" },
+  { id: "quotes", category: "syntax", example: 'move("east")', requirement: "syntax" },
+  { id: "comparison", category: "syntax", example: 'tile == "ripe"', requirement: "syntax" },
+  { id: "comments", category: "syntax", example: "# explanation", requirement: "syntax" },
+];
+
+export const CODE_REFERENCE_ENTRIES: readonly CodeReferenceEntry[] = [
+  ...GARDEN_REFERENCE_ENTRIES.map(({ id, category, signature, example, requirement, argumentValues, suggestedValues }) => ({
+    id,
+    category,
+    signature,
+    example,
+    requirement,
+    argumentValues,
+    suggestedValues,
+  })),
+  ...syntaxEntries,
+];
+
+export function getCodeReferenceEntries(
+  world?: GardenWorldId,
+  availableCrops?: readonly GardenCropType[],
+): readonly CodeReferenceEntry[] {
+  if (!world) return CODE_REFERENCE_ENTRIES;
+  const plantEntry = CODE_REFERENCE_ENTRIES.find((entry) => entry.id === "plant");
+  if (!plantEntry) return CODE_REFERENCE_ENTRIES;
+  const cropValues = availableCrops ?? (world === "moon"
+    ? Object.keys(GARDEN_MOON_CROPS) as GardenCropType[]
+    : Object.keys(GARDEN_CROPS) as GardenCropType[]);
+  return CODE_REFERENCE_ENTRIES.map((entry) => entry.id === "plant"
+    ? {
+        ...entry,
+        example: `plant("${cropValues[0] ?? (world === "moon" ? "mooncap" : "turnip")}")`,
+        argumentValues: cropValues,
+      }
+    : entry);
+}
+
+export type CodeReferenceEntryId = (typeof CODE_REFERENCE_ENTRIES)[number]["id"];
