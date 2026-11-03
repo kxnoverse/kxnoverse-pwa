@@ -9,6 +9,7 @@ import { isCodeLabProgress, isCodeProject } from "./code-lab";
 import { isCodeGardenState } from "./code-garden";
 import { isDiagramProject } from "./diagrams";
 import { isPresentationProject } from "./presentations";
+import { isLegacyCreativeProject } from "./legacy-creative-projects";
 
 const BACKUP_FORMAT = "kxnodesk-local-backup";
 const MAX_IMPORT_BYTES = 150 * 1024 * 1024;
@@ -43,6 +44,7 @@ const DATA_TABLES = [
   "dailyCheckins",
   "diagramProjects",
   "presentations",
+  "creativeProjects",
 ] as const;
 
 type DataTableName = (typeof DATA_TABLES)[number];
@@ -119,6 +121,7 @@ const requiredStrings: Record<DataTableName, string[]> = {
   codeGardenState: ["id", "activeMissionId"],
   diagramProjects: ["id", "name"],
   presentations: ["id", "name"],
+  creativeProjects: ["id", "kind"],
 };
 
 function validateRecord(table: DataTableName, record: BackupRecord): void {
@@ -206,6 +209,12 @@ function validateRecord(table: DataTableName, record: BackupRecord): void {
       }
     }
     if (!isPresentationProject(record)) throw new Error("The backup contains an invalid presentation.");
+  }
+  if (table === "creativeProjects" && !isLegacyCreativeProject(record)) {
+    const retiredRecord = record.kind !== "palette" && record.kind !== "pixel" && record.kind !== "icon" && record.kind !== "logo" &&
+      typeof record.id === "string" && record.id.length > 0 && record.id.length <= 100 &&
+      typeof record.updatedAt === "number" && Number.isFinite(record.updatedAt);
+    if (!retiredRecord) throw new Error("The backup contains an invalid creative project.");
   }
 }
 
@@ -309,7 +318,7 @@ export async function exportDataBackup(): Promise<Blob> {
   }
   return new Blob([JSON.stringify({
     format: BACKUP_FORMAT,
-    schemaVersion: 15,
+    schemaVersion: 19,
     exportedAt: new Date().toISOString(),
     data,
     preferences,
@@ -324,7 +333,7 @@ export async function importDataBackup(file: File): Promise<BackupImportSummary>
   } catch {
     throw new Error("The selected file is not valid backup JSON.");
   }
-  if (!isRecord(parsed) || parsed.format !== BACKUP_FORMAT || typeof parsed.schemaVersion !== "number" || parsed.schemaVersion < 2 || parsed.schemaVersion > 15 || !isRecord(parsed.data)) {
+  if (!isRecord(parsed) || parsed.format !== BACKUP_FORMAT || typeof parsed.schemaVersion !== "number" || parsed.schemaVersion < 2 || parsed.schemaVersion > 19 || !isRecord(parsed.data)) {
     throw new Error("This file is not a supported Kxno Desk backup.");
   }
 
@@ -342,7 +351,7 @@ export async function importDataBackup(file: File): Promise<BackupImportSummary>
   let total = 0;
   for (const name of DATA_TABLES) {
     const records = data[name];
-    if (records === undefined && ((parsed.schemaVersion < 3 && DATA_TABLES.indexOf(name) >= 8) || (parsed.schemaVersion < 4 && name === "aiAttachments") || (parsed.schemaVersion < 5 && name === "arcadeData") || (parsed.schemaVersion < 6 && name === "workspace") || (parsed.schemaVersion < 7 && ["documents", "documentContents", "documentImages"].includes(name)) || (parsed.schemaVersion < 8 && name === "pdfProjects") || (parsed.schemaVersion < 9 && name === "docsTemplates") || (parsed.schemaVersion < 10 && ["codeProjects", "codeLabProgress"].includes(name)) || (parsed.schemaVersion < 11 && name === "codeGardenState") || (parsed.schemaVersion < 13 && name === "dailyCheckins") || (parsed.schemaVersion < 14 && name === "diagramProjects") || (parsed.schemaVersion < 15 && name === "presentations"))) {
+    if (records === undefined && ((parsed.schemaVersion < 3 && DATA_TABLES.indexOf(name) >= 8) || (parsed.schemaVersion < 4 && name === "aiAttachments") || (parsed.schemaVersion < 5 && name === "arcadeData") || (parsed.schemaVersion < 6 && name === "workspace") || (parsed.schemaVersion < 7 && ["documents", "documentContents", "documentImages"].includes(name)) || (parsed.schemaVersion < 8 && name === "pdfProjects") || (parsed.schemaVersion < 9 && name === "docsTemplates") || (parsed.schemaVersion < 10 && ["codeProjects", "codeLabProgress"].includes(name)) || (parsed.schemaVersion < 11 && name === "codeGardenState") || (parsed.schemaVersion < 13 && name === "dailyCheckins") || (parsed.schemaVersion < 14 && name === "diagramProjects") || (parsed.schemaVersion < 15 && name === "presentations") || (parsed.schemaVersion < 16 && name === "creativeProjects"))) {
       recordsByTable[name] = [];
       continue;
     }
@@ -414,6 +423,9 @@ export async function importDataBackup(file: File): Promise<BackupImportSummary>
   });
   await db.transaction("rw", db.presentations, async () => {
     await addTableRecords("presentations");
+  });
+  await db.transaction("rw", db.creativeProjects, async () => {
+    await addTableRecords("creativeProjects");
   });
   const preferenceSummary = { added: 0, skipped: 0 };
   for (const key of PREFERENCE_KEYS) {

@@ -1518,25 +1518,29 @@ function GardenBoard({
                   {secondaryRobotHere && (
                     <g
                       className="garden-board__robot garden-board__robot--secondary"
-                      transform={`translate(0 -38) rotate(${getGardenRobotRotation(secondaryRobot.direction as GardenDirection)})`}
+                      transform="translate(0 -38)"
                       aria-hidden="true"
                     >
                       <ellipse className="garden-board__robot-shadow" cx="0" cy="13" rx="20" ry="8" />
                       <path className="garden-board__robot-base" d="M-17 -5 -10 -17 10 -17 17 -5 13 10 -13 10Z" />
                       <Bot className="garden-board__robot-icon" x={-12} y={-15} width={24} height={24} strokeWidth={1.8} />
-                      <path className="garden-board__robot-nose" d="M0 -23 3 -17 -3 -17Z" />
+                      <g className="garden-board__robot-direction" transform={`rotate(${getGardenRobotRotation(secondaryRobot.direction as GardenDirection)})`}>
+                        <path className="garden-board__robot-nose" d="M0 -23 3 -17 -3 -17Z" />
+                      </g>
                     </g>
                   )}
                   {robotHere && (
                     <g
                       className={`garden-board__robot garden-board__robot--${action?.kind ?? "idle"}`}
-                      transform={`translate(0 -38) rotate(${direction})`}
+                      transform="translate(0 -38)"
                       aria-hidden="true"
                     >
                       <ellipse className="garden-board__robot-shadow" cx="0" cy="13" rx="20" ry="8" />
                       <path className="garden-board__robot-base" d="M-17 -5 -10 -17 10 -17 17 -5 13 10 -13 10Z" />
                       <Bot className="garden-board__robot-icon" x={-12} y={-15} width={24} height={24} strokeWidth={1.8} />
-                      <path className="garden-board__robot-nose" d="M0 -23 3 -17 -3 -17Z" />
+                      <g className="garden-board__robot-direction" transform={`rotate(${direction})`}>
+                        <path className="garden-board__robot-nose" d="M0 -23 3 -17 -3 -17Z" />
+                      </g>
                     </g>
                   )}
                   <text className="garden-board__coordinates" x="0" y="13">{tile.x + 1},{tile.y + 1}</text>

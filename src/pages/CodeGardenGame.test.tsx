@@ -52,7 +52,7 @@ describe("playable Code Garden", () => {
     expect((screen.getByRole("textbox", { name: "Robot program" }) as HTMLTextAreaElement).value).toContain("repeat");
   });
 
-  it("renders the saved robot orientation along the isometric direction after reload", async () => {
+  it("keeps the robot body aligned while its direction marker follows the isometric direction after reload", async () => {
     const initial = await initializeCodeGarden();
     const mission = GARDEN_MISSIONS[0];
     for (const direction of ["north", "east", "south", "west"] as const) {
@@ -73,8 +73,12 @@ describe("playable Code Garden", () => {
       });
       const rendered = render(<CodeGardenGame />);
       await screen.findByRole("textbox", { name: "Robot program" });
-      expect(rendered.container.querySelector(".garden-board__robot"))
-        .toHaveAttribute("transform", `translate(0 -38) rotate(${getGardenRobotRotation(direction)})`);
+      const robot = rendered.container.querySelector(".garden-board__robot");
+      expect(robot).toHaveAttribute("transform", "translate(0 -38)");
+      expect(robot?.querySelector(".garden-board__robot-direction"))
+        .toHaveAttribute("transform", `rotate(${getGardenRobotRotation(direction)})`);
+      expect(robot?.querySelector(".garden-board__robot-base")).not.toHaveAttribute("transform");
+      expect(robot?.querySelector(".garden-board__robot-shadow")).not.toHaveAttribute("transform");
       rendered.unmount();
     }
   });

@@ -23,6 +23,7 @@ const CrosswordInfiniteGame = lazy(() => import("./CrosswordInfinite").then((mod
 const ColorLudoGame = lazy(() => import("./ColorLudo").then((module) => ({ default: module.ColorLudo })));
 const HexSettlersGame = lazy(() => import("./HexSettlers").then((module) => ({ default: module.HexSettlers })));
 const ColorClashGame = lazy(() => import("./ColorClash").then((module) => ({ default: module.ColorClash })));
+const FallingSandGame = lazy(() => import("./FallingSandLab").then((module) => ({ default: module.FallingSandLab })));
 const favoriteKey = "favorites";
 const recentKey = "recent";
 const recordKey = (id: string) => `best:${id}`;
@@ -232,6 +233,10 @@ export function ArcadePage() {
         ) : selectedGame.id === "color-clash" ? (
           <Suspense fallback={<p className="arcade-loading">{t("arcade.loading")}</p>}>
             <ColorClashGame />
+          </Suspense>
+        ) : selectedGame.id === "falling-sand" ? (
+          <Suspense fallback={<p className="arcade-loading">{t("arcade.loading")}</p>}>
+            <FallingSandGame />
           </Suspense>
         ) : ["word-guess", "brick-breaker", "geometry-runner", "air-hockey", "aim-trainer"].includes(selectedGame.id) ? (
           <Suspense fallback={<p className="arcade-loading">{t("arcade.loading")}</p>}>

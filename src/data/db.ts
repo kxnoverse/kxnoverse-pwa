@@ -65,6 +65,101 @@ export interface AiPreset {
   isDefault: boolean;
 }
 
+export interface CreativePixelProject {
+  id: "pixel-pattern-designer";
+  kind: "pixel";
+  width: number;
+  height: number;
+  pixels: Array<string | null>;
+  color: string;
+  tool: "draw" | "erase" | "fill";
+  zoom: number;
+  updatedAt: number;
+}
+
+export type PaletteHarmony =
+  | "complementary"
+  | "analogous"
+  | "triadic"
+  | "monochromatic"
+  | "split-complementary"
+  | "tetradic";
+
+export interface CreativePaletteProject {
+  id: string;
+  kind: "palette";
+  name: string;
+  harmony: PaletteHarmony;
+  baseColor: string;
+  colors: string[];
+  updatedAt: number;
+}
+
+export type IconTool = "draw" | "erase" | "line" | "rectangle" | "ellipse";
+
+export interface CreativeIconProject {
+  id: string;
+  kind: "icon";
+  name: string;
+  width: number;
+  height: number;
+  pixels: Array<string | null>;
+  color: string;
+  tool: IconTool;
+  updatedAt: number;
+}
+
+export interface CreativeLogoBaseLayer {
+  id: string;
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  rotation: number;
+  color: string;
+  visible: boolean;
+}
+
+export type LogoShape = "rectangle" | "ellipse" | "triangle" | "line";
+export type LogoFontFamily = "sans" | "serif" | "mono";
+
+export interface CreativeLogoTextLayer extends CreativeLogoBaseLayer {
+  kind: "text";
+  text: string;
+  fontFamily: LogoFontFamily;
+  fontSize: number;
+  fontWeight: 400 | 600 | 700;
+  align: "left" | "center" | "right";
+  letterSpacing: number;
+}
+
+export interface CreativeLogoShapeLayer extends CreativeLogoBaseLayer {
+  kind: "shape";
+  shape: LogoShape;
+}
+
+export interface CreativeLogoIconLayer extends CreativeLogoBaseLayer {
+  kind: "icon";
+  iconName: string;
+  iconWidth: number;
+  iconHeight: number;
+  pixels: Array<string | null>;
+}
+
+export type CreativeLogoLayer = CreativeLogoTextLayer | CreativeLogoShapeLayer | CreativeLogoIconLayer;
+
+export interface CreativeLogoProject {
+  id: string;
+  kind: "logo";
+  name: string;
+  width: number;
+  height: number;
+  layers: CreativeLogoLayer[];
+  updatedAt: number;
+}
+
+export type CreativeProject = CreativePaletteProject | CreativePixelProject | CreativeIconProject | CreativeLogoProject;
+
 export interface AiMessage {
   id: string;
   conversationId: string;
@@ -539,6 +634,7 @@ class KxnoDatabase extends Dexie {
   documentImages!: EntityTable<SchoolDocumentImage, "id">;
   diagramProjects!: EntityTable<DiagramProject, "id">;
   presentations!: EntityTable<PresentationProject, "id">;
+  creativeProjects!: EntityTable<CreativeProject, "id">;
   pdfProjects!: EntityTable<PdfProject, "id">;
   codeProjects!: EntityTable<CodeProject, "id">;
   codeLabProgress!: EntityTable<CodeLabProgress, "id">;
@@ -860,6 +956,37 @@ class KxnoDatabase extends Dexie {
       musicSources: "id",
       diagramProjects: "id, updatedAt",
       presentations: "id, updatedAt",
+    });
+    this.version(16).stores({
+      subjects: "id, name",
+      teachers: "id, name",
+      timetable: "id, weekday, subjectId, teacherId, weekType",
+      exceptions: "id, date, type, entryId",
+      settings: "key",
+      aiPresets: "id, name",
+      aiConversations: "id, updatedAt",
+      aiMessages: "id, conversationId, createdAt",
+      aiAttachments: "id, messageId, createdAt",
+      tasks: "id, dueDate, completed, subjectId, priority, updatedAt",
+      calendarEvents: "id, startAt, endAt, taskId",
+      dailyCheckins: "id",
+      notes: "id, updatedAt, pinned, folder, subjectId",
+      focusSessions: "id, startedAt, endedAt, kind, taskId",
+      files: "id, name, category, subjectId, noteId, modifiedAt",
+      arcadeData: "id, updatedAt",
+      workspace: "id",
+      documents: "id, updatedAt",
+      documentContents: "id",
+      documentImages: "id, type, createdAt",
+      pdfProjects: "id, updatedAt, sourceFileId",
+      docsTemplates: "id, updatedAt",
+      codeProjects: "id, updatedAt",
+      codeLabProgress: "id",
+      codeGardenState: "id",
+      musicSources: "id",
+      diagramProjects: "id, updatedAt",
+      presentations: "id, updatedAt",
+      creativeProjects: "id, kind, updatedAt",
     });
   }
 }

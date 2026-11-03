@@ -179,9 +179,14 @@ export function AssistantPage({ embedded = false, documentContext = "", document
 
   useEffect(() => {
     if (savedPresets === undefined) return;
-    void db.transaction("rw", db.aiPresets, async () => {
+    void db.transaction("rw", [db.aiPresets, db.settings], async () => {
+      const deletedPresetKeys = new Set(
+        await db.settings.where("key").startsWith("aiPresetDeleted:").primaryKeys() as string[],
+      );
       for (const preset of starters) {
-        if (!(await db.aiPresets.get(preset.id))) await db.aiPresets.add(preset);
+        if (!deletedPresetKeys.has(`aiPresetDeleted:${preset.id}`) && !(await db.aiPresets.get(preset.id))) {
+          await db.aiPresets.add(preset);
+        }
       }
     }).catch(() => setError("saveError"));
   }, [savedPresets]);
@@ -544,14 +549,21 @@ export function AssistantPage({ embedded = false, documentContext = "", document
   async function deletePreset(preset: AiPreset) {
     if (presets.length <= 1) return;
     try {
-      await db.transaction("rw", db.aiPresets, db.aiConversations, async () => {
-        await db.aiConversations.where("presetId").equals(preset.id).modify({ presetId: presets.find((item) => item.id !== preset.id)?.id ?? "" });
+      await db.transaction("rw", [db.aiPresets, db.aiConversations, db.settings], async () => {
+        const remainingPresets = await db.aiPresets.toArray().then((items) => items.filter((item) => item.id !== preset.id));
+        if (!remainingPresets.length) return;
+        const replacement = remainingPresets.find((item) => item.isDefault) ?? remainingPresets[0];
+        await db.aiConversations.toCollection().modify((conversation) => {
+          if (conversation.presetId === preset.id) conversation.presetId = replacement.id;
+        });
+        await db.settings.put({ key: `aiPresetDeleted:${preset.id}`, value: "true" });
         await db.aiPresets.delete(preset.id);
         if (preset.isDefault) {
-          const next = await db.aiPresets.toCollection().first();
-          if (next) await db.aiPresets.update(next.id, { isDefault: true });
+          await db.aiPresets.toCollection().modify({ isDefault: false });
+          await db.aiPresets.update(replacement.id, { isDefault: true });
         }
       });
+      if (presetDraft?.id === preset.id) setPresetDraft(undefined);
     } catch {
       setError("saveError");
     }

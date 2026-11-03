@@ -1,4 +1,4 @@
-export type GameId = "2048" | "snake" | "memory" | "reaction" | "sliding" | "word-guess" | "brick-breaker" | "geometry-runner" | "air-hockey" | "aim-trainer" | "simon-says" | "line-rider" | "idle-clicker" | "chess" | "block-stack" | "minesweeper" | "pong" | "sudoku" | "flappy-cube" | "connect-four" | "maze-escape" | "tower-defense" | "rhythm-tiles" | "mini-platformer" | "perfect-stack" | "laser-mirrors" | "pixel-crossing" | "crossword-infinite" | "color-ludo" | "hex-settlers" | "color-clash";
+export type GameId = "2048" | "snake" | "memory" | "reaction" | "sliding" | "word-guess" | "brick-breaker" | "geometry-runner" | "air-hockey" | "aim-trainer" | "simon-says" | "line-rider" | "idle-clicker" | "chess" | "block-stack" | "minesweeper" | "pong" | "sudoku" | "flappy-cube" | "connect-four" | "maze-escape" | "tower-defense" | "rhythm-tiles" | "mini-platformer" | "perfect-stack" | "laser-mirrors" | "pixel-crossing" | "crossword-infinite" | "color-ludo" | "hex-settlers" | "color-clash" | "falling-sand";
 export type GameCategory = "puzzle" | "arcade" | "reaction" | "precision" | "strategy";
 
 export interface GameDefinition {
@@ -40,6 +40,7 @@ export const games: GameDefinition[] = [
   { id: "color-ludo", category: "strategy", name: "Color Ludo", description: "Race four tokens home in a tactical local board game." },
   { id: "hex-settlers", category: "strategy", name: "Hex Settlers", description: "Build a settlement network, trade resources, and outscore local rivals." },
   { id: "color-clash", category: "strategy", name: "Color Clash", description: "Play color and number cards, outthink rivals, and empty your hand first." },
+  { id: "falling-sand", category: "arcade", name: "Falling Sand Lab", description: "Draw materials and watch a tiny world of sand, water, fire, and smoke." },
 ];
 
 export interface Move2048Result {
