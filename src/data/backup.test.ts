@@ -4,10 +4,11 @@ import Dexie from "dexie";
 import { Blob as NodeBlob } from "node:buffer";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { exportDataBackup, importDataBackup } from "./backup";
-import { db } from "./db";
+import { db, type CreativeIconProject, type CreativeLogoProject, type CreativePaletteProject, type CreativePixelProject } from "./db";
 import { createSchoolDocument } from "./docs";
 import { createDiagramProject } from "./diagrams";
 import { createPresentationProject } from "./presentations";
+import { createSandWorld, paintSandBrush, SAND_MATERIALS, serializeSandScene } from "./falling-sand";
 import {
   applyGardenAdventureAction,
   createGardenAdventure,
@@ -79,7 +80,7 @@ describe("local data safety", () => {
     expect(await db.documentImages.count()).toBe(0);
     expect(await db.pdfProjects.count()).toBe(0);
     expect(await db.docsTemplates.count()).toBe(0);
-    expect(db.verno).toBe(15);
+    expect(db.verno).toBe(16);
   });
 
   it("backs up daily check-ins and accepts backups created before check-ins existed", async () => {
@@ -102,7 +103,7 @@ describe("local data safety", () => {
       schemaVersion: number;
       data: Record<string, Array<Record<string, unknown>>>;
     };
-    expect(snapshot.schemaVersion).toBe(15);
+    expect(snapshot.schemaVersion).toBe(19);
     expect(snapshot.data.dailyCheckins).toEqual([checkin]);
 
     await db.dailyCheckins.clear();
@@ -129,6 +130,123 @@ describe("local data safety", () => {
     snapshot.data.dailyCheckins = [{ ...checkin, id: "2026-02-30", date: "2026-02-30" }];
     const invalidDateBackup = blobAsFile(new Blob([JSON.stringify(snapshot)], { type: "application/json" }));
     await expect(importDataBackup(invalidDateBackup)).rejects.toThrow("The backup contains an invalid daily check-in.");
+  });
+
+  it("preserves Falling Sand scenes through the existing Arcade backup table", async () => {
+    await db.open();
+    const world = createSandWorld(200, 120);
+    paintSandBrush(world, 40, 30, 1, SAND_MATERIALS.sand);
+    const scene = {
+      id: "falling-sand:scene:moon-pond",
+      value: serializeSandScene(world, "Moon Pond"),
+      updatedAt: 123,
+    };
+    await db.arcadeData.put(scene);
+
+    const backup = await exportDataBackup();
+    const snapshot = JSON.parse(await backup.text()) as {
+      data: Record<string, Array<Record<string, unknown>>>;
+    };
+    expect(snapshot.data.arcadeData).toContainEqual(scene);
+
+    await db.arcadeData.delete(scene.id);
+    await importDataBackup(blobAsFile(backup));
+    expect(await db.arcadeData.get(scene.id)).toEqual(scene);
+  });
+
+  it("preserves legacy creative projects through backup and restore", async () => {
+    await db.open();
+    const paletteProject: CreativePaletteProject = {
+      id: "palette-local",
+      kind: "palette",
+      name: "Ocean study",
+      harmony: "analogous",
+      baseColor: "#3A84C4",
+      colors: ["#3A84C4", "#1C548A"],
+      updatedAt: 123,
+    };
+    const pixelProject: CreativePixelProject = {
+      id: "pixel-pattern-designer",
+      kind: "pixel",
+      width: 8,
+      height: 8,
+      pixels: Array(64).fill(null),
+      color: "#8dbfd0",
+      tool: "draw",
+      zoom: 20,
+      updatedAt: 456,
+    };
+    pixelProject.pixels[0] = "#ff0000";
+    const iconProject: CreativeIconProject = {
+      id: "icon-bookmark",
+      kind: "icon",
+      name: "Bookmark",
+      width: 8,
+      height: 8,
+      pixels: Array(64).fill(null),
+      color: "#8DBFD0",
+      tool: "draw",
+      updatedAt: 234,
+    };
+    iconProject.pixels[1] = "#8DBFD0";
+    const logoProject: CreativeLogoProject = {
+      id: "logo-local",
+      kind: "logo",
+      name: "Local mark",
+      width: 320,
+      height: 180,
+      layers: [{
+        id: "shape-1",
+        kind: "shape",
+        shape: "ellipse",
+        x: 24,
+        y: 30,
+        width: 80,
+        height: 80,
+        rotation: 0,
+        color: "#8DBFD0",
+        visible: true,
+      }],
+      updatedAt: 345,
+    };
+    const legacyProject = { id: "legacy-creative", kind: "retired-tool", updatedAt: 789, payload: "preserved" };
+    await db.creativeProjects.bulkPut([paletteProject, pixelProject, iconProject, logoProject]);
+    await db.table("creativeProjects").put(legacyProject);
+
+    const backup = await exportDataBackup();
+    const snapshot = JSON.parse(await backup.text()) as {
+      data: { creativeProjects: Array<Record<string, unknown>> };
+    };
+    expect(snapshot.data.creativeProjects).toHaveLength(5);
+    await db.creativeProjects.clear();
+    const restored = await importDataBackup(blobAsFile(backup));
+    expect(restored.creativeProjects).toEqual({ added: 5, skipped: 0 });
+    expect(await db.creativeProjects.get(paletteProject.id)).toMatchObject({ name: "Ocean study", colors: paletteProject.colors });
+    expect(await db.creativeProjects.get(pixelProject.id)).toMatchObject({ pixels: pixelProject.pixels });
+    expect(await db.creativeProjects.get(iconProject.id)).toMatchObject({ name: "Bookmark", pixels: iconProject.pixels });
+    expect(await db.creativeProjects.get(logoProject.id)).toMatchObject({ name: "Local mark", layers: logoProject.layers });
+    expect(await db.creativeProjects.get(legacyProject.id)).toMatchObject(legacyProject);
+
+    const invalidLogoSnapshot = JSON.parse(await backup.text()) as {
+      format: string;
+      schemaVersion: number;
+      data: { creativeProjects: Array<Record<string, unknown>> } & Record<string, unknown>;
+    };
+    const invalidLogo = invalidLogoSnapshot.data.creativeProjects.find((project) => project.kind === "logo");
+    expect(invalidLogo).toBeDefined();
+    const invalidLayers = invalidLogo!.layers as Array<Record<string, unknown>>;
+    invalidLayers[0].rotation = 361;
+    await expect(importDataBackup(blobAsFile(new Blob([JSON.stringify(invalidLogoSnapshot)], { type: "application/json" }))))
+      .rejects.toThrow("The backup contains an invalid creative project.");
+
+    const invalidIcon = snapshot.data.creativeProjects.find((project) => project.kind === "icon");
+    expect(invalidIcon).toBeDefined();
+    invalidIcon!.width = 12;
+    await expect(importDataBackup(blobAsFile(new Blob([JSON.stringify({
+      format: "kxnodesk-local-backup",
+      schemaVersion: 19,
+      data: snapshot.data,
+    })], { type: "application/json" })))).rejects.toThrow("The backup contains an invalid creative project.");
   });
 
   it("round-trips saved diagrams and presentation image blobs", async () => {
@@ -437,7 +555,7 @@ describe("local data safety", () => {
       data: Record<string, Array<Record<string, unknown>>>;
       preferences: Record<string, string>;
     };
-    expect(exported.schemaVersion).toBe(15);
+    expect(exported.schemaVersion).toBe(19);
     expect(exported.data.subjects).toHaveLength(1);
     expect(exported.data.timetable).toHaveLength(1);
     expect(exported.data.exceptions).toHaveLength(1);
@@ -576,7 +694,7 @@ describe("local data safety", () => {
       schemaVersion: number;
       data: Record<string, Array<Record<string, unknown>>>;
     };
-    expect(snapshot.schemaVersion).toBe(15);
+    expect(snapshot.schemaVersion).toBe(19);
     expect(snapshot.data.codeProjects).toEqual([project]);
     expect(snapshot.data.codeLabProgress).toEqual([progress]);
     expect(snapshot.data.codeGardenState).toEqual([garden]);

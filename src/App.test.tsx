@@ -75,6 +75,17 @@ afterEach(() => {
 });
 
 describe("Kxno Desk shell", () => {
+  it("removes Creative Space from navigation and redirects its old address to Arcade", async () => {
+    const user = userEvent.setup();
+    window.location.hash = "#/creative";
+    render(<App />);
+    const navigation = within(await screen.findByRole("navigation", { name: "Main navigation" }));
+    expect(navigation.queryByRole("link", { name: "Creative Space" })).not.toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: "Minigames" })).toBeInTheDocument();
+    await user.click(navigation.getByRole("link", { name: "Minigames" }));
+    expect(await screen.findByRole("heading", { name: "Minigames" })).toBeInTheDocument();
+  });
+
   it("renders the local schedule dashboard and opens the timetable", async () => {
     const user = userEvent.setup();
     render(<App />);
@@ -435,6 +446,11 @@ describe("Kxno Desk shell", () => {
     expect(i18n.t("arcade.games.crossword-infinite.name")).toBe("Crossword Infinite");
     expect(i18n.t("arcade.phase6d.ludo.roll")).toBe("Roll dice");
     expect(i18n.t("arcade.games.color-clash.name")).toBe("Color Clash");
+    expect(i18n.t("arcade.games.falling-sand.name")).toBe("Falling Sand Lab");
+    expect(i18n.t("arcade.sandLab.material.sand")).toBe("Sand");
+    expect(i18n.t("arcade.sandLab.material.lava")).toBe("Lava");
+    expect(i18n.t("arcade.sandLab.tool.temperature")).toBe("Heat brush");
+    expect(i18n.t("arcade.sandLab.preset.explosive")).toBe("Blast range");
     expect(i18n.t("arcade.phase6d.colorClash.cards.wild")).toBe("Wild");
     expect(i18n.t("translate.onDeviceReady")).toBe("On-device translation");
     await i18n.changeLanguage("de");
@@ -443,6 +459,11 @@ describe("Kxno Desk shell", () => {
     expect(i18n.t("arcade.games.color-ludo.name")).toBe("Color Ludo");
     expect(i18n.t("arcade.games.hex-settlers.name")).toBe("Hex Settlers");
     expect(i18n.t("arcade.games.color-clash.name")).toBe("Color Clash");
+    expect(i18n.t("arcade.games.falling-sand.name")).toBe("Falling Sand Lab");
+    expect(i18n.t("arcade.sandLab.material.water")).toBe("Wasser");
+    expect(i18n.t("arcade.sandLab.material.acid")).toBe("Säure");
+    expect(i18n.t("arcade.sandLab.tool.sample")).toBe("Material wählen");
+    expect(i18n.t("arcade.sandLab.preset.frozen")).toBe("Eislandschaft");
     expect(i18n.t("arcade.phase6d.colorClash.cards.wild")).toBe("Farbwahl");
     expect(i18n.t("arcade.phase6d.crossword.difficulties.expert")).toBe("Experte");
     expect(i18n.t("nav.translate")).toBe("Übersetzen");
@@ -515,10 +536,10 @@ describe("Kxno Desk shell", () => {
     await user.click(navigation.getByRole("link", { name: "Minigames" }));
 
     expect(await screen.findByRole("heading", { name: "Minigames" }, { timeout: 5000 })).toBeInTheDocument();
-    expect(document.querySelectorAll(".arcade-card")).toHaveLength(31);
+    expect(document.querySelectorAll(".arcade-card")).toHaveLength(32);
     const thumbnails = [...document.querySelectorAll<SVGSVGElement>("[data-game-thumbnail]")];
-    expect(thumbnails).toHaveLength(31);
-    expect(new Set(thumbnails.map((thumbnail) => thumbnail.dataset.gameThumbnail)).size).toBe(31);
+    expect(thumbnails).toHaveLength(32);
+    expect(new Set(thumbnails.map((thumbnail) => thumbnail.dataset.gameThumbnail)).size).toBe(32);
     expect(thumbnails.every((thumbnail) => thumbnail.getAttribute("viewBox") === "0 0 320 82")).toBe(true);
     const thumbnailsWithoutAccent = thumbnails
       .filter((thumbnail) => ![...thumbnail.querySelectorAll("[fill], [stroke]")].some((part) =>
@@ -542,6 +563,7 @@ describe("Kxno Desk shell", () => {
     expect(screen.getByRole("heading", { name: "Color Ludo" })).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "Hex Settlers" })).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "Color Clash" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Falling Sand Lab" })).toBeInTheDocument();
     expect(screen.queryByRole("heading", { name: "Knife Target" })).not.toBeInTheDocument();
     expect(screen.queryByRole("heading", { name: "Twin Orbit" })).not.toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "Laser Mirrors" })).toBeInTheDocument();
@@ -1091,6 +1113,45 @@ describe("Kxno Desk shell", () => {
     await user.click(document.querySelector(".sliding-tile:not(:disabled)") as HTMLButtonElement);
     expect(screen.getByText(/Moves:/).textContent).toContain("1");
   }, 15_000);
+
+  it("launches Falling Sand Lab from Arcade with core materials and simulation controls", async () => {
+    vi.mocked(HTMLCanvasElement.prototype.getContext).mockImplementation((contextId) => contextId === "2d" ? ({
+      createImageData: (width: number, height: number) => ({
+        data: new Uint8ClampedArray(width * height * 4),
+        width,
+        height,
+      }),
+      putImageData: vi.fn(),
+    } as unknown as CanvasRenderingContext2D) : null);
+    const user = userEvent.setup();
+    render(<App />);
+    const navigation = within(screen.getByRole("navigation", { name: "Main navigation" }));
+    await user.click(navigation.getByRole("link", { name: "Minigames" }));
+    await screen.findByRole("heading", { name: "Minigames" });
+    const card = screen.getByRole("heading", { name: "Falling Sand Lab" }).closest("article");
+    await user.click(within(card!).getByRole("button", { name: "Play" }));
+    expect(await screen.findByRole("img", { name: "Falling Sand Lab simulation" })).toBeInTheDocument();
+    expect(screen.getByRole("group", { name: "Materials" })).toBeInTheDocument();
+    for (const material of [
+      "Sand", "Water", "Stone", "Wood", "Fire", "Smoke", "Lava", "Oil",
+      "Acid", "Ice", "Snow", "Plant", "Metal", "Charge",
+    ]) {
+      expect(screen.getByRole("button", { name: material })).toBeInTheDocument();
+    }
+    expect(screen.queryByRole("button", { name: "Steam" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Salt" })).not.toBeInTheDocument();
+    expect(screen.getByRole("group", { name: "Sandbox tools" })).toBeInTheDocument();
+    expect(screen.getByRole("slider", { name: "Wind" })).toHaveValue("0");
+    expect(screen.getByRole("combobox", { name: "Starting scene" })).toBeInTheDocument();
+    expect(screen.getByRole("textbox", { name: "Scene name" })).toBeInTheDocument();
+    expect(screen.getByRole("slider", { name: "Brush size" })).toHaveValue("4");
+    expect(screen.getByRole("combobox", { name: "Simulation speed" })).toHaveValue("1");
+    await user.click(screen.getByRole("button", { name: "Pause" }));
+    expect(screen.getByRole("button", { name: "Resume" })).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Resume" }));
+    await user.click(screen.getByRole("button", { name: "Reset" }));
+    expect(screen.getByText("0 particles")).toBeInTheDocument();
+  });
 
   it("adds a subject and a lesson to the editable timetable", async () => {
     const user = userEvent.setup();
@@ -1802,6 +1863,37 @@ describe("Kxno Desk shell", () => {
     expect(await db.aiPresets.count()).toBe(5);
     expect(await db.aiPresets.get("kxno-school-helper")).toBeDefined();
     expect(await db.aiPresets.get("kxno-personal-helper")).toBeDefined();
+  });
+
+  it("keeps deleted starter presets deleted and reassigns their conversations", async () => {
+    await db.aiConversations.put({
+      id: "preset-delete-conversation",
+      title: "Existing chat",
+      updatedAt: 1,
+      presetId: "study-assistant",
+    });
+
+    const user = userEvent.setup();
+    const view = render(<AssistantPage />);
+    await screen.findByRole("option", { name: "Study Assistant" });
+    await user.click(screen.getByRole("button", { name: "Presets" }));
+    await user.click(screen.getByRole("button", { name: "Delete Study Assistant" }));
+
+    await waitFor(async () => {
+      expect(await db.aiPresets.get("study-assistant")).toBeUndefined();
+      const conversation = await db.aiConversations.get("preset-delete-conversation");
+      expect(conversation?.presetId).not.toBe("study-assistant");
+      expect(await db.aiPresets.get(conversation!.presetId)).toBeDefined();
+    });
+    expect(await db.settings.get("aiPresetDeleted:study-assistant")).toEqual({
+      key: "aiPresetDeleted:study-assistant",
+      value: "true",
+    });
+
+    view.unmount();
+    render(<AssistantPage />);
+    await screen.findByRole("option", { name: "Quick Answers" });
+    await waitFor(async () => expect(await db.aiPresets.get("study-assistant")).toBeUndefined());
   });
 
   it("keeps old assistant messages and attachments available with OpenRouter-only chat", async () => {

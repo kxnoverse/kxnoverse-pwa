@@ -19,7 +19,6 @@ const WorkspacePage = lazy(() => import("./pages/WorkspacePage").then((module) =
 const SolvePage = lazy(() => import("./pages/SolvePage").then((module) => ({ default: module.SolvePage })));
 const CodeLabPage = lazy(() => import("./pages/CodeLabPage").then((module) => ({ default: module.CodeLabPage })));
 const MusicPage = lazy(() => import("./pages/MusicPage").then((module) => ({ default: module.MusicPage })));
-
 export default function App() {
   return (
     <HashRouter>
@@ -43,6 +42,7 @@ export default function App() {
           <Route path="solve" element={<SolvePage />} />
           <Route path="code-lab" element={<CodeLabPage />} />
           <Route path="music" element={<MusicPage />} />
+          <Route path="creative" element={<Navigate to="/minigames" replace />} />
           <Route path=":module" element={<ModulePage />} />
           <Route path="*" element={<Navigate to="/" replace />} />
         </Route>

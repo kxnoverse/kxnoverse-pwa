@@ -30,6 +30,20 @@ function NumberTiles() {
 
 function ThumbnailArtwork({ gameId }: { gameId: GameId }) {
   switch (gameId) {
+    case "falling-sand":
+      return frame(
+        <g data-thumbnail-artwork="falling-sand">
+          <rect x="83" y="9" width="154" height="65" rx="5" fill="var(--surface-1)" stroke="var(--line)" />
+          <path d="M84 55h152" stroke="var(--game-accent)" strokeWidth="2" opacity=".55" />
+          <path d="M85 62h150" stroke="var(--line)" strokeWidth="1" strokeDasharray="3 4" />
+          <circle cx="119" cy="27" r="4" fill="var(--game-accent)" />
+          <circle cx="151" cy="42" r="4" fill="#dfb467" />
+          <circle cx="185" cy="25" r="4" fill="#4aa0db" />
+          <circle cx="201" cy="48" r="4" fill="#ff7331" />
+          <circle cx="217" cy="19" r="4" fill="#a4aeb5" opacity=".8" />
+          <path d="M127 29q9 7 15 11m19 1 17-11m14 18 7-2" fill="none" stroke="var(--text-muted)" strokeWidth="1" strokeDasharray="2 3" />
+        </g>,
+      );
     case "2048":
       return frame(<><rect x="125" y="5" width="68" height="68" rx="4" fill="var(--surface-1)" stroke="var(--line)" /><NumberTiles /></>);
     case "snake":

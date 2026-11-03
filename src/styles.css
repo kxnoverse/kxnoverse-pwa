@@ -11801,3 +11801,285 @@ button.calendar-checkins__day.is-selected { outline: 2px solid var(--accent); ou
 @media (prefers-reduced-transparency: reduce) {
   .docs-assistant-launcher, .diagram-editor-backdrop { backdrop-filter: none; }
 }
+
+.falling-sand-lab {
+  display: grid;
+  width: min(100%, 900px);
+  gap: 14px;
+  margin: 18px auto;
+  padding: 15px;
+  border: 1px solid var(--line);
+  border-radius: calc(var(--radius) + 2px);
+  background: color-mix(in srgb, var(--surface-1) 82%, transparent);
+}
+.falling-sand-lab__header,
+.falling-sand-lab__controls {
+  display: flex;
+  min-width: 0;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 9px 16px;
+}
+.falling-sand-lab__header > div > span {
+  color: var(--accent);
+  font-size: 9px;
+  font-weight: 720;
+  letter-spacing: .13em;
+}
+.falling-sand-lab__header p,
+.falling-sand-lab__hint {
+  margin: 4px 0 0;
+  color: var(--text-muted);
+  font-size: 10px;
+  line-height: 1.5;
+}
+.falling-sand-lab__count {
+  color: var(--text-dim);
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-variant-numeric: tabular-nums;
+}
+.falling-sand-lab__materials {
+  display: grid;
+  grid-template-columns: repeat(8, minmax(0, 1fr));
+  gap: 6px;
+}
+.falling-sand-lab__material {
+  display: inline-flex;
+  min-width: 0;
+  min-height: 38px;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  padding: 5px 8px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: color-mix(in srgb, var(--surface-0) 58%, transparent);
+  color: var(--text-dim);
+  font: inherit;
+  font-size: 10px;
+  cursor: pointer;
+}
+.falling-sand-lab__material:hover,
+.falling-sand-lab__material.is-active {
+  border-color: color-mix(in srgb, var(--accent) 56%, var(--line));
+  color: var(--text);
+}
+.falling-sand-lab__material.is-active {
+  background: color-mix(in srgb, var(--accent) 12%, var(--surface-1));
+}
+.falling-sand-lab__material:focus-visible,
+.falling-sand-lab__tools button:focus-visible,
+.falling-sand-lab__controls button:focus-visible,
+.falling-sand-lab__controls select:focus-visible,
+.falling-sand-lab__controls input:focus-visible,
+.falling-sand-lab__presets select:focus-visible,
+.falling-sand-lab__scenes select:focus-visible,
+.falling-sand-lab__scenes input:focus-visible,
+.falling-sand-lab__presets button:focus-visible,
+.falling-sand-lab__scenes button:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+.falling-sand-lab__swatch {
+  display: block;
+  width: 11px;
+  height: 11px;
+  flex: 0 0 auto;
+  border: 1px solid rgb(255 255 255 / 24%);
+  border-radius: 50%;
+}
+.falling-sand-lab__swatch--sand { background: #dfb467; }
+.falling-sand-lab__swatch--water { background: #4aa0db; }
+.falling-sand-lab__swatch--stone { background: #89939b; }
+.falling-sand-lab__swatch--wood { background: #89593a; }
+.falling-sand-lab__swatch--fire { background: #ff7331; }
+.falling-sand-lab__swatch--smoke { background: #a4aeb5; }
+.falling-sand-lab__swatch--lava { background: linear-gradient(135deg, #ffc24c, #e3341b 65%, #56241e); }
+.falling-sand-lab__swatch--oil { background: #383125; }
+.falling-sand-lab__swatch--acid { background: #8bdb45; box-shadow: 0 0 6px rgb(139 219 69 / 35%); }
+.falling-sand-lab__swatch--ice { background: #99d8f0; }
+.falling-sand-lab__swatch--snow { background: #e6f1f7; }
+.falling-sand-lab__swatch--plant { background: #50af60; }
+.falling-sand-lab__swatch--metal { background: linear-gradient(135deg, #a4b7c5, #647989); }
+.falling-sand-lab__swatch--explosive { background: repeating-linear-gradient(135deg, #da5b3e 0 4px, #f1ba61 4px 6px); }
+.falling-sand-lab__tool-row,
+.falling-sand-lab__presets,
+.falling-sand-lab__scenes,
+.falling-sand-lab__scene-open,
+.falling-sand-lab__scenes form {
+  display: flex;
+  min-width: 0;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+.falling-sand-lab__tool-row,
+.falling-sand-lab__presets,
+.falling-sand-lab__scenes {
+  padding-top: 9px;
+  border-top: 1px solid color-mix(in srgb, var(--line) 75%, transparent);
+}
+.falling-sand-lab__tools {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+}
+.falling-sand-lab__tools button {
+  display: inline-flex;
+  min-height: 30px;
+  align-items: center;
+  gap: 5px;
+  padding: 0 9px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: transparent;
+  color: var(--text-muted);
+  font: inherit;
+  font-size: 9px;
+  cursor: pointer;
+}
+.falling-sand-lab__tools button:hover,
+.falling-sand-lab__tools button.is-active {
+  border-color: color-mix(in srgb, var(--accent) 56%, var(--line));
+  background: color-mix(in srgb, var(--accent) 11%, var(--surface-1));
+  color: var(--text);
+}
+.falling-sand-lab__temperature,
+.falling-sand-lab__wind,
+.falling-sand-lab__presets > label,
+.falling-sand-lab__scenes label {
+  display: inline-flex;
+  min-width: 0;
+  min-height: 30px;
+  align-items: center;
+  gap: 7px;
+  color: var(--text-muted);
+  font-size: 9px;
+}
+.falling-sand-lab__temperature { margin-left: auto; }
+.falling-sand-lab__temperature input,
+.falling-sand-lab__wind input { width: 90px; accent-color: var(--accent); }
+.falling-sand-lab__temperature output,
+.falling-sand-lab__wind output {
+  min-width: 36px;
+  color: var(--text);
+  font-family: var(--font-mono);
+  text-align: center;
+}
+.falling-sand-lab__wind > span,
+.falling-sand-lab__presets > label > span {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+.falling-sand-lab__wind > span svg,
+.falling-sand-lab__presets > label > span svg { color: var(--accent); }
+.falling-sand-lab__presets { justify-content: flex-start; }
+.falling-sand-lab__presets select,
+.falling-sand-lab__scenes select,
+.falling-sand-lab__scenes input {
+  min-width: 0;
+  min-height: 29px;
+  padding: 0 8px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--surface-0);
+  color: var(--text);
+  font: inherit;
+  font-size: 9px;
+}
+.falling-sand-lab__scenes { align-items: flex-start; }
+.falling-sand-lab__scenes form { flex: 1 1 300px; }
+.falling-sand-lab__scenes form label,
+.falling-sand-lab__scene-open label {
+  flex: 1 1 150px;
+}
+.falling-sand-lab__scenes form input,
+.falling-sand-lab__scene-open select { width: 100%; }
+.falling-sand-lab__scenes label {
+  flex-direction: column;
+  align-items: stretch;
+  gap: 4px;
+}
+.falling-sand-lab__scene-open { flex: 1 1 360px; }
+.falling-sand-lab__scenes .button {
+  min-height: 29px;
+  gap: 5px;
+  padding: 0 9px;
+  font-size: 9px;
+}
+.falling-sand-lab__scenes .button:disabled { opacity: .45; cursor: not-allowed; }
+.falling-sand-lab__feedback {
+  margin: -4px 0 0;
+  color: var(--accent);
+  font-size: 9px;
+}
+.falling-sand-lab__brush,
+.falling-sand-lab__speed {
+  display: inline-flex;
+  min-height: 30px;
+  align-items: center;
+  gap: 8px;
+  color: var(--text-muted);
+  font-size: 9px;
+}
+.falling-sand-lab__brush input { width: 112px; accent-color: var(--accent); }
+.falling-sand-lab__brush input:focus-visible,
+.falling-sand-lab__temperature input:focus-visible,
+.falling-sand-lab__wind input:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
+.falling-sand-lab__brush output {
+  min-width: 15px;
+  color: var(--text);
+  font-family: var(--font-mono);
+  text-align: center;
+}
+.falling-sand-lab__speed select {
+  min-height: 28px;
+  padding: 0 7px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--surface-0);
+  color: var(--text);
+  font: inherit;
+  font-size: 9px;
+}
+.falling-sand-lab__actions { display: inline-flex; flex-wrap: wrap; gap: 6px; }
+.falling-sand-lab__actions .button { min-height: 29px; gap: 5px; padding: 0 9px; font-size: 9px; }
+.falling-sand-lab__canvas {
+  display: block;
+  width: 100%;
+  max-height: 560px;
+  aspect-ratio: 5 / 3;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  background-color: color-mix(in srgb, var(--surface-0) 94%, #20303a);
+  image-rendering: pixelated;
+  touch-action: none;
+  cursor: crosshair;
+}
+.falling-sand-lab__hint { margin: -5px 0 0; }
+@media (max-width: 620px) {
+  .falling-sand-lab { gap: 10px; margin: 10px auto; padding: 10px; }
+  .falling-sand-lab__materials { grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 5px; }
+  .falling-sand-lab__material { min-height: 42px; justify-content: flex-start; padding-inline: 6px; overflow-wrap: anywhere; }
+  .falling-sand-lab__header { align-items: flex-start; }
+  .falling-sand-lab__controls { align-items: flex-start; }
+  .falling-sand-lab__actions { width: 100%; }
+  .falling-sand-lab__tool-row { align-items: flex-start; }
+  .falling-sand-lab__tools { display: grid; width: 100%; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .falling-sand-lab__tools button { min-height: 40px; justify-content: center; }
+  .falling-sand-lab__temperature { width: 100%; margin-left: 0; }
+  .falling-sand-lab__temperature input,
+  .falling-sand-lab__wind input { flex: 1; }
+  .falling-sand-lab__presets { align-items: flex-end; }
+  .falling-sand-lab__presets > label { flex: 1; flex-direction: column; align-items: stretch; }
+  .falling-sand-lab__scenes,
+  .falling-sand-lab__scene-open,
+  .falling-sand-lab__scenes form { width: 100%; }
+  .falling-sand-lab__scene-open .button { flex: 1; justify-content: center; }
+  .falling-sand-lab__actions .button,
+  .falling-sand-lab__presets > .button,
+  .falling-sand-lab__scenes .button { min-height: 36px; }
+}
